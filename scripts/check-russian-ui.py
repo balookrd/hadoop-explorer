@@ -16,7 +16,7 @@ import time
 import sys
 
 TECH_WHITELIST = {
-    'yarn', 'hdfs', 'sql', 'spark', 'replicator', 'hadoop', 'trino', 'hive', 'livy',
+    'yarn', 'hdfs', 'sql', 'spark', 'parom', 'hadoop', 'trino', 'hive', 'livy',
     'pyspark', 'scala', 'netty', 'grpc', 'spring', 'boot', 'svelte', 'tailwind',
     'kerberos', 'spnego', 'ldap', 'jwt', 'namenode', 'datanode', 'metastore',
     'webhdfs', 'keytab', 'doas', 'staging', 'snapshot', 'diff', 'fencing', 'unfence',

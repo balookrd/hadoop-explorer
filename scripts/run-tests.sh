@@ -36,7 +36,7 @@ run_iskra() {
 
 run_parom() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: Replicator (Java 21 / Spring Boot 3 & Agent)"
+  echo "🧪 Запуск тестов: Parom (Java 21 / Spring Boot 3 & Agent)"
   echo "=========================================="
   mvn test -f "$ROOT_DIR/backend/parom/pom.xml"
 }

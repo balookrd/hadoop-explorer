@@ -580,7 +580,7 @@ public class OrchestratorControlPlaneServiceTest {
                 "sales.*",
                 true,
                 true,
-                "replicator-agent-dc2:50051",
+                "parom-agent-dc2:50051",
                 "ACTIVE",
                 4242L,
                 "agent-dc1-worker",
@@ -607,7 +607,7 @@ public class OrchestratorControlPlaneServiceTest {
         assertEquals("analytics_dw", jobProto.getTargetDb());
         assertEquals("sales.*", jobProto.getTablePattern());
         assertEquals("ACTIVE", jobProto.getStatus());
-        assertEquals("replicator-agent-dc2:50051", jobProto.getTargetAgentGrpcAddress());
+        assertEquals("parom-agent-dc2:50051", jobProto.getTargetAgentGrpcAddress());
         assertEquals(4242L, jobProto.getLastProcessedEventId());
         assertTrue(jobProto.getDropExtraneousTables());
         assertTrue(jobProto.getDropExtraneousPartitions());

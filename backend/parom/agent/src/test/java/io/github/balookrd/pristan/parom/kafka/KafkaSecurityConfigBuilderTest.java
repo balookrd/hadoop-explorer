@@ -56,8 +56,8 @@ class KafkaSecurityConfigBuilderTest {
         config.setEnabled(true);
         config.setSecurityProtocol("SASL_PLAINTEXT");
         config.setServiceName("kafka");
-        config.setPrincipal("kafka-replicator@REALM.CORP");
-        config.setKeytabPath("/etc/security/keytabs/kafka-replicator.keytab");
+        config.setPrincipal("parom-kafka@REALM.CORP");
+        config.setKeytabPath("/etc/security/keytabs/parom-kafka.keytab");
 
         Properties result = KafkaSecurityConfigBuilder.applyKerberos(props, config);
 
@@ -69,8 +69,8 @@ class KafkaSecurityConfigBuilderTest {
         assertNotNull(jaas);
         assertTrue(jaas.contains("com.sun.security.auth.module.Krb5LoginModule required"));
         assertTrue(jaas.contains("useKeyTab=true"));
-        assertTrue(jaas.contains("principal=\"kafka-replicator@REALM.CORP\""));
-        assertTrue(jaas.contains("keyTab=\"/etc/security/keytabs/kafka-replicator.keytab\""));
+        assertTrue(jaas.contains("principal=\"parom-kafka@REALM.CORP\""));
+        assertTrue(jaas.contains("keyTab=\"/etc/security/keytabs/parom-kafka.keytab\""));
     }
 
     @Test
@@ -82,8 +82,8 @@ class KafkaSecurityConfigBuilderTest {
         config.setEnabled(true);
         config.setSecurityProtocol("SASL_SSL");
         config.setServiceName("kafka");
-        config.setPrincipal("kafka-replicator@REALM.CORP");
-        config.setKeytabPath("/etc/security/keytabs/kafka-replicator.keytab");
+        config.setPrincipal("parom-kafka@REALM.CORP");
+        config.setKeytabPath("/etc/security/keytabs/parom-kafka.keytab");
         config.setTruststoreLocation("/var/private/ssl/kafka.truststore.jks");
         config.setTruststorePassword("truststore-secret");
 
@@ -166,20 +166,20 @@ class KafkaSecurityConfigBuilderTest {
 
         KafkaKerberosConfig configEtcShadow = new KafkaKerberosConfig();
         configEtcShadow.setEnabled(true);
-        configEtcShadow.setPrincipal("kafka-replicator@CORP.LOCAL");
+        configEtcShadow.setPrincipal("parom-kafka@CORP.LOCAL");
         configEtcShadow.setKeytabPath("/etc/shadow");
         assertThrows(SecurityException.class, () -> KafkaSecurityConfigBuilder.applyKerberos(props, configEtcShadow));
 
         KafkaKerberosConfig configTraversalKrb5 = new KafkaKerberosConfig();
         configTraversalKrb5.setEnabled(true);
-        configTraversalKrb5.setPrincipal("kafka-replicator@CORP.LOCAL");
+        configTraversalKrb5.setPrincipal("parom-kafka@CORP.LOCAL");
         configTraversalKrb5.setKeytabPath("/var/data/kafka.keytab");
         configTraversalKrb5.setKrb5ConfPath("../../etc/passwd");
         assertThrows(SecurityException.class, () -> KafkaSecurityConfigBuilder.applyKerberos(props, configTraversalKrb5));
 
         KafkaKerberosConfig configNullByte = new KafkaKerberosConfig();
         configNullByte.setEnabled(true);
-        configNullByte.setPrincipal("kafka-replicator@CORP.LOCAL");
+        configNullByte.setPrincipal("parom-kafka@CORP.LOCAL");
         configNullByte.setKeytabPath("/var/data/safe.keytab\0malicious");
         assertThrows(SecurityException.class, () -> KafkaSecurityConfigBuilder.applyKerberos(props, configNullByte));
     }

@@ -493,7 +493,7 @@ HTML_CONTENT = """<!DOCTYPE html>
   <header>
     <div class="brand">
       <img src="images/logo_white.png" onerror="this.src='../images/logo_white.png'" alt="Pristan">
-      <span>gRPC Replicator</span>
+      <span>Parom</span>
       <span class="brand-tag">Tech Specs</span>
     </div>
 
@@ -1045,12 +1045,12 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
           <div class="card card-accent-cyan">
             <div class="card-title">Реестр ключевых метрик Prometheus & Observability</div>
             <ul class="card-list">
-              <li><code>replicator_throughput_bytes_total</code> (Counter): Суммарный объем переданных байт по WAN.</li>
-              <li><code>replicator_throughput_bytes_per_second</code> (Gauge): Текущая мгновенная скорость передачи.</li>
-              <li><code>replicator_task_duration_seconds</code> (Histogram): Длительность выполнения задач.</li>
-              <li><code>replicator_hms_lag_events</code> (Gauge): Отставание CDC в событиях NOTIFICATION_LOG.</li>
-              <li><code>replicator_kafka_bytes_mirrored_total</code> (Counter): Зеркалированные байты Kafka Mirroring.</li>
-              <li><code>replicator_active_streams_count</code> (Gauge): Количество открытых параллельных gRPC стримов.</li>
+              <li><code>parom_throughput_bytes_total</code> (Counter): Суммарный объем переданных байт по WAN.</li>
+              <li><code>parom_throughput_bytes_per_second</code> (Gauge): Текущая мгновенная скорость передачи.</li>
+              <li><code>parom_task_duration_seconds</code> (Histogram): Длительность выполнения задач.</li>
+              <li><code>parom_hms_lag_events</code> (Gauge): Отставание CDC в событиях NOTIFICATION_LOG.</li>
+              <li><code>parom_kafka_bytes_mirrored_total</code> (Counter): Зеркалированные байты Kafka Mirroring.</li>
+              <li><code>parom_active_streams_count</code> (Gauge): Количество открытых параллельных gRPC стримов.</li>
               <li><code>JobProgressBuffer (PERF-06):</code> Буферизация статусов в RAM с дебаунсингом (500 мс) и пакетным коммитом в СУБД.</li>
             </ul>
             <div class="code-box"># Эндпоинты сбора метрик:
@@ -1061,14 +1061,14 @@ GET http://orchestrator:8005/actuator/health</div>
             <div class="card-title">Правила алертинга (Prometheus Alertmanager)</div>
             <ul class="card-list">
               <li><strong>ParomAgentOffline (Critical):</strong>
-                <br/><code>time() - replicator_agent_heartbeat_timestamp > 30s</code>
+                <br/><code>time() - parom_agent_heartbeat_timestamp > 30s</code>
                 <br/>Агент не присылает heartbeat более 30 секунд.
               </li>
-              <li><strong>ReplicatorHmsLagHigh (Warning):</strong>
-                <br/><code>replicator_hms_lag_events > 10000</code> в течение 5 минут.
+              <li><strong>ParomHmsLagHigh (Warning):</strong>
+                <br/><code>parom_hms_lag_events > 10000</code> в течение 5 минут.
                 <br/>Отставание репликации метаданных превысило допустимый порог.
               </li>
-              <li><strong>ReplicatorChecksumMismatch (Critical):</strong>
+              <li><strong>ParomChecksumMismatch (Critical):</strong>
                 <br/>Ошибка сквозной проверки хеша SHA-256 при коммите файла.
               </li>
             </ul>

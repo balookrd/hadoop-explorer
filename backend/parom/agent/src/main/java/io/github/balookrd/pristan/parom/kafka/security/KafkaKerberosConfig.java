@@ -10,7 +10,7 @@ public class KafkaKerberosConfig implements Serializable {
     private boolean enabled = false;
     private String securityProtocol = "SASL_PLAINTEXT"; // SASL_PLAINTEXT или SASL_SSL
     private String serviceName = "kafka";               // Kerberos Service Name (обычно 'kafka')
-    private String principal;                           // Например: 'kafka-replicator/host@REALM.COM'
+    private String principal;                           // Например: 'parom-kafka/host@REALM.COM'
     private String keytabPath;                          // Абсолютный путь к файлу keytab
     private String krb5ConfPath;                        // Опциональный путь к krb5.conf
     private String truststoreLocation;                  // Путь к JKS/PKCS12 truststore (для SASL_SSL)

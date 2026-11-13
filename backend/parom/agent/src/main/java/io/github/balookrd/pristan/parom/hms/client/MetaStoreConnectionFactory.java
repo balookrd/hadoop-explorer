@@ -37,7 +37,7 @@ class MetaStoreConnectionFactory extends BaseKeyedPooledObjectFactory<String, IM
     static final String AGENT_KEY = "";
 
     /** Под этой подписью токен кладется в UGI и ищется клиентом метастора. */
-    static final String TOKEN_SIGNATURE = "replicator-hms-token";
+    static final String TOKEN_SIGNATURE = "parom-hms-token";
 
     /** Как долго переиспользуется выданный токен: метастор выдает его на срок куда больший. */
     private static final long TOKEN_TTL_NANOS = 60L * 60 * 1_000_000_000L;

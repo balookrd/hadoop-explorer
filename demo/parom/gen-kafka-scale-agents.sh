@@ -11,7 +11,7 @@
 #     -f demo/parom/docker-compose.kafka-scale-agents.yml up -d
 #   AGENTS_PER_DC=12 ./demo/parom/run-kafka-scale-test.sh
 #
-# Образ агента берется уже собранный (hadoop-replicator-kafka-agent:scale из
+# Образ агента берется уже собранный (parom-kafka-agent:scale из
 # docker-compose.kafka-scale.yml). Хип агента — AGENT_HEAP (по умолчанию 320m): 24 JVM должны
 # уместиться в память Docker рядом с двумя брокерами и оркестратором.
 # ==============================================================================
@@ -27,10 +27,10 @@ SUFFIXES=(a b c d e f g h i j k l m n o p q r s t u v w x y z)
 
 cat <<'EOF'
 # Сгенерировано demo/parom/gen-kafka-scale-agents.sh: правки вносить в генератор.
-name: hadoop-replicator-kafka-demo
+name: parom-kafka-demo
 
 x-agent-extra: &agent-extra
-  image: hadoop-replicator-kafka-agent:scale
+  image: parom-kafka-agent:scale
   pull_policy: never
   restart: unless-stopped
   healthcheck:
@@ -66,7 +66,7 @@ for dc in 1 2; do
   ${name}:
     <<: *agent-extra
     hostname: ${name}
-    container_name: kafka-replicator-agent-dc${dc}-${SUFFIXES[$idx]}
+    container_name: parom-kafka-agent-dc${dc}-${SUFFIXES[$idx]}
     depends_on: [kafka-cluster-${dc}, orchestrator]
     command:
       - "--port"
@@ -87,9 +87,9 @@ for dc in 1 2; do
       - "orchestrator:50050"
       - "--kerberos-enabled"
       - "--principal"
-      - "kafka-replicator@COMPANY.LOCAL"
+      - "parom-kafka@COMPANY.LOCAL"
       - "--keytab"
-      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "/etc/security/keytabs/parom-kafka.keytab"
       - "--security-protocol"
       - "SASL_PLAINTEXT"
       - "--service-name"

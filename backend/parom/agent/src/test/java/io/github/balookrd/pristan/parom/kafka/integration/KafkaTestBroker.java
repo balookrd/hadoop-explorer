@@ -49,7 +49,7 @@ final class KafkaTestBroker implements AutoCloseable {
 
     static KafkaTestBroker start() throws Exception {
         int port = freePort();
-        String name = "replicator-kafka-test-" + UUID.randomUUID().toString().substring(0, 8);
+        String name = "parom-kafka-test-" + UUID.randomUUID().toString().substring(0, 8);
 
         run("docker", "run", "-d", "--name", name, "-p", port + ":9092",
                 "-e", "KAFKA_NODE_ID=1",

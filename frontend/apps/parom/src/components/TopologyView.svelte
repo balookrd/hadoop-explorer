@@ -493,7 +493,7 @@
 
     {#if registeredAgents.length === 0}
       <div class="py-8 text-center text-xs text-slate-400 dark:text-slate-500 border border-dashed border-slate-200 dark:border-slate-800 rounded-xl">
-        Нет активных зарегистрированных агентов. При запуске агенты `backend.replicator.agent` автоматически появятся здесь.
+        Нет активных зарегистрированных агентов. При запуске агенты `io.github.balookrd.pristan.parom.agent` автоматически появятся здесь.
       </div>
     {:else}
       <div class="mb-3 flex flex-wrap items-center gap-2 text-xs">

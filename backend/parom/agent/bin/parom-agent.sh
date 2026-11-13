@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Скрипт запуска Replicator Agent (Java 21) на нодах Hadoop (DataNode, Edge Node)
+# Скрипт запуска Parom Agent (Java 21) на нодах Hadoop (DataNode, Edge Node)
 # ==============================================================================
 set -euo pipefail
 
@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Поиск jar файла
-JAR_FILE="${JAR_FILE:-$(find "${BASE_DIR}/target" -name "replicator-agent-*-all.jar" 2>/dev/null | head -n 1 || true)}"
+JAR_FILE="${JAR_FILE:-$(find "${BASE_DIR}/target" -name "parom-agent-*-all.jar" 2>/dev/null | head -n 1 || true)}"
 if [[ -z "${JAR_FILE}" ]]; then
     JAR_FILE="${BASE_DIR}/target/parom-agent-1.0.0-all.jar"
 fi
@@ -32,7 +32,7 @@ fi
 
 JVM_OPTS="${JVM_OPTS:--Xms512m -Xmx2048m -XX:+UseG1GC}"
 
-echo "==> Запуск Replicator Agent (Java 21)..."
+echo "==> Запуск Parom Agent (Java 21)..."
 echo "JAR: ${JAR_FILE}"
 echo "JAVA: ${JAVA_CMD}"
 

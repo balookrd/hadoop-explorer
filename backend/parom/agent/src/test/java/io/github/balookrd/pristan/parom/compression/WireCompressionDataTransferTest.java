@@ -393,7 +393,7 @@ class WireCompressionDataTransferTest {
         DataTransferServiceGrpc.DataTransferServiceStub stub = DataTransferServiceGrpc.newStub(inProcessChannel);
 
         File targetFile = new File(tempTargetDir, "legacy.txt");
-        byte[] legacyBytes = "Data from legacy uncompressed replicator agent version 0.9.0".getBytes(StandardCharsets.UTF_8);
+        byte[] legacyBytes = "Data from legacy uncompressed Parom agent version 0.9.0".getBytes(StandardCharsets.UTF_8);
 
         CompletableFuture<TransferFileResponse> responseFuture = new CompletableFuture<>();
         StreamObserver<TransferFileRequest> requestObserver = stub.transferFile(new StreamObserver<>() {

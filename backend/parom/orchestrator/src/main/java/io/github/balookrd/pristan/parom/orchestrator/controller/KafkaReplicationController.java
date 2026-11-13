@@ -18,7 +18,7 @@ import java.util.List;
 import java.util.Map;
 
 @RestController
-@RequestMapping("/api/v1/replicator/kafka")
+@RequestMapping("/api/v1/parom/kafka")
 public class KafkaReplicationController {
 
     private final KafkaReplicationOrchestratorService service;

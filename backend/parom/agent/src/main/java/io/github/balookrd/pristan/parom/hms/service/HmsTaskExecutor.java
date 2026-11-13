@@ -22,7 +22,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicInteger;
 
 /**
- * Исполнитель задач репликации схемы и метаданных Hive Metastore на стороне Replicator Agent.
+ * Исполнитель задач репликации схемы и метаданных Hive Metastore на стороне Parom Agent.
  * Выполняет первичный Bootstrap и потоковую CDC-синхронизацию из NOTIFICATION_LOG.
  */
 public class HmsTaskExecutor implements Closeable {

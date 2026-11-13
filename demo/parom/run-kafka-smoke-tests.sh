@@ -40,7 +40,7 @@ RED='\033[0;31m'
 NC='\033[0m' # No Color
 
 echo "========================================================================"
-echo "🧪 Запуск E2E Smoke-теста Kafka gRPC Replicator с Kerberos и SPNEGO"
+echo "🧪 Запуск E2E Smoke-теста Parom Kafka с Kerberos и SPNEGO"
 echo "   Оркестратор:         ${ORCHESTRATOR_URL}"
 echo "   Primary Kafka (DC1): ${KAFKA1_BOOTSTRAP} (SASL GSSAPI)"
 echo "   DR Kafka (DC2):      ${KAFKA2_BOOTSTRAP} (SASL GSSAPI)"
@@ -183,17 +183,17 @@ stop_and_delete_jobs() {
     local id agents
     for id in "$@"; do
         curl -s -o /dev/null -X POST -H "Authorization: Bearer ${AUTH_TOKEN}" \
-            "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs/${id}/pause"
+            "${ORCHESTRATOR_URL}/api/v1/parom/kafka/jobs/${id}/pause"
     done
     for id in "$@"; do
         for i in $(seq 1 30); do
-            agents=$(curl -s -H "Authorization: Bearer ${AUTH_TOKEN}" "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs/${id}" \
+            agents=$(curl -s -H "Authorization: Bearer ${AUTH_TOKEN}" "${ORCHESTRATOR_URL}/api/v1/parom/kafka/jobs/${id}" \
                 | python3 -c "import json,sys; print(len(json.load(sys.stdin).get('running_agents') or []))" 2>/dev/null)
             [ "${agents:-0}" = "0" ] && break
             sleep 1
         done
         curl -s -o /dev/null -X DELETE -H "Authorization: Bearer ${AUTH_TOKEN}" \
-            "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs/${id}"
+            "${ORCHESTRATOR_URL}/api/v1/parom/kafka/jobs/${id}"
     done
 }
 
@@ -218,7 +218,7 @@ delete_smoke_topics() {
 # прогона продолжала бы читать его топики. Вместе с ними удаляются и топики прошлых прогонов
 remove_previous_smoke_runs() {
     local ids
-    ids=$(curl -s -H "Authorization: Bearer ${AUTH_TOKEN}" "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs" \
+    ids=$(curl -s -H "Authorization: Bearer ${AUTH_TOKEN}" "${ORCHESTRATOR_URL}/api/v1/parom/kafka/jobs" \
         | python3 -c "import json,sys; [print(j['id']) for j in json.load(sys.stdin) if str(j.get('name','')).startswith('e2e-smoke-')]" 2>/dev/null)
     stop_and_delete_jobs $ids
     delete_smoke_topics others
@@ -256,7 +256,7 @@ create_replication_job() {
     }'
 
     local response=$(curl -s -X POST -H "Authorization: Bearer ${AUTH_TOKEN}" -H "Content-Type: application/json" \
-        "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs" -d "$payload")
+        "${ORCHESTRATOR_URL}/api/v1/parom/kafka/jobs" -d "$payload")
 
     JOB_ID=$(echo "$response" | grep -o '"id":"[^"]*' | cut -d'"' -f4)
     [ -n "$JOB_ID" ]
@@ -340,7 +340,7 @@ echo "\n${BLUE}▶ Шаг 7: Валидация защитного гейта с
 test_offset_sync_safety_gate() {
     # Проверяем вызов API синхронизации оффсетов для задачи
     local sync_status=$(curl -s -X POST -H "Authorization: Bearer ${AUTH_TOKEN}" \
-        "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs/${JOB_ID}/failover" | grep -o '"status":"[^"]*' | cut -d'"' -f4)
+        "${ORCHESTRATOR_URL}/api/v1/parom/kafka/jobs/${JOB_ID}/failover" | grep -o '"status":"[^"]*' | cut -d'"' -f4)
     [ "$sync_status" = "SUCCESS" ]
 }
 run_check "Защитный гейт: коммит смещений при аварийном переключении (Failover)" test_offset_sync_safety_gate
@@ -393,7 +393,7 @@ create_active_active_job() {
     }'
 
     local response=$(curl -s -X POST -H "Authorization: Bearer ${AUTH_TOKEN}" -H "Content-Type: application/json" \
-        "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs" -d "$payload")
+        "${ORCHESTRATOR_URL}/api/v1/parom/kafka/jobs" -d "$payload")
 
     ACTIVE_JOB_ID=$(echo "$response" | grep -o '"id":"[^"]*' | cut -d'"' -f4)
     [ -n "$ACTIVE_JOB_ID" ]
@@ -511,7 +511,7 @@ run_check "Удаление задач и топиков прогона" cleanup
 # 14. Итоговый отчет
 # ------------------------------------------------------------------------------
 echo "\n========================================================================"
-echo "📊 ИТОГОВЫЙ ОТЧЕТ E2E SMOKE ТЕСТА KAFKA REPLICATOR"
+echo "📊 ИТОГОВЫЙ ОТЧЕТ E2E SMOKE ТЕСТА PAROM KAFKA"
 echo "========================================================================"
 echo "   Всего проверок:   ${TOTAL_TESTS}"
 echo "   Пройдено успешно: ${GREEN}${PASSED_TESTS}${NC}"

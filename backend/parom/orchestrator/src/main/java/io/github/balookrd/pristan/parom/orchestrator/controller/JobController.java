@@ -45,7 +45,7 @@ public class JobController {
                 HttpStatus.UNAUTHORIZED, "Требуется аутентификация"
             );
         }
-        if (session.isAdmin() || (session.groups() != null && session.groups().contains("replicator-agents"))) {
+        if (session.isAdmin() || (session.groups() != null && session.groups().contains("parom-agents"))) {
             return; // Администраторы и доверенные демоны-агенты могут управлять задачами
         }
         if (session.systemRole() == io.github.balookrd.pristan.zastava.model.Role.READER) {
@@ -166,7 +166,7 @@ public class JobController {
             );
         }
         if (session.isAdmin() || session.systemRole() == io.github.balookrd.pristan.zastava.model.Role.READER
-                || (session.groups() != null && session.groups().contains("replicator-agents"))) {
+                || (session.groups() != null && session.groups().contains("parom-agents"))) {
             return;
         }
         var opt = jobService.getJobEntity(jobId);

@@ -37,7 +37,7 @@ FAILED=0
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 fail() { log "ОШИБКА: $*"; exit 1; }
 check() { if [ "$2" = "$3" ]; then log "   OK   $1 ($2)"; else log "   FAIL $1: ожидалось $3, получено $2"; FAILED=1; fi; }
-src_tool() { docker exec replicator-agent-dc1 "${TOOL[@]}" "$@" 2>/dev/null; }
+src_tool() { docker exec parom-agent-dc1 "${TOOL[@]}" "$@" 2>/dev/null; }
 
 refresh_token() {
   TOKEN=$(curl -s -X POST "${NODE}/api/v1/auth/login" -H "Content-Type: application/json" \

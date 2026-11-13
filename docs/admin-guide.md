@@ -14,7 +14,7 @@
 | Sklad | `8002` (или `8000`) | Менеджер файлов Data Lake, WebHDFS NameNode HA, превью Parquet/ORC, квоты каталогов, Cross-Cluster Copy | [docs/hdfs-admin-guide.md](hdfs-admin-guide.md) |
 | Tolmach | `8003` (или `8000`) | Веб-консоль Trino и Apache Hive, потоковая выдача результатов, отмена запросов, ИИ-ассистент SQL | [docs/sql-admin-guide.md](sql-admin-guide.md) |
 | Iskra | `8004` (или `8000`) | Управление интерактивными сессиями Livy (PySpark / Scala), интеграция с YARN и Spark History Server | [docs/spark-admin-guide.md](spark-admin-guide.md) |
-| Parom | `8005` (API/UI)<br>`50051` (gRPC) | Межкластерная репликация HDFS (Orchestrator и двунаправленные агенты), ограничение полосы WAN, cron-планировщик | [docs/replicator-admin-guide.md](replicator-admin-guide.md) |
+| Parom | `8005` (API/UI)<br>`50051` (gRPC) | Межкластерная репликация HDFS (Orchestrator и двунаправленные агенты), ограничение полосы WAN, cron-планировщик | [docs/replicator-admin-guide.md](parom-admin-guide.md) |
 
 ---
 
@@ -34,13 +34,13 @@
 │ - Готовые Fat JAR (No-Build)    │ │ - Готовые образы GHCR (ghcr.io) │ │ - Secret и ConfigMap            │
 │ - Релизы GitHub Releases / sha  │ │ - Оркестрация в docker-compose  │ │ - ImagePullSecrets для GHCR     │
 │ - Управление через systemctl    │ │ - Автоматический kinit в entry  │ │ - YARN/HDFS/SQL/Spark: нет      │
-│ - Локальный kinit / k5start     │ │ - Multi-stage сборка (по желан.)│ │ - См. replicator-admin-guide §4 │
+│ - Локальный kinit / k5start     │ │ - Multi-stage сборка (по желан.)│ │ - См. parom-admin-guide §4 │
 └─────────────────────────────────┘ └─────────────────────────────────┘ └─────────────────────────────────┘
 ```
 
 Replicator Agent, кроме трех режимов выше, запускается внутри кластера Hadoop:
 - На DataNode или edge-узле через `hadoop jar`: shaded fat JAR или тонкий JAR с системным `HADOOP_CLASSPATH`, полоса ограничивается `AGENT_MAX_BANDWIDTH_MB_S`.
-- В Apache Hadoop YARN: пул воркеров запускает `ParomYarnClient`, ими управляет `ParomApplicationMaster`. HDFS delegation tokens передаются воркерам автоматически, поэтому keytab на NodeManager не нужен. Подробнее: [docs/replicator-admin-guide.md#26-запуск-распределенного-пула-агентов-в-apache-hadoop-yarn](replicator-admin-guide.md#26-запуск-распределенного-пула-агентов-в-apache-hadoop-yarn).
+- В Apache Hadoop YARN: пул воркеров запускает `ParomYarnClient`, ими управляет `ParomApplicationMaster`. HDFS delegation tokens передаются воркерам автоматически, поэтому keytab на NodeManager не нужен. Подробнее: [docs/replicator-admin-guide.md#26-запуск-распределенного-пула-агентов-в-apache-hadoop-yarn](parom-admin-guide.md#26-запуск-распределенного-пула-агентов-в-apache-hadoop-yarn).
 
 ---
 
@@ -107,7 +107,7 @@ scrape_configs:
 ### Дашборды Grafana
 Дашборды лежат в каталоге `monitoring/grafana/dashboards/`:
 - Platform Overview: [`pristan_overview.json`](../monitoring/grafana/dashboards/pristan_overview.json) — HTTP golden signals YARN, HDFS, SQL и Iskra, входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Replicator.
-- gRPC Replicator: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json) — скорость репликации WAN, иерархический шейпинг Token Bucket, агенты репликации, планировщик Cron.
+- gRPC Replicator: [`parom_overview.json`](../monitoring/grafana/dashboards/parom_overview.json) — скорость репликации WAN, иерархический шейпинг Token Bucket, агенты репликации, планировщик Cron.
 - HDFS Operations: [`sklad_operations.json`](../monitoring/grafana/dashboards/sklad_operations.json) — операции клиента HDFS, трафик upload/download, отказы.
 - Artel: [`artel_queues.json`](../monitoring/grafana/dashboards/artel_queues.json) — переходы заявок Change Request, задержка API.
 - Spark & SQL Analytics: [`iskra_tolmach_analytics.json`](../monitoring/grafana/dashboards/iskra_tolmach_analytics.json) — активные сессии Spark, длительность инструкций, темп и длительность SQL-запросов.

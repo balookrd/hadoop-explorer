@@ -98,7 +98,7 @@ public class KafkaLiveDiscoveryTest {
         KafkaFuture<Collection<ConsumerGroupListing>> listingFuture = mock(KafkaFuture.class);
         ConsumerGroupListing listing1 = new ConsumerGroupListing("billing-worker-grp", false);
         ConsumerGroupListing listing2 = new ConsumerGroupListing("analytics-grp", false);
-        ConsumerGroupListing listingRepl = new ConsumerGroupListing("kafka-replicator-dc1", false);
+        ConsumerGroupListing listingRepl = new ConsumerGroupListing("parom-kafka-dc1", false);
         ConsumerGroupListing listingConnect = new ConsumerGroupListing("connect-mirror-maker", false);
         ConsumerGroupListing listingSr = new ConsumerGroupListing("schema-registry-dc2", false);
         ConsumerGroupListing listingSys = new ConsumerGroupListing("__consumer_offsets", false);

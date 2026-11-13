@@ -405,7 +405,7 @@ public class KafkaReplicationOrchestratorService {
 
     /**
      * Консьюмер-группы задачи на кластерах, откуда она читает. Имя повторяет агентское:
-     * {@code kafka-replicator-<ЦОД в написании задачи>-<jobId>}.
+     * {@code parom-kafka-<ЦОД в написании задачи>-<jobId>}.
      */
     static List<io.github.balookrd.pristan.parom.orchestrator.kafka.KafkaConsumerGroupCleaner.GroupTarget> consumerGroupsOf(
             KafkaReplicationJobEntity job) {
@@ -413,12 +413,12 @@ public class KafkaReplicationOrchestratorService {
         targets.add(new io.github.balookrd.pristan.parom.orchestrator.kafka.KafkaConsumerGroupCleaner.GroupTarget(
                 job.getSourceBootstrapServers(), job.isSourceKerberosEnabled(), job.getSourcePrincipal(),
                 job.getSourceKeytabPath(), job.getSourceServiceName(),
-                "kafka-replicator-" + job.getSourceDc() + "-" + job.getId()));
+                "parom-kafka-" + job.getSourceDc() + "-" + job.getId()));
         if ("BIDIRECTIONAL".equalsIgnoreCase(job.getDirection())) {
             targets.add(new io.github.balookrd.pristan.parom.orchestrator.kafka.KafkaConsumerGroupCleaner.GroupTarget(
                     job.getTargetBootstrapServers(), job.isTargetKerberosEnabled(), job.getTargetPrincipal(),
                     job.getTargetKeytabPath(), job.getTargetServiceName(),
-                    "kafka-replicator-" + job.getTargetDc() + "-" + job.getId()));
+                    "parom-kafka-" + job.getTargetDc() + "-" + job.getId()));
         }
         return targets;
     }

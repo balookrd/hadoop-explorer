@@ -167,7 +167,7 @@ AGENTS_PER_DC=12 ./demo/parom/run-kafka-scale-test.sh
 
 По умолчанию задача однонаправленная и читает топик с позиции `LATEST`: переносятся только записи, появившиеся после ее запуска. Чтобы перенести весь retention, задайте `start_position: EARLIEST`; сценарии стенда так и делают, потому что пишут в топик сразу после создания задачи. Лимит полосы задачи (`bandwidth_limit_mb`) суммарный: оркестратор делит его между живыми агентами-отправителями ЦОД, а 0 означает «без лимита».
 
-Все агенты одного ДЦ должны запускаться с одинаковым `--dc-id`, совпадающим и по регистру. Из него строится имя consumer-группы задачи (`kafka-replicator-<dc-id>-<jobId>`). Если значения различаются, получаются разные группы, и топик читается дважды.
+Все агенты одного ДЦ должны запускаться с одинаковым `--dc-id`, совпадающим и по регистру. Из него строится имя consumer-группы задачи (`parom-kafka-<dc-id>-<jobId>`). Если значения различаются, получаются разные группы, и топик читается дважды.
 
 ---
 
@@ -215,7 +215,7 @@ PARTITIONS=5000 SWARM_AGENTS=50 SWARM_JOBS=20 SWARM_SECONDS=300 ./run-hms-scale-
 Рой можно запустить и отдельно, против любого оркестратора:
 
 ```bash
-docker exec replicator-agent-dc1 java -cp /app/parom-agent.jar \
+docker exec parom-agent-dc1 java -cp /app/parom-agent.jar \
   io.github.balookrd.pristan.parom.tool.AgentSwarm orchestrator:50050 <agent-secret> 200 600
 ```
 

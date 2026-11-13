@@ -14,7 +14,7 @@
       }
     ]
   },
-  "description": "Мониторинг потоковой репликации Kafka через gRPC Replicator: сквозной лаг передачи (Lag), скорость сообщений и байт, выделенная полоса пропускания WAN и статус задач",
+  "description": "Мониторинг репликации метастора Hive Metastore (HMS) и катастрофоустойчивости (Disaster Recovery): прогресс первичной синхронизации Bootstrap, скорость передачи таблиц и партиций, расчетное время ETA, CDC стриминг, изоляция дата-центров (Fencing) и задачи обратной репликации",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -36,33 +36,33 @@
       "icon": "exchange",
       "includeVars": false,
       "keepTime": true,
-      "tags": ["replicator"],
+      "tags": ["parom"],
       "targetBlank": false,
       "title": "Обзор репликации и шейпинга",
       "type": "link",
-      "url": "/d/hadoop-replicator-overview"
+      "url": "/d/parom-overview"
     },
     {
       "asDropdown": false,
       "icon": "server",
       "includeVars": false,
       "keepTime": true,
-      "tags": ["replicator", "agents"],
+      "tags": ["parom", "agents"],
       "targetBlank": false,
       "title": "Агенты и воркеры",
       "type": "link",
-      "url": "/d/hadoop-replicator-agents"
+      "url": "/d/parom-agents-dashboard"
     },
     {
       "asDropdown": false,
-      "icon": "database",
+      "icon": "cloud-download",
       "includeVars": false,
       "keepTime": true,
-      "tags": ["replicator", "hms"],
+      "tags": ["parom", "kafka"],
       "targetBlank": false,
-      "title": "HMS Репликация & DR",
+      "title": "📨 Потоковая репликация Kafka",
       "type": "link",
-      "url": "/d/hadoop-replicator-hms-dr"
+      "url": "/d/parom-kafka-dashboard"
     }
   ],
   "liveNow": false,
@@ -76,7 +76,7 @@
         "y": 0
       },
       "id": 100,
-      "title": "🚀 Ключевые показатели потоковой репликации (Kafka Replication KPIs)",
+      "title": "🎯 Ключевые показатели HMS и Disaster Recovery (Status & KPIs)",
       "type": "row"
     },
     {
@@ -94,7 +94,7 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "blue",
                 "value": null
               }
             ]
@@ -132,13 +132,13 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_kafka_jobs_total{status=\"ACTIVE\"}",
-          "legendFormat": "Активные задачи",
+          "expr": "sum(parom_hms_jobs_total)",
+          "legendFormat": "Всего схем HMS",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Активные задачи Kafka",
+      "title": "Задачи репликации HMS (Всего)",
       "type": "stat"
     },
     {
@@ -156,11 +156,11 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "green",
+                "color": "blue",
                 "value": null
               },
               {
-                "color": "orange",
+                "color": "yellow",
                 "value": 1
               }
             ]
@@ -198,13 +198,13 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_kafka_jobs_total{status=\"PAUSED\"}",
-          "legendFormat": "Приостановленные",
+          "expr": "parom_hms_jobs_total{status=\"BOOTSTRAPPING\"}",
+          "legendFormat": "Bootstrap",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Приостановленные задачи",
+      "title": "Первичная синхронизация (Bootstrap)",
       "type": "stat"
     },
     {
@@ -224,76 +224,6 @@
               {
                 "color": "green",
                 "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1000
-              },
-              {
-                "color": "red",
-                "value": 5000
-              }
-            ]
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 4,
-        "w": 4,
-        "x": 8,
-        "y": 1
-      },
-      "id": 3,
-      "options": {
-        "colorMode": "value",
-        "graphMode": "area",
-        "justifyMode": "auto",
-        "orientation": "auto",
-        "reduceOptions": {
-          "calcs": [
-            "lastNotNull"
-          ],
-          "fields": "",
-          "values": false
-        },
-        "textMode": "auto"
-      },
-      "pluginVersion": "10.4.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "kafka_current_lag_ms",
-          "legendFormat": "Максимальный сквозной лаг",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Текущий сквозной лаг",
-      "type": "stat"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "color": {
-            "mode": "thresholds"
-          },
-          "mappings": [],
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "blue",
-                "value": null
               }
             ]
           },
@@ -304,10 +234,10 @@
       "gridPos": {
         "h": 4,
         "w": 4,
-        "x": 12,
+        "x": 8,
         "y": 1
       },
-      "id": 4,
+      "id": 3,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
@@ -330,13 +260,13 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "kafka_replicated_messages_total",
-          "legendFormat": "Сообщений всего",
+          "expr": "parom_hms_jobs_total{status=\"ACTIVE\"}",
+          "legendFormat": "CDC Streaming",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Передано сообщений всего",
+      "title": "Инкрементальный CDC стриминг",
       "type": "stat"
     },
     {
@@ -354,12 +284,82 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "purple",
+                "color": "blue",
                 "value": null
+              },
+              {
+                "color": "green",
+                "value": 1048576
               }
             ]
           },
-          "unit": "bytes"
+          "unit": "Bps"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 4,
+        "w": 4,
+        "x": 12,
+        "y": 1
+      },
+      "id": 4,
+      "options": {
+        "colorMode": "value",
+        "graphMode": "area",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "textMode": "auto"
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "parom_hms_speed_bytes_per_second",
+          "legendFormat": "Скорость Bootstrap",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Скорость первичной синхронизации",
+      "type": "stat"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
         },
         "overrides": []
       },
@@ -392,13 +392,13 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "kafka_replicated_bytes_total",
-          "legendFormat": "Байт всего",
+          "expr": "parom_dr_cluster_fenced{cluster_id=\"dc1\"}",
+          "legendFormat": "DC1 Fenced",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Передано данных всего",
+      "title": "Изоляция DC1 (Fenced)",
       "type": "stat"
     },
     {
@@ -416,12 +416,16 @@
             "mode": "absolute",
             "steps": [
               {
-                "color": "teal",
+                "color": "green",
                 "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
               }
             ]
           },
-          "unit": "ops"
+          "unit": "short"
         },
         "overrides": []
       },
@@ -434,7 +438,7 @@
       "id": 6,
       "options": {
         "colorMode": "value",
-        "graphMode": "area",
+        "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
         "reduceOptions": {
@@ -454,13 +458,13 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(kafka_replicated_messages_total[1m]))",
-          "legendFormat": "Интенсивность потока",
+          "expr": "parom_dr_cluster_fenced{cluster_id=\"dc2\"}",
+          "legendFormat": "DC2 Fenced",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Скорость сообщений (1m)",
+      "title": "Изоляция DC2 (Fenced)",
       "type": "stat"
     },
     {
@@ -472,244 +476,7 @@
         "y": 5
       },
       "id": 200,
-      "title": "⏱️ Сквозной лаг и производительность передачи (Lag & Throughput)",
-      "type": "row"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "showPoints": "auto",
-            "spanNulls": false,
-            "thresholdsStyle": {
-              "mode": "line"
-            }
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1000
-              },
-              {
-                "color": "red",
-                "value": 5000
-              }
-            ]
-          },
-          "unit": "ms"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 6
-      },
-      "id": 11,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "10.4.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "replicator_kafka_job_lag_ms{job_name=~\"$job\"}",
-          "legendFormat": "{{job_name}} ({{source_dc}} → {{target_dc}})",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Сквозной лаг репликации по задачам (End-to-End Lag, ms)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 15,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "showPoints": "never",
-            "spanNulls": false
-          },
-          "unit": "ops"
-        },
-        "overrides": []
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 6
-      },
-      "id": 12,
-      "options": {
-        "legend": {
-          "calcs": [
-            "mean",
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "10.4.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "rate(replicator_kafka_job_messages_total{job_name=~\"$job\"}[1m])",
-          "legendFormat": "{{job_name}}",
-          "range": true,
-          "refId": "A"
-        }
-      ],
-      "title": "Скорость передачи сообщений (Message Throughput, msg/s)",
-      "type": "timeseries"
-    },
-    {
-      "datasource": {
-        "type": "prometheus",
-        "uid": "prometheus"
-      },
-      "fieldConfig": {
-        "defaults": {
-          "custom": {
-            "drawStyle": "line",
-            "fillOpacity": 10,
-            "lineInterpolation": "smooth",
-            "lineWidth": 2,
-            "pointSize": 5,
-            "showPoints": "never",
-            "spanNulls": false
-          },
-          "unit": "binBps"
-        },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byRegexp",
-              "options": ".*Лимит.*"
-            },
-            "properties": [
-              {
-                "id": "custom.lineStyle",
-                "value": {
-                  "dash": [5, 5],
-                  "mode": "dash"
-                }
-              },
-              {
-                "id": "custom.fillOpacity",
-                "value": 0
-              }
-            ]
-          }
-        ]
-      },
-      "gridPos": {
-        "h": 8,
-        "w": 24,
-        "x": 0,
-        "y": 14
-      },
-      "id": 13,
-      "options": {
-        "legend": {
-          "calcs": [
-            "lastNotNull",
-            "max"
-          ],
-          "displayMode": "table",
-          "placement": "bottom"
-        },
-        "tooltip": {
-          "mode": "multi",
-          "sort": "desc"
-        }
-      },
-      "pluginVersion": "10.4.0",
-      "targets": [
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "rate(replicator_kafka_job_bytes_total{job_name=~\"$job\"}[1m])",
-          "legendFormat": "Трафик: {{job_name}}",
-          "range": true,
-          "refId": "A"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "replicator_kafka_bandwidth_limit_mb{job_name=~\"$job\"} * 1048576",
-          "legendFormat": "Лимит полосы WAN: {{job_name}}",
-          "range": true,
-          "refId": "B"
-        }
-      ],
-      "title": "Сетевой трафик репликации и лимит шейпинга WAN (Throughput vs Quota)",
-      "type": "timeseries"
-    },
-    {
-      "collapsed": false,
-      "gridPos": {
-        "h": 1,
-        "w": 24,
-        "x": 0,
-        "y": 22
-      },
-      "id": 300,
-      "title": "📋 Детализация задач и распределение полосы (Jobs & Bandwidth Allocation)",
+      "title": "📦 Первичная синхронизация таблиц и данных (HMS Bootstrap Sync)",
       "type": "row"
     },
     {
@@ -722,175 +489,49 @@
           "color": {
             "mode": "thresholds"
           },
-          "custom": {
-            "align": "auto",
-            "cellOptions": {
-              "type": "auto"
-            },
-            "inspect": false
-          },
           "mappings": [],
+          "max": 100,
+          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
               {
-                "color": "blue",
+                "color": "red",
                 "value": null
+              },
+              {
+                "color": "orange",
+                "value": 30
+              },
+              {
+                "color": "green",
+                "value": 90
               }
             ]
-          }
+          },
+          "unit": "percent"
         },
-        "overrides": [
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "status"
-            },
-            "properties": [
-              {
-                "id": "mappings",
-                "value": [
-                  {
-                    "options": {
-                      "ACTIVE": {
-                        "color": "green",
-                        "index": 0,
-                        "text": "АКТИВНА"
-                      },
-                      "PAUSED": {
-                        "color": "orange",
-                        "index": 1,
-                        "text": "ПАУЗА"
-                      }
-                    },
-                    "type": "value"
-                  }
-                ]
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-background"
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Value #Lag"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Текущий лаг"
-              },
-              {
-                "id": "unit",
-                "value": "ms"
-              },
-              {
-                "id": "custom.cellOptions",
-                "value": {
-                  "type": "color-text"
-                }
-              },
-              {
-                "id": "thresholds",
-                "value": {
-                  "mode": "absolute",
-                  "steps": [
-                    {
-                      "color": "green",
-                      "value": null
-                    },
-                    {
-                      "color": "yellow",
-                      "value": 1000
-                    },
-                    {
-                      "color": "red",
-                      "value": 5000
-                    }
-                  ]
-                }
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Value #Bandwidth"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Лимит полосы"
-              },
-              {
-                "id": "unit",
-                "value": "MBs"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Value #Msgs"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Сообщений"
-              },
-              {
-                "id": "unit",
-                "value": "short"
-              }
-            ]
-          },
-          {
-            "matcher": {
-              "id": "byName",
-              "options": "Value #Bytes"
-            },
-            "properties": [
-              {
-                "id": "displayName",
-                "value": "Объем данных"
-              },
-              {
-                "id": "unit",
-                "value": "bytes"
-              }
-            ]
-          }
-        ]
+        "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 16,
+        "h": 7,
+        "w": 6,
         "x": 0,
-        "y": 23
+        "y": 6
       },
-      "id": 21,
+      "id": 7,
       "options": {
-        "cellHeight": "sm",
-        "footer": {
-          "countRows": false,
-          "fields": "",
-          "reducer": [
-            "sum"
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
           ],
-          "show": false
+          "fields": "",
+          "values": false
         },
-        "showHeader": true,
-        "sortBy": [
-          {
-            "desc": true,
-            "displayName": "Текущий лаг"
-          }
-        ]
+        "showUnfilled": true
       },
       "pluginVersion": "10.4.0",
       "targets": [
@@ -900,78 +541,85 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_kafka_job_lag_ms",
-          "format": "table",
-          "instant": true,
-          "legendFormat": "",
-          "range": false,
-          "refId": "Lag"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "replicator_kafka_bandwidth_limit_mb",
-          "format": "table",
-          "instant": true,
-          "legendFormat": "",
-          "range": false,
-          "refId": "Bandwidth"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "replicator_kafka_job_messages_total",
-          "format": "table",
-          "instant": true,
-          "legendFormat": "",
-          "range": false,
-          "refId": "Msgs"
-        },
-        {
-          "datasource": {
-            "type": "prometheus",
-            "uid": "prometheus"
-          },
-          "editorMode": "code",
-          "expr": "replicator_kafka_job_bytes_total",
-          "format": "table",
-          "instant": true,
-          "legendFormat": "",
-          "range": false,
-          "refId": "Bytes"
+          "expr": "(parom_hms_tables_total{type=\"replicated\"} / parom_hms_tables_total{type=\"total\"}) * 100",
+          "legendFormat": "Прогресс таблиц",
+          "range": true,
+          "refId": "A"
         }
       ],
-      "title": "Реестр задач потоковой репликации Kafka",
-      "transformations": [
-        {
-          "id": "merge",
-          "options": {}
+      "title": "Прогресс репликации таблиц (%)",
+      "type": "gauge"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "mappings": [],
+          "max": 100,
+          "min": 0,
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "orange",
+                "value": 30
+              },
+              {
+                "color": "green",
+                "value": 90
+              }
+            ]
+          },
+          "unit": "percent"
         },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 6,
+        "x": 6,
+        "y": 6
+      },
+      "id": 8,
+      "options": {
+        "minVizHeight": 10,
+        "minVizWidth": 0,
+        "orientation": "auto",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        },
+        "showUnfilled": true
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
         {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true,
-              "__name__": true
-            },
-            "indexByName": {},
-            "renameByName": {
-              "job_id": "ID задачи",
-              "job_name": "Наименование",
-              "source_dc": "Источник ЦОД",
-              "status": "Статус",
-              "target_dc": "Целевой ЦОД"
-            }
-          }
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "(parom_hms_partitions_total{type=\"replicated\"} / parom_hms_partitions_total{type=\"total\"}) * 100",
+          "legendFormat": "Прогресс партиций",
+          "range": true,
+          "refId": "A"
         }
       ],
-      "type": "table"
+      "title": "Прогресс репликации партиций (%)",
+      "type": "gauge"
     },
     {
       "datasource": {
@@ -984,9 +632,38 @@
             "mode": "palette-classic"
           },
           "custom": {
-            "fillOpacity": 70,
-            "lineWidth": 1
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 25,
+            "gradientMode": "opacity",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "smooth",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
           },
+          "mappings": [],
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -996,32 +673,31 @@
               }
             ]
           },
-          "unit": "MBs"
+          "unit": "Bps"
         },
         "overrides": []
       },
       "gridPos": {
-        "h": 8,
-        "w": 8,
-        "x": 16,
-        "y": 23
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 6
       },
-      "id": 22,
+      "id": 9,
       "options": {
-        "displayMode": "gradient",
-        "minVizHeight": 10,
-        "minVizWidth": 0,
-        "namePlacement": "auto",
-        "orientation": "horizontal",
-        "reduceOptions": {
+        "legend": {
           "calcs": [
-            "lastNotNull"
+            "mean",
+            "max"
           ],
-          "fields": "",
-          "values": false
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
         },
-        "showUnfilled": true,
-        "valueMode": "color"
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
       },
       "pluginVersion": "10.4.0",
       "targets": [
@@ -1031,22 +707,440 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_kafka_bandwidth_limit_mb{job_name=~\"$job\"}",
-          "legendFormat": "{{job_name}}",
+          "expr": "parom_hms_speed_bytes_per_second",
+          "legendFormat": "Скорость передачи данных таблиц",
           "range": true,
           "refId": "A"
         }
       ],
-      "title": "Лимиты полосы WAN по задачам (MB/s)",
-      "type": "bargauge"
+      "title": "Динамика скорости репликации данных таблиц при Bootstrap (MB/s)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 13
+      },
+      "id": 300,
+      "title": "🌊 Статусы схем HMS и CDC стриминг (HMS Lifecycle & Schemes)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 14
+      },
+      "id": 10,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "parom_hms_jobs_total",
+          "legendFormat": "{{status}}",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Распределение схем HMS по статусам",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "bars",
+            "fillOpacity": 60,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "linear",
+            "lineWidth": 1,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 14
+      },
+      "id": 11,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "parom_hms_tables_total",
+          "legendFormat": "Таблицы ({{type}})",
+          "range": true,
+          "refId": "A"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "parom_hms_partitions_total",
+          "legendFormat": "Партиции ({{type}})",
+          "range": true,
+          "refId": "B"
+        }
+      ],
+      "title": "Объекты метастора (Таблицы и партиции)",
+      "type": "timeseries"
+    },
+    {
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 22
+      },
+      "id": 400,
+      "title": "🛡️ Управление катастрофоустойчивостью (Disaster Recovery & Fencing)",
+      "type": "row"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 25,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              },
+              {
+                "color": "red",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 0,
+        "y": 23
+      },
+      "id": 12,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "parom_dr_cluster_fenced",
+          "legendFormat": "{{cluster_id}} (1=Fenced, 0=Active)",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "История сетевой изоляции кластеров (Network Fencing Timeline)",
+      "type": "timeseries"
+    },
+    {
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
+            "axisLabel": "",
+            "axisPlacement": "auto",
+            "barAlignment": 0,
+            "drawStyle": "line",
+            "fillOpacity": 20,
+            "gradientMode": "none",
+            "hideFrom": {
+              "legend": false,
+              "tooltip": false,
+              "viz": false
+            },
+            "insertNulls": false,
+            "lineInterpolation": "stepAfter",
+            "lineWidth": 2,
+            "pointSize": 5,
+            "scaleDistribution": {
+              "type": "linear"
+            },
+            "showPoints": "auto",
+            "spanNulls": false,
+            "stacking": {
+              "group": "A",
+              "mode": "none"
+            },
+            "thresholdsStyle": {
+              "mode": "off"
+            }
+          },
+          "mappings": [],
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "green",
+                "value": null
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 23
+      },
+      "id": 13,
+      "options": {
+        "legend": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "displayMode": "table",
+          "placement": "bottom",
+          "showLegend": true
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "pluginVersion": "10.4.0",
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "editorMode": "code",
+          "expr": "parom_dr_reverse_jobs_total",
+          "legendFormat": "Обратная репликация ({{status}})",
+          "range": true,
+          "refId": "A"
+        }
+      ],
+      "title": "Активность задач обратной репликации (Reverse Sync)",
+      "type": "timeseries"
     }
   ],
   "refresh": "5s",
   "schemaVersion": 39,
   "tags": [
     "pristan",
-    "replicator",
-    "kafka"
+    "parom",
+    "hms",
+    "hive",
+    "disaster-recovery",
+    "dr"
   ],
   "templating": {
     "list": [
@@ -1066,34 +1160,6 @@
         "regex": "",
         "skipUrlSync": false,
         "type": "datasource"
-      },
-      {
-        "allValue": ".*",
-        "current": {
-          "selected": true,
-          "text": "Все задачи",
-          "value": "$__all"
-        },
-        "datasource": {
-          "type": "prometheus",
-          "uid": "prometheus"
-        },
-        "definition": "label_values(replicator_kafka_job_lag_ms, job_name)",
-        "hide": 0,
-        "includeAll": true,
-        "label": "Задача Kafka",
-        "multi": true,
-        "name": "job",
-        "options": [],
-        "query": {
-          "query": "label_values(replicator_kafka_job_lag_ms, job_name)",
-          "refId": "StandardVariableQuery"
-        },
-        "refresh": 2,
-        "regex": "",
-        "skipUrlSync": false,
-        "sort": 1,
-        "type": "query"
       }
     ]
   },
@@ -1111,7 +1177,7 @@
     ]
   },
   "timezone": "browser",
-  "title": "Parom — Потоковая репликация Kafka (Streaming & Lag)",
-  "uid": "hadoop-replicator-kafka",
+  "title": "Parom — Hive Metastore (HMS) & Disaster Recovery",
+  "uid": "parom-hms-dr",
   "version": 1
 }

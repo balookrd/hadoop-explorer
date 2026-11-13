@@ -1,4 +1,4 @@
-name: hadoop-replicator-demo
+name: parom-demo
 
 include:
   - path: ../platform/docker-compose.hms.yml
@@ -10,7 +10,7 @@ services:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.parom-orchestrator
-    container_name: replicator-orchestrator
+    container_name: parom-orchestrator
     hostname: orchestrator
     restart: unless-stopped
     environment:
@@ -40,7 +40,7 @@ services:
       PAROM_GRPC_PORT: "50050"
       PAROM_GRPC_ENABLED: "true"
     volumes:
-      - replicator-db-data:/app/data
+      - parom-db-data:/app/data
       - shared-demo-data:/tmp/data
       - demo-shared-keytabs:/etc/security/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
@@ -74,7 +74,7 @@ services:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.parom-agent
-    container_name: replicator-agent-dc1
+    container_name: parom-agent-dc1
     hostname: agent-dc1
     restart: unless-stopped
     environment:
@@ -124,7 +124,7 @@ services:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.parom-agent
-    container_name: replicator-agent-dc2
+    container_name: parom-agent-dc2
     hostname: agent-dc2
     restart: unless-stopped
     environment:
@@ -174,7 +174,7 @@ services:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.parom-agent
-    container_name: replicator-streamer-dc1-01
+    container_name: parom-streamer-dc1-01
     hostname: streamer-dc1-01
     restart: unless-stopped
     environment:
@@ -205,7 +205,7 @@ services:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.parom-agent
-    container_name: replicator-streamer-dc1-02
+    container_name: parom-streamer-dc1-02
     hostname: streamer-dc1-02
     restart: unless-stopped
     environment:
@@ -236,7 +236,7 @@ services:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.parom-agent
-    container_name: replicator-streamer-dc2-01
+    container_name: parom-streamer-dc2-01
     hostname: streamer-dc2-01
     restart: unless-stopped
     environment:
@@ -265,7 +265,7 @@ services:
   # 7. Smoke Test Runner (End-to-End: KDC + 2x HMS + 2x HDFS -> Bootstrap -> New Table CDC -> Streamers HA)
   smoke-test:
     image: curlimages/curl:latest
-    container_name: replicator-smoke-test
+    container_name: parom-smoke-test
     depends_on:
       - orchestrator
       - agent-dc1
@@ -296,7 +296,7 @@ services:
       - test
 
 volumes:
-  replicator-db-data:
+  parom-db-data:
   agent-staging-dc1:
   agent-staging-dc2:
   shared-demo-data:

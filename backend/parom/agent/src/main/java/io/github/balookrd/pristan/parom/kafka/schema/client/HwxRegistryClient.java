@@ -80,7 +80,7 @@ public class HwxRegistryClient {
         String url = baseUrl + "/api/v1/schemaregistry/schemas/" + schemaName + "/versions";
         String body = mapper.createObjectNode()
                 .put("schemaText", schemaText)
-                .put("description", "Replicated schema by Kafka gRPC Replicator")
+                .put("description", "Replicated schema by Parom Kafka")
                 .toString();
 
         HttpRequest.Builder builder = createRequestBuilder(url)
@@ -124,7 +124,7 @@ public class HwxRegistryClient {
                     .put("type", "avro")
                     .put("schemaGroup", "kafka")
                     .put("name", schemaName)
-                    .put("description", "Auto-created by Kafka Replicator")
+                    .put("description", "Auto-created by Parom Kafka")
                     .put("compatibility", "BACKWARD")
                     .toString();
 

@@ -17,7 +17,7 @@ public class KerberosUgiProvider {
 
     private static final Logger logger = LoggerFactory.getLogger(KerberosUgiProvider.class);
 
-    public static final String DEFAULT_SERVICE_PRINCIPAL = "hdfs-replicator@REALM.LOCAL";
+    public static final String DEFAULT_SERVICE_PRINCIPAL = "parom@REALM.LOCAL";
 
     /** @see PrincipalSafety#FORBIDDEN_PRINCIPALS */
     public static final Set<String> FORBIDDEN_PRINCIPALS = PrincipalSafety.FORBIDDEN_PRINCIPALS;

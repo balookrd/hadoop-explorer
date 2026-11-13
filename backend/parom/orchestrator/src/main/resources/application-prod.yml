@@ -1,5 +1,5 @@
 # =============================================================================
-# Продуктивный профиль Replicator Orchestrator (SPRING_PROFILES_ACTIVE=prod)
+# Продуктивный профиль Parom Orchestrator (SPRING_PROFILES_ACTIVE=prod)
 #
 # Дефолтный профиль рассчитан на локальную разработку: H2 в памяти,
 # ddl-auto: update и mock-аутентификация. Этот профиль задает значения,
@@ -8,7 +8,7 @@
 
 spring:
   datasource:
-    url: "jdbc:postgresql://${POSTGRES_HOST:postgres}:${POSTGRES_PORT:5432}/${POSTGRES_DB:replicator}"
+    url: "jdbc:postgresql://${POSTGRES_HOST:postgres}:${POSTGRES_PORT:5432}/${POSTGRES_DB:parom}"
     driver-class-name: org.postgresql.Driver
     username: "${POSTGRES_USER}"
     password: "${POSTGRES_PASSWORD}"

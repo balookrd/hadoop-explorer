@@ -340,54 +340,54 @@ export class ParomApiClient extends BaseApiClient {
     });
   }
 
-  // --- Kafka Replicator ---
+  // --- Parom Kafka ---
 
   async getKafkaDiscoveryClusters(): Promise<any[]> {
-    return this.request<any[]>('/replicator/kafka/discovery/clusters');
+    return this.request<any[]>('/parom/kafka/discovery/clusters');
   }
 
   async getKafkaDiscoveryTopics(dc = 'dc1', search?: string): Promise<any[]> {
     const q = search ? `&search=${encodeURIComponent(search)}` : '';
-    return this.request<any[]>(`/replicator/kafka/discovery/topics?dc=${encodeURIComponent(dc)}${q}`);
+    return this.request<any[]>(`/parom/kafka/discovery/topics?dc=${encodeURIComponent(dc)}${q}`);
   }
 
   async getKafkaDiscoveryGroups(dc = 'dc1', search?: string): Promise<any[]> {
     const q = search ? `&search=${encodeURIComponent(search)}` : '';
-    return this.request<any[]>(`/replicator/kafka/discovery/groups?dc=${encodeURIComponent(dc)}${q}`);
+    return this.request<any[]>(`/parom/kafka/discovery/groups?dc=${encodeURIComponent(dc)}${q}`);
   }
 
   async getKafkaJobs(): Promise<any[]> {
-    return this.request<any[]>('/replicator/kafka/jobs');
+    return this.request<any[]>('/parom/kafka/jobs');
   }
 
   async createKafkaJob(payload: CreateKafkaJobPayload): Promise<any> {
-    return this.request<any>('/replicator/kafka/jobs', {
+    return this.request<any>('/parom/kafka/jobs', {
       method: 'POST',
       body: JSON.stringify(payload),
     });
   }
 
   async pauseKafkaJob(id: string): Promise<any> {
-    return this.request<any>(`/replicator/kafka/jobs/${encodeURIComponent(id)}/pause`, {
+    return this.request<any>(`/parom/kafka/jobs/${encodeURIComponent(id)}/pause`, {
       method: 'POST',
     });
   }
 
   async resumeKafkaJob(id: string): Promise<any> {
-    return this.request<any>(`/replicator/kafka/jobs/${encodeURIComponent(id)}/resume`, {
+    return this.request<any>(`/parom/kafka/jobs/${encodeURIComponent(id)}/resume`, {
       method: 'POST',
     });
   }
 
   async deleteKafkaJob(id: string): Promise<void> {
-    await this.request<void>(`/replicator/kafka/jobs/${encodeURIComponent(id)}`, {
+    await this.request<void>(`/parom/kafka/jobs/${encodeURIComponent(id)}`, {
       method: 'DELETE',
     });
   }
 
   /** Изменение настроек задачи: незаданные поля не меняются. */
   async updateKafkaJob(id: string, payload: Record<string, unknown>): Promise<any> {
-    return this.request<any>(`/replicator/kafka/jobs/${encodeURIComponent(id)}`, {
+    return this.request<any>(`/parom/kafka/jobs/${encodeURIComponent(id)}`, {
       method: 'PUT',
       body: JSON.stringify(payload),
     });
@@ -395,39 +395,39 @@ export class ParomApiClient extends BaseApiClient {
 
   /** Повторная проверка и автосоздание топиков задачи в целевом кластере. */
   async provisionKafkaJobTopics(id: string): Promise<any> {
-    return this.request<any>(`/replicator/kafka/jobs/${encodeURIComponent(id)}/provision-topics`, {
+    return this.request<any>(`/parom/kafka/jobs/${encodeURIComponent(id)}/provision-topics`, {
       method: 'POST',
     });
   }
 
   /** Сброс смещений группы задачи на начало или конец топиков; задача должна стоять на паузе. */
   async resetKafkaJobOffsets(id: string, position: 'LATEST' | 'EARLIEST'): Promise<any> {
-    return this.request<any>(`/replicator/kafka/jobs/${encodeURIComponent(id)}/reset-offsets`, {
+    return this.request<any>(`/parom/kafka/jobs/${encodeURIComponent(id)}/reset-offsets`, {
       method: 'POST',
       body: JSON.stringify({ position }),
     });
   }
 
   async triggerKafkaFailover(id: string): Promise<any> {
-    return this.request<any>(`/replicator/kafka/jobs/${encodeURIComponent(id)}/failover`, {
+    return this.request<any>(`/parom/kafka/jobs/${encodeURIComponent(id)}/failover`, {
       method: 'POST',
     });
   }
 
   async getKafkaReceiverEndpoints(clusterId = 'DC2'): Promise<string[]> {
-    return this.request<string[]>(`/replicator/kafka/agents/receivers?clusterId=${encodeURIComponent(clusterId)}`);
+    return this.request<string[]>(`/parom/kafka/agents/receivers?clusterId=${encodeURIComponent(clusterId)}`);
   }
 
   async getKafkaSenderEndpoints(clusterId = 'DC1'): Promise<string[]> {
-    return this.request<string[]>(`/replicator/kafka/agents/senders?clusterId=${encodeURIComponent(clusterId)}`);
+    return this.request<string[]>(`/parom/kafka/agents/senders?clusterId=${encodeURIComponent(clusterId)}`);
   }
 
   async getKafkaSenderDetails(clusterId = 'DC1'): Promise<any[]> {
-    return this.request<any[]>(`/replicator/kafka/agents/senders/details?clusterId=${encodeURIComponent(clusterId)}`);
+    return this.request<any[]>(`/parom/kafka/agents/senders/details?clusterId=${encodeURIComponent(clusterId)}`);
   }
 
   async getKafkaQosCalculation(sourceDc: string, targetDc: string): Promise<any> {
-    return this.request<any>(`/replicator/kafka/qos-calculation?sourceDc=${encodeURIComponent(sourceDc)}&targetDc=${encodeURIComponent(targetDc)}`);
+    return this.request<any>(`/parom/kafka/qos-calculation?sourceDc=${encodeURIComponent(sourceDc)}&targetDc=${encodeURIComponent(targetDc)}`);
   }
 }
 

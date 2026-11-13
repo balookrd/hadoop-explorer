@@ -7,20 +7,20 @@
 # =============================================================================
 
 volumes:
-  replicator-ha-pg-data:
+  parom-ha-pg-data:
 
 services:
-  replicator-db:
+  parom-db:
     image: postgres:16-alpine
-    container_name: replicator-db
+    container_name: parom-db
     environment:
-      POSTGRES_DB: replicator
-      POSTGRES_USER: replicator
+      POSTGRES_DB: parom
+      POSTGRES_USER: parom
       POSTGRES_PASSWORD: replicator
     volumes:
-      - replicator-ha-pg-data:/var/lib/postgresql/data
+      - parom-ha-pg-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U replicator -d replicator"]
+      test: ["CMD-SHELL", "pg_isready -U parom -d parom"]
       interval: 3s
       retries: 20
     networks:
@@ -30,11 +30,11 @@ services:
     depends_on: !override
       kdc:
         condition: service_healthy
-      replicator-db:
+      parom-db:
         condition: service_healthy
     environment: &ha-db
-      SPRING_DATASOURCE_URL: "jdbc:postgresql://replicator-db:5432/replicator"
-      SPRING_DATASOURCE_USERNAME: "replicator"
+      SPRING_DATASOURCE_URL: "jdbc:postgresql://parom-db:5432/parom"
+      SPRING_DATASOURCE_USERNAME: "parom"
       SPRING_DATASOURCE_PASSWORD: "replicator"
       SPRING_DATASOURCE_DRIVER_CLASS_NAME: "org.postgresql.Driver"
       SPRING_JPA_DATABASE_PLATFORM: "org.hibernate.dialect.PostgreSQLDialect"
@@ -47,7 +47,7 @@ services:
     extends:
       file: docker-compose.yml
       service: orchestrator
-    container_name: replicator-orchestrator-2
+    container_name: parom-orchestrator-2
     hostname: orchestrator-2
     environment: *ha-db
     ports: !override
@@ -56,7 +56,7 @@ services:
     depends_on: !override
       kdc:
         condition: service_healthy
-      replicator-db:
+      parom-db:
         condition: service_healthy
     networks: !override
       demo-platform-net:

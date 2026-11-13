@@ -33,7 +33,7 @@
       if (hash === 'hms' || hash === 'jobs' || hash === 'topology' || hash === 'dr' || hash === 'kafka') {
         return hash;
       }
-      const saved = localStorage.getItem('replicator_active_tab');
+      const saved = localStorage.getItem('parom_active_tab');
       if (saved === 'hms' || saved === 'jobs' || saved === 'topology' || saved === 'dr' || saved === 'kafka') {
         return saved as 'hms' | 'jobs' | 'topology' | 'dr' | 'kafka';
       }
@@ -47,7 +47,7 @@
   function setActiveTab(tab: 'hms' | 'jobs' | 'topology' | 'dr' | 'kafka') {
     activeTab = tab;
     if (typeof window !== 'undefined') {
-      localStorage.setItem('replicator_active_tab', tab);
+      localStorage.setItem('parom_active_tab', tab);
       window.location.hash = tab;
     }
   }

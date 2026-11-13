@@ -265,7 +265,7 @@ public class ZastavaAutoConfiguration {
                     "/swagger-ui/**",
                     "/swagger-ui.html"
                 ).permitAll()
-                // Same split as the replicator orchestrator: probes and the Prometheus scrape
+                // Same split as the Parom orchestrator: probes and the Prometheus scrape
                 // endpoint are public, every other Actuator endpoint is for administrators only
                 .requestMatchers("/actuator/**").hasRole("ADMIN")
                 .requestMatchers("/api/**").authenticated()

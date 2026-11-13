@@ -33,7 +33,7 @@ async function run() {
   await page.waitForTimeout(800);
 
   // 1. Экран аутентификации
-  console.log('📸 1. Скриншот экрана аутентификации Replicator...');
+  console.log('📸 1. Скриншот экрана аутентификации Parom...');
   await page.waitForSelector('text=Аутентификация LDAP & Kerberos SSO', { timeout: 8000 });
   await page.locator('#username').fill('admin_user');
   await page.locator('#password').fill('password123');
@@ -207,7 +207,7 @@ async function run() {
   await page.locator('.fixed button:has-text("Отмена")').click({ force: true });
   await page.waitForTimeout(500);
 
-  console.log('🎉 ВСЕ 12 СКРИНШОТОВ HADOOP REPLICATOR УСПЕШНО СОЗДАНЫ!');
+  console.log('🎉 ВСЕ 12 СКРИНШОТОВ PAROM УСПЕШНО СОЗДАНЫ!');
   await browser.close();
 }
 

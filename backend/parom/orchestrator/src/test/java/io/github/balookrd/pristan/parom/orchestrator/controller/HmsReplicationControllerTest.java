@@ -65,8 +65,8 @@ public class HmsReplicationControllerTest {
 
         // Сессия, которую выставляет AgentSecretAuthenticationFilter по заголовку X-Agent-Secret
         UserSession agentSession = new UserSession(
-                "system_agent", "Replicator Agent Daemon", "agent@cluster.local",
-                List.of("replicator-agents"), "agent-secret", false, Role.WRITER
+                "system_agent", "Parom Agent Daemon", "agent@cluster.local",
+                List.of("parom-agents"), "agent-secret", false, Role.WRITER
         );
         agentAuth = new CommonAuthenticationToken(agentSession);
     }

@@ -466,7 +466,7 @@ public class HmsCoordinatorService {
     }
 
     /**
-     * Прием отчета о прогрессе и DDL логов от Replicator Agent.
+     * Прием отчета о прогрессе и DDL логов от Parom Agent.
      */
     @Transactional
     public boolean updateJobProgress(String jobId, HmsProgressReportRequest report) {

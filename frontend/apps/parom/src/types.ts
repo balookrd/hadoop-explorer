@@ -317,7 +317,7 @@ export interface CreateHmsJobPayload {
 }
 
 /**
- * Тело POST /replicator/kafka/jobs. Оркестратор читает JSON в snake_case: поля в camelCase
+ * Тело POST /parom/kafka/jobs. Оркестратор читает JSON в snake_case: поля в camelCase
  * он молча отбрасывает и создает задачу с дефолтами.
  */
 export interface CreateKafkaJobPayload {

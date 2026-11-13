@@ -31,7 +31,7 @@
 
 ### Kerberos proxy user и doAs-имперсонация (Apache Ranger)
 
-- Аутентификация в KDC по keytab системной технической учетной записи (`hdfs-replicator@REALM.LOCAL`).
+- Аутентификация в KDC по keytab системной технической учетной записи (`parom@REALM.LOCAL`).
 - doAs-имперсонация конечного пользователя (`impersonate_user` / `execution_principal`) через `org.apache.hadoop.security.UserGroupInformation`.
 - Управление пользователем имперсонации в UI и REST API:
   - В разделе HDFS (создание и редактирование задач) и в разделе HMS (создание репликации схем) администраторам доступно редактирование имени пользователя (`username` или Kerberos principal).
@@ -126,9 +126,9 @@
 
 ### Метрики Micrometer и Prometheus
 
-- Сжатие трафика: счетчики исходных (`replicator_compression_raw_bytes_total`) и сжатых сетевых байт (`replicator_compression_compressed_bytes_total`), фактический коэффициент сжатия (`replicator_compression_ratio`).
-- Задержка передачи gRPC-чанков: таймер Micrometer с SLA-бакетами от 1 мс до 5 с (`replicator_grpc_chunk_transfer_latency_seconds_bucket`, `_sum`, `_count`), средняя (`replicator_grpc_chunk_transfer_latency_avg_ms`) и пиковая задержки (`replicator_grpc_chunk_transfer_latency_max_ms`).
-- Мониторинг очереди и буфера Staging на стороне приемника: количество активных незавершенных файлов (`replicator_staging_queue_size`, `replicator_staging_active_files`), совокупный объем в байтах (`replicator_staging_active_bytes`) и число удаленных сборщиком мусора файлов-сирот (`replicator_staging_orphans_cleaned_total`).
+- Сжатие трафика: счетчики исходных (`parom_compression_raw_bytes_total`) и сжатых сетевых байт (`parom_compression_compressed_bytes_total`), фактический коэффициент сжатия (`parom_compression_ratio`).
+- Задержка передачи gRPC-чанков: таймер Micrometer с SLA-бакетами от 1 мс до 5 с (`parom_grpc_chunk_transfer_latency_seconds_bucket`, `_sum`, `_count`), средняя (`parom_grpc_chunk_transfer_latency_avg_ms`) и пиковая задержки (`parom_grpc_chunk_transfer_latency_max_ms`).
+- Мониторинг очереди и буфера Staging на стороне приемника: количество активных незавершенных файлов (`parom_staging_queue_size`, `parom_staging_active_files`), совокупный объем в байтах (`parom_staging_active_bytes`) и число удаленных сборщиком мусора файлов-сирот (`parom_staging_orphans_cleaned_total`).
 
 ### Безопасность и целостность данных
 

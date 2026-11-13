@@ -7,7 +7,7 @@ import org.slf4j.LoggerFactory;
 import java.util.concurrent.CountDownLatch;
 
 /**
- * Точка входа для запуска Replicator Agent на нодах Hadoop (DataNode, Edge Node, Standalone Daemon).
+ * Точка входа для запуска Parom Agent на нодах Hadoop (DataNode, Edge Node, Standalone Daemon).
  */
 public class ParomAgentMain {
 
@@ -33,7 +33,7 @@ public class ParomAgentMain {
             CommandLine cmd = parser.parse(options, args);
             if (cmd.hasOption("help")) {
                 HelpFormatter formatter = new HelpFormatter();
-                formatter.printHelp("replicator-agent [options]", options);
+                formatter.printHelp("parom-agent [options]", options);
                 System.exit(0);
             }
 
@@ -54,7 +54,7 @@ public class ParomAgentMain {
         } catch (ParseException e) {
             System.err.println("Ошибка разбора аргументов командной строки: " + e.getMessage());
             HelpFormatter formatter = new HelpFormatter();
-            formatter.printHelp("replicator-agent [options]", options);
+            formatter.printHelp("parom-agent [options]", options);
             System.exit(1);
         }
 
@@ -65,14 +65,14 @@ public class ParomAgentMain {
             logger.info("Перехвачен сигнал завершения (SIGTERM/SIGINT), остановка агента...");
             agent.stop();
             stopLatch.countDown();
-        }, "replicator-shutdown-hook"));
+        }, "parom-shutdown-hook"));
 
         try {
             agent.start();
-            logger.info("Replicator Agent запущен и готов к работе. Нажмите Ctrl+C для остановки.");
+            logger.info("Parom Agent запущен и готов к работе. Нажмите Ctrl+C для остановки.");
             stopLatch.await();
         } catch (Exception e) {
-            logger.error("Критическая ошибка запуска Replicator Agent: {}", e.getMessage(), e);
+            logger.error("Критическая ошибка запуска Parom Agent: {}", e.getMessage(), e);
             System.exit(1);
         }
     }

@@ -532,7 +532,7 @@
 </ul>
 </li>
 <li><strong>Контур ЦОД-1 Primary (Москва)</strong>:<ul>
-<li><strong>Устанавливается</strong>: демоны <code>hadoop-grpc-parom-agent.jar</code> (HDFS/HMS) и <code>kafka-replicator-agent</code> (Kafka Streaming Data Plane).</li>
+<li><strong>Устанавливается</strong>: демоны <code>hadoop-grpc-parom-agent.jar</code> (HDFS/HMS) и <code>parom-kafka-agent</code> (Kafka Streaming Data Plane).</li>
 <li>Варианты размещения: Colocated на узлах Hadoop DataNode и брокерах Kafka либо на выделенных серверах Edge Gateway.</li>
 <li>Локально в LAN ЦОД-1 (10/25 Gbps) взаимодействуют со штатными сервисами:<ul>
 <li><strong>NameNode</strong> (<code>TCP :8020/:9000</code>) — получение структуры директорий, списков файлов и снапшотов (<code>SnapshotDiffReport</code>);</li>
@@ -554,7 +554,7 @@
 </ul>
 </li>
 <li><strong>Контур ЦОД-2 Standby / DR (Санкт-Петербург)</strong>:<ul>
-<li><strong>Устанавливается</strong>: демоны <code>hadoop-grpc-parom-agent.jar</code> (приемник HDFS/HMS на <code>:50051</code>) и <code>kafka-replicator-agent</code> (приемник Kafka на <code>:50052</code>).</li>
+<li><strong>Устанавливается</strong>: демоны <code>hadoop-grpc-parom-agent.jar</code> (приемник HDFS/HMS на <code>:50051</code>) и <code>parom-kafka-agent</code> (приемник Kafka на <code>:50052</code>).</li>
 <li>Слушают входящие порты <code>TCP :50051</code> и <code>TCP :50052</code>. Серверы Netty переведены на виртуальные потоки Java 21 (<code>Executors.newVirtualThreadPerTaskExecutor()</code>).</li>
 <li>Валидируют криптографическую подпись HMAC-SHA256 задачи (<code>TaskAttestationValidator</code>) перед созданием целевых файлов.</li>
 <li>Принимают чанки HDFS данных по 4 МБ, рассчитывают SHA-256 хеш на лету и пишут во временные файлы <code>._staging_&lt;jobId&gt;</code> локальной HDFS (<code>TCP :9866</code>).</li>
@@ -617,7 +617,7 @@
 </ul>
 </li>
 <li><strong>Прямой Peer-to-Peer обмен между агентами по WAN</strong>:<ul>
-<li>Передача данных выполняется напрямую между демонами <code>replicator-agent-dc1</code> и <code>replicator-agent-dc2</code> по порту <code>TCP :50051</code>.</li>
+<li>Передача данных выполняется напрямую между демонами <code>parom-agent-dc1</code> и <code>parom-agent-dc2</code> по порту <code>TCP :50051</code>.</li>
 <li>В фаерволе между ЦОД открывается ровно один порт. Кластерные порты Hadoop (NameNode, DataNodes) наружу не выставляются.</li>
 </ul>
 </li>
@@ -645,8 +645,8 @@
 <pre><code class="language-bash"># Запуск Orchestrator как systemd-сервиса или в Docker-контейнере
 java -Xms4g -Xmx8g -XX:+UseG1GC \
   -Dserver.port=8005 \
-  -Dspring.datasource.url=jdbc:postgresql://postgres.infra:5432/replicator_db \
-  -Dspring.datasource.username=replicator_app \
+  -Dspring.datasource.url=jdbc:postgresql://postgres.infra:5432/parom_db \
+  -Dspring.datasource.username=parom_app \
   -Dspring.datasource.password=${DB_PASSWORD} \
   -jar parom-orchestrator.jar
 </code></pre>
@@ -1130,7 +1130,7 @@ sequenceDiagram
 <ol>
 <li><strong>Шардирование Multi-Agent Partition-Pinned Load Balancing</strong>:<ul>
 <li>Консистентное хэширование топиков и номеров партиций распределяет нагрузку по пулу агентов-отправителей с единым <code>group.id</code>, исключая дублирование вычитки и межпотоковые блокировки.</li>
-<li>Клиентская балансировка на стороне приемников <code>KafkaTargetBalancer</code> с автоматическим обнаружением узлов через REST API Оркестратора (<code>/api/v1/replicator/kafka/agents/receivers</code>).</li>
+<li>Клиентская балансировка на стороне приемников <code>KafkaTargetBalancer</code> с автоматическим обнаружением узлов через REST API Оркестратора (<code>/api/v1/parom/kafka/agents/receivers</code>).</li>
 <li>Автоматический карантин узлов: при сбое целевого агента он изолируется на 10 секунд, а партиции мгновенно перераспределяются по оставшимся активным узлам без остановки репликации и потери данных.</li>
 </ul>
 </li>
@@ -1168,7 +1168,7 @@ sequenceDiagram
         │
         ▼ (Выдача задания агенту: author=&quot;ivan_de&quot;, run_as_service=false)
 [Replicator Agent (DC1)]
-        │ 1. Авторизация агента по системному keytab: hdfs-replicator@REALM
+        │ 1. Авторизация агента по системному keytab: parom@REALM
         │ 2. Создание прокси-пользователя: UGI.createProxyUser(&quot;ivan_de&quot;, systemUGI)
         │ 3. Вызов блочного чтения: proxyUGI.doAs(() -&gt; hdfs.open(path))
         ▼
@@ -1328,61 +1328,61 @@ sequenceDiagram
 </tr>
 </thead>
 <tbody><tr>
-<td align="left"><code>replicator_throughput_bytes_total</code></td>
+<td align="left"><code>parom_throughput_bytes_total</code></td>
 <td align="left">Counter</td>
 <td align="left"><code>dc</code>, <code>cluster_id</code></td>
 <td align="left">Суммарный объем переданных байтов по WAN-каналу</td>
 </tr>
 <tr>
-<td align="left"><code>replicator_throughput_bytes_per_second</code></td>
+<td align="left"><code>parom_throughput_bytes_per_second</code></td>
 <td align="left">Gauge</td>
 <td align="left"><code>dc</code>, <code>cluster_id</code></td>
 <td align="left">Текущая мгновенная скорость передачи данных</td>
 </tr>
 <tr>
-<td align="left"><code>replicator_task_duration_seconds</code></td>
+<td align="left"><code>parom_task_duration_seconds</code></td>
 <td align="left">Histogram</td>
 <td align="left"><code>status</code>, <code>job_id</code></td>
 <td align="left">Длительность выполнения задач и подзадач</td>
 </tr>
 <tr>
-<td align="left"><code>replicator_hms_lag_events</code></td>
+<td align="left"><code>parom_hms_lag_events</code></td>
 <td align="left">Gauge</td>
 <td align="left"><code>db_name</code></td>
 <td align="left">Количество необработанных событий в NOTIFICATION_LOG</td>
 </tr>
 <tr>
-<td align="left"><code>replicator_active_streams_count</code></td>
+<td align="left"><code>parom_active_streams_count</code></td>
 <td align="left">Gauge</td>
 <td align="left"><code>direction</code></td>
 <td align="left">Количество одновременно открытых gRPC-потоков</td>
 </tr>
 <tr>
-<td align="left"><code>replicator_staging_orphans_count</code></td>
+<td align="left"><code>parom_staging_orphans_count</code></td>
 <td align="left">Gauge</td>
 <td align="left"><code>cluster_id</code></td>
 <td align="left">Количество обнаруженных осиротевших файлов staging</td>
 </tr>
 <tr>
-<td align="left"><code>replicator_agent_heartbeat_timestamp</code></td>
+<td align="left"><code>parom_agent_heartbeat_timestamp</code></td>
 <td align="left">Gauge</td>
 <td align="left"><code>agent_id</code>, <code>dc</code></td>
 <td align="left">Временная метка последнего успешного heartbeat</td>
 </tr>
 <tr>
-<td align="left"><code>replicator_kafka_bytes_mirrored_total</code></td>
+<td align="left"><code>parom_kafka_bytes_mirrored_total</code></td>
 <td align="left">Counter</td>
 <td align="left"><code>topic</code>, <code>cluster_id</code></td>
 <td align="left">Объем зеркалированных байтов Kafka</td>
 </tr>
 <tr>
-<td align="left"><code>replicator_kafka_messages_mirrored_total</code></td>
+<td align="left"><code>parom_kafka_messages_mirrored_total</code></td>
 <td align="left">Counter</td>
 <td align="left"><code>topic</code>, <code>cluster_id</code></td>
 <td align="left">Количество зеркалированных сообщений Kafka</td>
 </tr>
 <tr>
-<td align="left"><code>replicator_kafka_schema_resolution_duration</code></td>
+<td align="left"><code>parom_kafka_schema_resolution_duration</code></td>
 <td align="left">Histogram</td>
 <td align="left"><code>registry</code></td>
 <td align="left">Латентность разрешения схем в кэше с Single-Flight</td>
@@ -1390,18 +1390,18 @@ sequenceDiagram
 </tbody></table></div>
 <h3>Рекомендуемые правила для Prometheus Alertmanager</h3>
 <pre><code class="language-yaml">groups:
-  - name: replicator-alerts
+  - name: parom-alerts
     rules:
       - alert: ParomAgentOffline
-        expr: time() - replicator_agent_heartbeat_timestamp &gt; 30
+        expr: time() - parom_agent_heartbeat_timestamp &gt; 30
         for: 1m
         labels:
           severity: critical
         annotations:
           summary: &quot;Агент репликатора {{ $labels.agent_id }} не отвечает более 30 секунд&quot;
 
-      - alert: ReplicatorHmsLagHigh
-        expr: replicator_hms_lag_events &gt; 10000
+      - alert: ParomHmsLagHigh
+        expr: parom_hms_lag_events &gt; 10000
         for: 5m
         labels:
           severity: warning
@@ -1409,7 +1409,7 @@ sequenceDiagram
           summary: &quot;Высокое отставание репликации Hive Metastore в БД {{ $labels.db_name }} (&gt; 10000)&quot;
 
       - alert: ReplicatorThroughputZeroOnActiveJobs
-        expr: replicator_throughput_bytes_per_second == 0 and replicator_active_streams_count &gt; 0
+        expr: parom_throughput_bytes_per_second == 0 and parom_active_streams_count &gt; 0
         for: 3m
         labels:
           severity: warning
@@ -1473,7 +1473,7 @@ sequenceDiagram
 <li><strong>Colocated (на узлах брокеров Kafka)</strong>: вычитка идет локально по <code>localhost:9092</code> без дополнительной загрузки внутренней сети ЦОД. In-memory буферизация на виртуальных потоках Java 21 не требует выделенного staging-диска и потребляет всего 2–4 vCPU при скорости до 400k msg/s.</li>
 <li><strong>Dedicated (выделенные Edge Gateway серверы)</strong>: рекомендуется при жестких требованиях ИБ к изоляции брокеров либо при репликации высоконагруженных топиков с суммарным потоком до 1M+ msg/s.</li>
 <li><strong>Изоляция брокерного ISR-трафика</strong>: внутрикластерная синхронизация реплик (ISR) циркулирует по локальным интерфейсам (например, 2x25G) и физически не конкурирует с WAN-трафиком репликации.</li>
-<li><em>Пошаговый регламент развертывания Colocated с готовым systemd-юнитом и cgroups-изоляцией</em>: <a href="replicator-admin-guide.md#85-%D0%BF%D0%BE%D1%88%D0%B0%D0%B3%D0%BE%D0%B2%D0%B0%D1%8F-%D0%BD%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B0-%D0%B8-%D0%B7%D0%B0%D0%BF%D1%83%D1%81%D0%BA-kafka-replicator-agent-%D0%B2-%D1%80%D0%B5%D0%B6%D0%B8%D0%BC%D0%B5-colocated-%D0%BD%D0%B0-%D1%83%D0%B7%D0%BB%D0%B0%D1%85-%D0%B1%D1%80%D0%BE%D0%BA%D0%B5%D1%80%D0%BE%D0%B2-kafka">Руководство администратора, разд. 8.5</a>.</li>
+<li><em>Пошаговый регламент развертывания Colocated с готовым systemd-юнитом и cgroups-изоляцией</em>: <a href="parom-admin-guide.md#85-%D0%BF%D0%BE%D1%88%D0%B0%D0%B3%D0%BE%D0%B2%D0%B0%D1%8F-%D0%BD%D0%B0%D1%81%D1%82%D1%80%D0%BE%D0%B9%D0%BA%D0%B0-%D0%B8-%D0%B7%D0%B0%D0%BF%D1%83%D1%81%D0%BA-parom-kafka-agent-%D0%B2-%D1%80%D0%B5%D0%B6%D0%B8%D0%BC%D0%B5-colocated-%D0%BD%D0%B0-%D1%83%D0%B7%D0%BB%D0%B0%D1%85-%D0%B1%D1%80%D0%BE%D0%BA%D0%B5%D1%80%D0%BE%D0%B2-kafka">Руководство администратора, разд. 8.5</a>.</li>
 </ul>
 </blockquote>
 <h3>Тюнинг ядра Linux для высокоскоростных 10G / 40G / 100G / 200G / 400G+ WAN-каналов (<code>/etc/sysctl.conf</code>)</h3>

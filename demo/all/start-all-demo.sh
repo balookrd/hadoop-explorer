@@ -26,11 +26,11 @@ echo "=== Инициализация демо-таблиц Spark через Livy
 "$ROOT_DIR/demo/iskra/init-demo-tables.sh" || true
 
 echo ""
-echo "=== Ожидание готовности Hadoop Replicator Orchestrator ==="
+echo "=== Ожидание готовности Parom Orchestrator ==="
 REPL_WAIT=0
 until curl -sf http://localhost:8005/health >/dev/null || curl -sf http://localhost:8005/actuator/health >/dev/null || [ $REPL_WAIT -ge 15 ]; do
     REPL_WAIT=$((REPL_WAIT + 1))
-    echo " -> Ожидание готовности Replicator Orchestrator ($REPL_WAIT/15)..."
+    echo " -> Ожидание готовности Parom Orchestrator ($REPL_WAIT/15)..."
     sleep 2
 done
 
@@ -42,7 +42,7 @@ echo "   🎛️ Artel:       http://localhost:8001"
 echo "   📁 Sklad:       http://localhost:8002"
 echo "   📊 Tolmach:        http://localhost:8003"
 echo "   ⚡ Iskra:      http://localhost:8004"
-echo "   🔄 Replicator Explorer: http://localhost:8005"
+echo "   🔄 Parom: http://localhost:8005"
 echo "---------------------------------------------------------"
 echo "   ⚡ Control Plane gRPC:  localhost:50050"
 echo "   🤖 Agent DC1 gRPC:      localhost:50051"

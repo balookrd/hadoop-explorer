@@ -96,47 +96,47 @@ public class ParomMetricsService {
         StringBuilder sb = new StringBuilder();
 
         try {
-            // 1. replicator_bytes_total
+            // 1. parom_bytes_total
             double bytesCompleted = calculateBytesByStatus("COMPLETED");
             double bytesRunning = calculateBytesByStatus("RUNNING");
             double bytesFailed = calculateBytesByStatus("FAILED");
 
-            sb.append("# HELP replicator_bytes_total Суммарный объем переданных байт данных репликации\n");
-            sb.append("# TYPE replicator_bytes_total counter\n");
-            sb.append(String.format(Locale.US, "replicator_bytes_total{status=\"COMPLETED\"} %.0f\n", bytesCompleted));
-            sb.append(String.format(Locale.US, "replicator_bytes_total{status=\"IN_PROGRESS\"} %.0f\n", bytesRunning));
-            sb.append(String.format(Locale.US, "replicator_bytes_total{status=\"FAILED\"} %.0f\n", bytesFailed));
+            sb.append("# HELP parom_bytes_total Суммарный объем переданных байт данных репликации\n");
+            sb.append("# TYPE parom_bytes_total counter\n");
+            sb.append(String.format(Locale.US, "parom_bytes_total{status=\"COMPLETED\"} %.0f\n", bytesCompleted));
+            sb.append(String.format(Locale.US, "parom_bytes_total{status=\"IN_PROGRESS\"} %.0f\n", bytesRunning));
+            sb.append(String.format(Locale.US, "parom_bytes_total{status=\"FAILED\"} %.0f\n", bytesFailed));
 
-            // 2. replicator_active_workers & replicator_active_agents
+            // 2. parom_active_workers & parom_active_agents
             double onlineAgents = countAgentsByStatus("online");
             double totalAgents = countTotalAgents();
 
-            sb.append("# HELP replicator_active_workers Количество активных онлайн-воркеров репликации\n");
-            sb.append("# TYPE replicator_active_workers gauge\n");
-            sb.append(String.format(Locale.US, "replicator_active_workers %.0f\n", onlineAgents));
+            sb.append("# HELP parom_active_workers Количество активных онлайн-воркеров репликации\n");
+            sb.append("# TYPE parom_active_workers gauge\n");
+            sb.append(String.format(Locale.US, "parom_active_workers %.0f\n", onlineAgents));
 
-            sb.append("# HELP replicator_active_agents Количество доступных агентов репликации\n");
-            sb.append("# TYPE replicator_active_agents gauge\n");
-            sb.append(String.format(Locale.US, "replicator_active_agents{status=\"online\"} %.0f\n", onlineAgents));
-            sb.append(String.format(Locale.US, "replicator_active_agents{status=\"total\"} %.0f\n", totalAgents));
+            sb.append("# HELP parom_active_agents Количество доступных агентов репликации\n");
+            sb.append("# TYPE parom_active_agents gauge\n");
+            sb.append(String.format(Locale.US, "parom_active_agents{status=\"online\"} %.0f\n", onlineAgents));
+            sb.append(String.format(Locale.US, "parom_active_agents{status=\"total\"} %.0f\n", totalAgents));
 
-            // 3. Throttling metrics: replicator_throttling_*
+            // 3. Throttling metrics: parom_throttling_*
             double waitSec = accumulatedThrottlingNanos.get() / 1_000_000_000.0;
             double globalLimit = throttler.getGlobalLimit();
 
-            sb.append("# HELP replicator_throttling_delay_seconds_total Суммарная накопленная задержка из-за ограничения полосы Token Bucket Throttler\n");
-            sb.append("# TYPE replicator_throttling_delay_seconds_total counter\n");
-            sb.append(String.format(Locale.US, "replicator_throttling_delay_seconds_total %.4f\n", waitSec));
+            sb.append("# HELP parom_throttling_delay_seconds_total Суммарная накопленная задержка из-за ограничения полосы Token Bucket Throttler\n");
+            sb.append("# TYPE parom_throttling_delay_seconds_total counter\n");
+            sb.append(String.format(Locale.US, "parom_throttling_delay_seconds_total %.4f\n", waitSec));
 
-            sb.append("# HELP replicator_throttling_delay_seconds Накопленная задержка из-за ограничения полосы Token Bucket\n");
-            sb.append("# TYPE replicator_throttling_delay_seconds gauge\n");
-            sb.append(String.format(Locale.US, "replicator_throttling_delay_seconds %.4f\n", waitSec));
+            sb.append("# HELP parom_throttling_delay_seconds Накопленная задержка из-за ограничения полосы Token Bucket\n");
+            sb.append("# TYPE parom_throttling_delay_seconds gauge\n");
+            sb.append(String.format(Locale.US, "parom_throttling_delay_seconds %.4f\n", waitSec));
 
-            sb.append("# HELP replicator_throttling_global_limit_bytes_per_sec Текущий глобальный лимит пропускной способности репликации\n");
-            sb.append("# TYPE replicator_throttling_global_limit_bytes_per_sec gauge\n");
-            sb.append(String.format(Locale.US, "replicator_throttling_global_limit_bytes_per_sec %.0f\n", globalLimit));
+            sb.append("# HELP parom_throttling_global_limit_bytes_per_sec Текущий глобальный лимит пропускной способности репликации\n");
+            sb.append("# TYPE parom_throttling_global_limit_bytes_per_sec gauge\n");
+            sb.append(String.format(Locale.US, "parom_throttling_global_limit_bytes_per_sec %.0f\n", globalLimit));
 
-            // 4. replicator_jobs_total
+            // 4. parom_jobs_total
             double runningJobs = countJobsByStatus("RUNNING");
             double queuedJobs = countJobsByStatus("QUEUED");
             double completedJobs = countJobsByStatus("COMPLETED");
@@ -144,41 +144,41 @@ public class ParomMetricsService {
             double scheduledJobs = countJobsByScheduled(true);
             double manualJobs = countJobsByScheduled(false);
 
-            sb.append("# HELP replicator_jobs_total Количество задач репликации HDFS по статусам и режимам\n");
-            sb.append("# TYPE replicator_jobs_total gauge\n");
-            sb.append(String.format(Locale.US, "replicator_jobs_total{status=\"RUNNING\"} %.0f\n", runningJobs));
-            sb.append(String.format(Locale.US, "replicator_jobs_total{status=\"QUEUED\"} %.0f\n", queuedJobs));
-            sb.append(String.format(Locale.US, "replicator_jobs_total{status=\"COMPLETED\"} %.0f\n", completedJobs));
-            sb.append(String.format(Locale.US, "replicator_jobs_total{status=\"FAILED\"} %.0f\n", failedJobs));
-            sb.append(String.format(Locale.US, "replicator_jobs_total{status=\"SCHEDULED\",mode=\"scheduled\"} %.0f\n", scheduledJobs));
-            sb.append(String.format(Locale.US, "replicator_jobs_total{status=\"MANUAL\",mode=\"manual\"} %.0f\n", manualJobs));
+            sb.append("# HELP parom_jobs_total Количество задач репликации HDFS по статусам и режимам\n");
+            sb.append("# TYPE parom_jobs_total gauge\n");
+            sb.append(String.format(Locale.US, "parom_jobs_total{status=\"RUNNING\"} %.0f\n", runningJobs));
+            sb.append(String.format(Locale.US, "parom_jobs_total{status=\"QUEUED\"} %.0f\n", queuedJobs));
+            sb.append(String.format(Locale.US, "parom_jobs_total{status=\"COMPLETED\"} %.0f\n", completedJobs));
+            sb.append(String.format(Locale.US, "parom_jobs_total{status=\"FAILED\"} %.0f\n", failedJobs));
+            sb.append(String.format(Locale.US, "parom_jobs_total{status=\"SCHEDULED\",mode=\"scheduled\"} %.0f\n", scheduledJobs));
+            sb.append(String.format(Locale.US, "parom_jobs_total{status=\"MANUAL\",mode=\"manual\"} %.0f\n", manualJobs));
 
-            // 5. replicator_tasks_total
+            // 5. parom_tasks_total
             double queuedTasks = countTasksByStatus("QUEUED");
             double runningTasks = countTasksByStatus("RUNNING");
             double completedTasks = countTasksByStatus("COMPLETED");
             double failedTasks = countTasksByStatus("FAILED");
 
-            sb.append("# HELP replicator_tasks_total Количество пофайловых задач в распределенном пуле\n");
-            sb.append("# TYPE replicator_tasks_total gauge\n");
-            sb.append(String.format(Locale.US, "replicator_tasks_total{status=\"QUEUED\"} %.0f\n", queuedTasks));
-            sb.append(String.format(Locale.US, "replicator_tasks_total{status=\"RUNNING\"} %.0f\n", runningTasks));
-            sb.append(String.format(Locale.US, "replicator_tasks_total{status=\"COMPLETED\"} %.0f\n", completedTasks));
-            sb.append(String.format(Locale.US, "replicator_tasks_total{status=\"FAILED\"} %.0f\n", failedTasks));
+            sb.append("# HELP parom_tasks_total Количество пофайловых задач в распределенном пуле\n");
+            sb.append("# TYPE parom_tasks_total gauge\n");
+            sb.append(String.format(Locale.US, "parom_tasks_total{status=\"QUEUED\"} %.0f\n", queuedTasks));
+            sb.append(String.format(Locale.US, "parom_tasks_total{status=\"RUNNING\"} %.0f\n", runningTasks));
+            sb.append(String.format(Locale.US, "parom_tasks_total{status=\"COMPLETED\"} %.0f\n", completedTasks));
+            sb.append(String.format(Locale.US, "parom_tasks_total{status=\"FAILED\"} %.0f\n", failedTasks));
 
-            // 6. Гистограмма распределения размеров файлов: replicator_file_size_bytes & replication_file_size_bytes
+            // 6. Гистограмма распределения размеров файлов: parom_file_size_bytes & replication_file_size_bytes
             renderFileSizeMetrics(sb);
 
-            // 7. HMS Replication metrics: replicator_hms_* & hms_replication_*
+            // 7. HMS Replication metrics: parom_hms_* & hms_replication_*
             renderHmsMetrics(sb);
 
-            // 8. Disaster Recovery metrics: replicator_dr_* & dr_*
+            // 8. Disaster Recovery metrics: parom_dr_* & dr_*
             renderDrMetrics(sb);
 
-            // 9. Детальные метрики агентов: replicator_agent_* & agent_*
+            // 9. Детальные метрики агентов: parom_agent_* & agent_*
             renderAgentMetrics(sb);
 
-            // 10. Kafka Replication metrics: replicator_kafka_* & kafka_*
+            // 10. Kafka Replication metrics: parom_kafka_* & kafka_*
             renderKafkaMetrics(sb);
 
         } catch (Exception e) {
@@ -204,16 +204,16 @@ public class ParomMetricsService {
                 b10G = toLong(row[6]);
             }
 
-            sb.append("# HELP replicator_file_size_bytes Распределение размеров файлов репликации\n");
-            sb.append("# TYPE replicator_file_size_bytes histogram\n");
-            sb.append(String.format(Locale.US, "replicator_file_size_bytes_bucket{le=\"1048576\"} %d\n", b1M));
-            sb.append(String.format(Locale.US, "replicator_file_size_bytes_bucket{le=\"10485760\"} %d\n", b10M));
-            sb.append(String.format(Locale.US, "replicator_file_size_bytes_bucket{le=\"104857600\"} %d\n", b100M));
-            sb.append(String.format(Locale.US, "replicator_file_size_bytes_bucket{le=\"1073741824\"} %d\n", b1G));
-            sb.append(String.format(Locale.US, "replicator_file_size_bytes_bucket{le=\"10737418240\"} %d\n", b10G));
-            sb.append(String.format(Locale.US, "replicator_file_size_bytes_bucket{le=\"+Inf\"} %d\n", count));
-            sb.append(String.format(Locale.US, "replicator_file_size_bytes_sum %d\n", sum));
-            sb.append(String.format(Locale.US, "replicator_file_size_bytes_count %d\n", count));
+            sb.append("# HELP parom_file_size_bytes Распределение размеров файлов репликации\n");
+            sb.append("# TYPE parom_file_size_bytes histogram\n");
+            sb.append(String.format(Locale.US, "parom_file_size_bytes_bucket{le=\"1048576\"} %d\n", b1M));
+            sb.append(String.format(Locale.US, "parom_file_size_bytes_bucket{le=\"10485760\"} %d\n", b10M));
+            sb.append(String.format(Locale.US, "parom_file_size_bytes_bucket{le=\"104857600\"} %d\n", b100M));
+            sb.append(String.format(Locale.US, "parom_file_size_bytes_bucket{le=\"1073741824\"} %d\n", b1G));
+            sb.append(String.format(Locale.US, "parom_file_size_bytes_bucket{le=\"10737418240\"} %d\n", b10G));
+            sb.append(String.format(Locale.US, "parom_file_size_bytes_bucket{le=\"+Inf\"} %d\n", count));
+            sb.append(String.format(Locale.US, "parom_file_size_bytes_sum %d\n", sum));
+            sb.append(String.format(Locale.US, "parom_file_size_bytes_count %d\n", count));
         } catch (Exception e) {
             log.error("Ошибка при генерации метрик размеров файлов: {}", e.getMessage());
         }
@@ -222,42 +222,42 @@ public class ParomMetricsService {
     private void renderHmsMetrics(StringBuilder sb) {
         // Статусы — те, что реально бывают у задачи (HmsJobStatus): прежние STREAMING и COMPLETED
         // не встречались никогда, а ACTIVE, PAUSED и ERROR в метрику не попадали вовсе
-        sb.append("# HELP replicator_hms_jobs_total Количество задач репликации Hive Metastore по статусам\n");
-        sb.append("# TYPE replicator_hms_jobs_total gauge\n");
+        sb.append("# HELP parom_hms_jobs_total Количество задач репликации Hive Metastore по статусам\n");
+        sb.append("# TYPE parom_hms_jobs_total gauge\n");
         for (io.github.balookrd.pristan.parom.model.HmsJobStatus status
                 : io.github.balookrd.pristan.parom.model.HmsJobStatus.values()) {
-            sb.append(String.format(Locale.US, "replicator_hms_jobs_total{status=\"%s\"} %.0f\n",
+            sb.append(String.format(Locale.US, "parom_hms_jobs_total{status=\"%s\"} %.0f\n",
                     status.name(), countHmsJobsByStatus(status.name())));
         }
 
         long[] hmsTotals = hmsTableAndPartitionTotals();
         double totalTables = hmsTotals[0];
         double repTables = hmsTotals[1];
-        sb.append("# HELP replicator_hms_tables_total Количество таблиц в схемах HMS\n");
-        sb.append("# TYPE replicator_hms_tables_total gauge\n");
-        sb.append(String.format(Locale.US, "replicator_hms_tables_total{type=\"total\"} %.0f\n", totalTables));
-        sb.append(String.format(Locale.US, "replicator_hms_tables_total{type=\"replicated\"} %.0f\n", repTables));
+        sb.append("# HELP parom_hms_tables_total Количество таблиц в схемах HMS\n");
+        sb.append("# TYPE parom_hms_tables_total gauge\n");
+        sb.append(String.format(Locale.US, "parom_hms_tables_total{type=\"total\"} %.0f\n", totalTables));
+        sb.append(String.format(Locale.US, "parom_hms_tables_total{type=\"replicated\"} %.0f\n", repTables));
 
         double totalPartitions = hmsTotals[2];
         double repPartitions = hmsTotals[3];
-        sb.append("# HELP replicator_hms_partitions_total Количество партиций таблиц HMS\n");
-        sb.append("# TYPE replicator_hms_partitions_total gauge\n");
-        sb.append(String.format(Locale.US, "replicator_hms_partitions_total{type=\"total\"} %.0f\n", totalPartitions));
-        sb.append(String.format(Locale.US, "replicator_hms_partitions_total{type=\"replicated\"} %.0f\n", repPartitions));
+        sb.append("# HELP parom_hms_partitions_total Количество партиций таблиц HMS\n");
+        sb.append("# TYPE parom_hms_partitions_total gauge\n");
+        sb.append(String.format(Locale.US, "parom_hms_partitions_total{type=\"total\"} %.0f\n", totalPartitions));
+        sb.append(String.format(Locale.US, "parom_hms_partitions_total{type=\"replicated\"} %.0f\n", repPartitions));
 
         double speed = calculateHmsBootstrapSpeedBytesPerSec();
-        sb.append("# HELP replicator_hms_speed_bytes_per_second Текущая средняя скорость первичной синхронизации HMS\n");
-        sb.append("# TYPE replicator_hms_speed_bytes_per_second gauge\n");
-        sb.append(String.format(Locale.US, "replicator_hms_speed_bytes_per_second %.2f\n", speed));
+        sb.append("# HELP parom_hms_speed_bytes_per_second Текущая средняя скорость первичной синхронизации HMS\n");
+        sb.append("# TYPE parom_hms_speed_bytes_per_second gauge\n");
+        sb.append(String.format(Locale.US, "parom_hms_speed_bytes_per_second %.2f\n", speed));
     }
 
     private void renderDrMetrics(StringBuilder sb) {
-        sb.append("# HELP replicator_dr_cluster_fenced Статус изоляции кластера (1 = Fenced / Kill-Switch активирован, 0 = Active)\n");
-        sb.append("# TYPE replicator_dr_cluster_fenced gauge\n");
+        sb.append("# HELP parom_dr_cluster_fenced Статус изоляции кластера (1 = Fenced / Kill-Switch активирован, 0 = Active)\n");
+        sb.append("# TYPE parom_dr_cluster_fenced gauge\n");
         try {
             // Сводка DR читает задания, поэтому для скрейпа берется только признак изоляции
             for (var entry : disasterRecoveryService.getClusterFencingStatus().entrySet()) {
-                sb.append(String.format(Locale.US, "replicator_dr_cluster_fenced{cluster_id=\"%s\"} %.1f\n",
+                sb.append(String.format(Locale.US, "parom_dr_cluster_fenced{cluster_id=\"%s\"} %.1f\n",
                         escape(entry.getKey()), Boolean.TRUE.equals(entry.getValue()) ? 1.0 : 0.0));
             }
         } catch (Exception ignored) {}
@@ -265,10 +265,10 @@ public class ParomMetricsService {
         double revRunning = countReverseJobs("RUNNING");
         double revCompleted = countReverseJobs("COMPLETED");
 
-        sb.append("# HELP replicator_dr_reverse_jobs_total Количество задач обратной репликации при Failover\n");
-        sb.append("# TYPE replicator_dr_reverse_jobs_total gauge\n");
-        sb.append(String.format(Locale.US, "replicator_dr_reverse_jobs_total{status=\"RUNNING\"} %.0f\n", revRunning));
-        sb.append(String.format(Locale.US, "replicator_dr_reverse_jobs_total{status=\"COMPLETED\"} %.0f\n", revCompleted));
+        sb.append("# HELP parom_dr_reverse_jobs_total Количество задач обратной репликации при Failover\n");
+        sb.append("# TYPE parom_dr_reverse_jobs_total gauge\n");
+        sb.append(String.format(Locale.US, "parom_dr_reverse_jobs_total{status=\"RUNNING\"} %.0f\n", revRunning));
+        sb.append(String.format(Locale.US, "parom_dr_reverse_jobs_total{status=\"COMPLETED\"} %.0f\n", revCompleted));
     }
 
     private void renderAgentMetrics(StringBuilder sb) {
@@ -277,57 +277,57 @@ public class ParomMetricsService {
             return;
         }
 
-        // 1. replicator_agent_status
-        sb.append("# HELP replicator_agent_status Статус доступности агента (1 = online, 0 = offline/stale)\n");
-        sb.append("# TYPE replicator_agent_status gauge\n");
+        // 1. parom_agent_status
+        sb.append("# HELP parom_agent_status Статус доступности агента (1 = online, 0 = offline/stale)\n");
+        sb.append("# TYPE parom_agent_status gauge\n");
         for (var a : agents) {
             double val = "online".equalsIgnoreCase(a.status()) ? 1.0 : 0.0;
-            sb.append(String.format(Locale.US, "replicator_agent_status{agent_id=\"%s\",cluster_id=\"%s\",mode=\"%s\",status=\"%s\"} %.1f\n",
+            sb.append(String.format(Locale.US, "parom_agent_status{agent_id=\"%s\",cluster_id=\"%s\",mode=\"%s\",status=\"%s\"} %.1f\n",
                     escape(a.agentId()), escape(a.clusterId()), escape(a.mode()), escape(a.status()), val));
         }
 
-        // 2. replicator_agent_active_transfers
-        sb.append("# HELP replicator_agent_active_transfers Текущее количество параллельных передач на агенте\n");
-        sb.append("# TYPE replicator_agent_active_transfers gauge\n");
+        // 2. parom_agent_active_transfers
+        sb.append("# HELP parom_agent_active_transfers Текущее количество параллельных передач на агенте\n");
+        sb.append("# TYPE parom_agent_active_transfers gauge\n");
         for (var a : agents) {
-            sb.append(String.format(Locale.US, "replicator_agent_active_transfers{agent_id=\"%s\",cluster_id=\"%s\",mode=\"%s\"} %d\n",
+            sb.append(String.format(Locale.US, "parom_agent_active_transfers{agent_id=\"%s\",cluster_id=\"%s\",mode=\"%s\"} %d\n",
                     escape(a.agentId()), escape(a.clusterId()), escape(a.mode()), a.activeTransfers()));
         }
 
-        // 3. replicator_agent_heartbeat_age_seconds
-        sb.append("# HELP replicator_agent_heartbeat_age_seconds Время с момента последнего keepalive от агента\n");
-        sb.append("# TYPE replicator_agent_heartbeat_age_seconds gauge\n");
+        // 3. parom_agent_heartbeat_age_seconds
+        sb.append("# HELP parom_agent_heartbeat_age_seconds Время с момента последнего keepalive от агента\n");
+        sb.append("# TYPE parom_agent_heartbeat_age_seconds gauge\n");
         for (var a : agents) {
-            sb.append(String.format(Locale.US, "replicator_agent_heartbeat_age_seconds{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
+            sb.append(String.format(Locale.US, "parom_agent_heartbeat_age_seconds{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
                     escape(a.agentId()), escape(a.clusterId()), a.heartbeatAgeSeconds()));
         }
 
-        // 4. replicator_agent_max_bandwidth_mb_s
-        sb.append("# HELP replicator_agent_max_bandwidth_mb_s Выделенный локальный лимит полосы пропускания HTB агента (МБ/с)\n");
-        sb.append("# TYPE replicator_agent_max_bandwidth_mb_s gauge\n");
+        // 4. parom_agent_max_bandwidth_mb_s
+        sb.append("# HELP parom_agent_max_bandwidth_mb_s Выделенный локальный лимит полосы пропускания HTB агента (МБ/с)\n");
+        sb.append("# TYPE parom_agent_max_bandwidth_mb_s gauge\n");
         for (var a : agents) {
             double bw = a.maxBandwidthMbS() != null ? a.maxBandwidthMbS() : 0.0;
-            sb.append(String.format(Locale.US, "replicator_agent_max_bandwidth_mb_s{agent_id=\"%s\",cluster_id=\"%s\"} %.2f\n",
+            sb.append(String.format(Locale.US, "parom_agent_max_bandwidth_mb_s{agent_id=\"%s\",cluster_id=\"%s\"} %.2f\n",
                     escape(a.agentId()), escape(a.clusterId()), bw));
         }
 
-        // 5. replicator_agent_transferred_bytes_total
-        sb.append("# HELP replicator_agent_transferred_bytes_total Суммарный объем байт данных переданных агентом\n");
-        sb.append("# TYPE replicator_agent_transferred_bytes_total counter\n");
+        // 5. parom_agent_transferred_bytes_total
+        sb.append("# HELP parom_agent_transferred_bytes_total Суммарный объем байт данных переданных агентом\n");
+        sb.append("# TYPE parom_agent_transferred_bytes_total counter\n");
         for (var a : agents) {
-            sb.append(String.format(Locale.US, "replicator_agent_transferred_bytes_total{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
+            sb.append(String.format(Locale.US, "parom_agent_transferred_bytes_total{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
                     escape(a.agentId()), escape(a.clusterId()), a.transferredBytes()));
         }
 
-        // 6. replicator_agent_errors_total
-        sb.append("# HELP replicator_agent_errors_total Количество ошибок передачи данных агента\n");
-        sb.append("# TYPE replicator_agent_errors_total counter\n");
+        // 6. parom_agent_errors_total
+        sb.append("# HELP parom_agent_errors_total Количество ошибок передачи данных агента\n");
+        sb.append("# TYPE parom_agent_errors_total counter\n");
         for (var a : agents) {
-            sb.append(String.format(Locale.US, "replicator_agent_errors_total{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
+            sb.append(String.format(Locale.US, "parom_agent_errors_total{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
                     escape(a.agentId()), escape(a.clusterId()), a.transferErrors()));
         }
 
-        // 7. Сжатие трафика (Wire Compression): replicator_compression_*
+        // 7. Сжатие трафика (Wire Compression): parom_compression_*
         long totalRaw = 0;
         long totalComp = 0;
         for (var a : agents) {
@@ -336,30 +336,30 @@ public class ParomMetricsService {
         }
         double globalRatio = (totalRaw > 0 && totalComp > 0) ? ((double) totalRaw / Math.max(1, totalComp)) : 1.0;
 
-        sb.append("# HELP replicator_compression_raw_bytes_total Суммарный объем исходных данных до сжатия в байтах\n");
-        sb.append("# TYPE replicator_compression_raw_bytes_total counter\n");
+        sb.append("# HELP parom_compression_raw_bytes_total Суммарный объем исходных данных до сжатия в байтах\n");
+        sb.append("# TYPE parom_compression_raw_bytes_total counter\n");
         for (var a : agents) {
-            sb.append(String.format(Locale.US, "replicator_compression_raw_bytes_total{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
+            sb.append(String.format(Locale.US, "parom_compression_raw_bytes_total{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
                     escape(a.agentId()), escape(a.clusterId()), a.compressionRawBytes()));
         }
 
-        sb.append("# HELP replicator_compression_compressed_bytes_total Суммарный объем сжатых данных в канале передачи в байтах\n");
-        sb.append("# TYPE replicator_compression_compressed_bytes_total counter\n");
+        sb.append("# HELP parom_compression_compressed_bytes_total Суммарный объем сжатых данных в канале передачи в байтах\n");
+        sb.append("# TYPE parom_compression_compressed_bytes_total counter\n");
         for (var a : agents) {
-            sb.append(String.format(Locale.US, "replicator_compression_compressed_bytes_total{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
+            sb.append(String.format(Locale.US, "parom_compression_compressed_bytes_total{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
                     escape(a.agentId()), escape(a.clusterId()), a.compressionCompressedBytes()));
         }
 
-        sb.append("# HELP replicator_compression_ratio Эффективный коэффициент сжатия трафика репликации (raw_bytes / compressed_bytes)\n");
-        sb.append("# TYPE replicator_compression_ratio gauge\n");
-        sb.append(String.format(Locale.US, "replicator_compression_ratio{cluster_id=\"all\"} %.2f\n", globalRatio));
+        sb.append("# HELP parom_compression_ratio Эффективный коэффициент сжатия трафика репликации (raw_bytes / compressed_bytes)\n");
+        sb.append("# TYPE parom_compression_ratio gauge\n");
+        sb.append(String.format(Locale.US, "parom_compression_ratio{cluster_id=\"all\"} %.2f\n", globalRatio));
         for (var a : agents) {
             double ratio = a.compressionRatio() > 0 ? a.compressionRatio() : 1.0;
-            sb.append(String.format(Locale.US, "replicator_compression_ratio{agent_id=\"%s\",cluster_id=\"%s\"} %.2f\n",
+            sb.append(String.format(Locale.US, "parom_compression_ratio{agent_id=\"%s\",cluster_id=\"%s\"} %.2f\n",
                     escape(a.agentId()), escape(a.clusterId()), ratio));
         }
 
-        // 8. Задержка передачи gRPC чанков: replicator_grpc_chunk_transfer_latency_*
+        // 8. Задержка передачи gRPC чанков: parom_grpc_chunk_transfer_latency_*
         long totalChunks = 0;
         double sumLatencySec = 0.0;
         for (var a : agents) {
@@ -367,22 +367,22 @@ public class ParomMetricsService {
             sumLatencySec += (a.chunkLatencyAvgMs() * a.chunkTransferCount()) / 1000.0;
         }
 
-        sb.append("# HELP replicator_grpc_chunk_transfer_latency_avg_ms Средняя задержка передачи чанка данных через gRPC (мс)\n");
-        sb.append("# TYPE replicator_grpc_chunk_transfer_latency_avg_ms gauge\n");
+        sb.append("# HELP parom_grpc_chunk_transfer_latency_avg_ms Средняя задержка передачи чанка данных через gRPC (мс)\n");
+        sb.append("# TYPE parom_grpc_chunk_transfer_latency_avg_ms gauge\n");
         for (var a : agents) {
-            sb.append(String.format(Locale.US, "replicator_grpc_chunk_transfer_latency_avg_ms{agent_id=\"%s\",cluster_id=\"%s\"} %.3f\n",
+            sb.append(String.format(Locale.US, "parom_grpc_chunk_transfer_latency_avg_ms{agent_id=\"%s\",cluster_id=\"%s\"} %.3f\n",
                     escape(a.agentId()), escape(a.clusterId()), a.chunkLatencyAvgMs()));
         }
 
-        sb.append("# HELP replicator_grpc_chunk_transfer_latency_max_ms Максимальная задержка передачи чанка данных через gRPC (мс)\n");
-        sb.append("# TYPE replicator_grpc_chunk_transfer_latency_max_ms gauge\n");
+        sb.append("# HELP parom_grpc_chunk_transfer_latency_max_ms Максимальная задержка передачи чанка данных через gRPC (мс)\n");
+        sb.append("# TYPE parom_grpc_chunk_transfer_latency_max_ms gauge\n");
         for (var a : agents) {
-            sb.append(String.format(Locale.US, "replicator_grpc_chunk_transfer_latency_max_ms{agent_id=\"%s\",cluster_id=\"%s\"} %.3f\n",
+            sb.append(String.format(Locale.US, "parom_grpc_chunk_transfer_latency_max_ms{agent_id=\"%s\",cluster_id=\"%s\"} %.3f\n",
                     escape(a.agentId()), escape(a.clusterId()), a.chunkLatencyMaxMs()));
         }
 
-        sb.append("# HELP replicator_grpc_chunk_transfer_latency_seconds Гистограмма задержки передачи чанка данных через gRPC канал\n");
-        sb.append("# TYPE replicator_grpc_chunk_transfer_latency_seconds histogram\n");
+        sb.append("# HELP parom_grpc_chunk_transfer_latency_seconds Гистограмма задержки передачи чанка данных через gRPC канал\n");
+        sb.append("# TYPE parom_grpc_chunk_transfer_latency_seconds histogram\n");
         double[] slaBuckets = {0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.0, 5.0};
         for (double b : slaBuckets) {
             long bucketCount = 0;
@@ -394,14 +394,14 @@ public class ParomMetricsService {
                     }
                 }
             }
-            sb.append(String.format(Locale.US, "replicator_grpc_chunk_transfer_latency_seconds_bucket{le=\"%s\"} %d\n",
+            sb.append(String.format(Locale.US, "parom_grpc_chunk_transfer_latency_seconds_bucket{le=\"%s\"} %d\n",
                     formatBucket(b), bucketCount));
         }
-        sb.append(String.format(Locale.US, "replicator_grpc_chunk_transfer_latency_seconds_bucket{le=\"+Inf\"} %d\n", totalChunks));
-        sb.append(String.format(Locale.US, "replicator_grpc_chunk_transfer_latency_seconds_sum %.4f\n", sumLatencySec));
-        sb.append(String.format(Locale.US, "replicator_grpc_chunk_transfer_latency_seconds_count %d\n", totalChunks));
+        sb.append(String.format(Locale.US, "parom_grpc_chunk_transfer_latency_seconds_bucket{le=\"+Inf\"} %d\n", totalChunks));
+        sb.append(String.format(Locale.US, "parom_grpc_chunk_transfer_latency_seconds_sum %.4f\n", sumLatencySec));
+        sb.append(String.format(Locale.US, "parom_grpc_chunk_transfer_latency_seconds_count %d\n", totalChunks));
 
-        // 9. Очередь и файлы Staging: replicator_staging_*
+        // 9. Очередь и файлы Staging: parom_staging_*
         int totalStagingFiles = 0;
         long totalStagingBytes = 0;
         long totalOrphans = 0;
@@ -411,30 +411,30 @@ public class ParomMetricsService {
             totalOrphans += a.stagingOrphansCleaned();
         }
 
-        sb.append("# HELP replicator_staging_queue_size Совокупное количество активных staging-файлов в процессе репликации\n");
-        sb.append("# TYPE replicator_staging_queue_size gauge\n");
-        sb.append(String.format(Locale.US, "replicator_staging_queue_size %d\n", totalStagingFiles));
+        sb.append("# HELP parom_staging_queue_size Совокупное количество активных staging-файлов в процессе репликации\n");
+        sb.append("# TYPE parom_staging_queue_size gauge\n");
+        sb.append(String.format(Locale.US, "parom_staging_queue_size %d\n", totalStagingFiles));
 
-        sb.append("# HELP replicator_staging_active_files Количество активных файлов в процессе staging по агентам\n");
-        sb.append("# TYPE replicator_staging_active_files gauge\n");
+        sb.append("# HELP parom_staging_active_files Количество активных файлов в процессе staging по агентам\n");
+        sb.append("# TYPE parom_staging_active_files gauge\n");
         for (var a : agents) {
-            sb.append(String.format(Locale.US, "replicator_staging_active_files{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
+            sb.append(String.format(Locale.US, "parom_staging_active_files{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
                     escape(a.agentId()), escape(a.clusterId()), a.stagingActiveFiles()));
         }
 
-        sb.append("# HELP replicator_staging_active_bytes Текущий совокупный объем данных в staging-буфере в байтах\n");
-        sb.append("# TYPE replicator_staging_active_bytes gauge\n");
-        sb.append(String.format(Locale.US, "replicator_staging_active_bytes %d\n", totalStagingBytes));
+        sb.append("# HELP parom_staging_active_bytes Текущий совокупный объем данных в staging-буфере в байтах\n");
+        sb.append("# TYPE parom_staging_active_bytes gauge\n");
+        sb.append(String.format(Locale.US, "parom_staging_active_bytes %d\n", totalStagingBytes));
         for (var a : agents) {
-            sb.append(String.format(Locale.US, "replicator_staging_active_bytes{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
+            sb.append(String.format(Locale.US, "parom_staging_active_bytes{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
                     escape(a.agentId()), escape(a.clusterId()), a.stagingActiveBytes()));
         }
 
-        sb.append("# HELP replicator_staging_orphans_cleaned_total Количество удаленных осиротевших staging-файлов сборщиком мусора\n");
-        sb.append("# TYPE replicator_staging_orphans_cleaned_total counter\n");
-        sb.append(String.format(Locale.US, "replicator_staging_orphans_cleaned_total %d\n", totalOrphans));
+        sb.append("# HELP parom_staging_orphans_cleaned_total Количество удаленных осиротевших staging-файлов сборщиком мусора\n");
+        sb.append("# TYPE parom_staging_orphans_cleaned_total counter\n");
+        sb.append(String.format(Locale.US, "parom_staging_orphans_cleaned_total %d\n", totalOrphans));
         for (var a : agents) {
-            sb.append(String.format(Locale.US, "replicator_staging_orphans_cleaned_total{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
+            sb.append(String.format(Locale.US, "parom_staging_orphans_cleaned_total{agent_id=\"%s\",cluster_id=\"%s\"} %d\n",
                     escape(a.agentId()), escape(a.clusterId()), a.stagingOrphansCleaned()));
         }
     }
@@ -605,11 +605,11 @@ public class ParomMetricsService {
                     org.springframework.data.domain.PageRequest.of(0, KAFKA_JOB_METRIC_ROWS_LIMIT));
 
             // 1. Статусы задач
-            sb.append("# HELP replicator_kafka_jobs_total Количество задач репликации Kafka по статусам\n");
-            sb.append("# TYPE replicator_kafka_jobs_total gauge\n");
-            sb.append(String.format(Locale.US, "replicator_kafka_jobs_total{status=\"ACTIVE\"} %d\n", activeCount));
-            sb.append(String.format(Locale.US, "replicator_kafka_jobs_total{status=\"PAUSED\"} %d\n", pausedCount));
-            sb.append(String.format(Locale.US, "replicator_kafka_jobs_total{status=\"TOTAL\"} %d\n", jobCount));
+            sb.append("# HELP parom_kafka_jobs_total Количество задач репликации Kafka по статусам\n");
+            sb.append("# TYPE parom_kafka_jobs_total gauge\n");
+            sb.append(String.format(Locale.US, "parom_kafka_jobs_total{status=\"ACTIVE\"} %d\n", activeCount));
+            sb.append(String.format(Locale.US, "parom_kafka_jobs_total{status=\"PAUSED\"} %d\n", pausedCount));
+            sb.append(String.format(Locale.US, "parom_kafka_jobs_total{status=\"TOTAL\"} %d\n", jobCount));
 
             // 2. Агрегированные счетчики (гармонизированный стандарт Prometheus & Grafana)
             sb.append("# HELP kafka_replicated_messages_total Суммарное количество сообщений Kafka, переданных через gRPC\n");
@@ -626,32 +626,32 @@ public class ParomMetricsService {
 
             // 3. Детальные метрики по каждой задаче репликации Kafka
             if (!jobs.isEmpty()) {
-                sb.append("# HELP replicator_kafka_job_messages_total Передано сообщений по задаче репликации Kafka\n");
-                sb.append("# TYPE replicator_kafka_job_messages_total counter\n");
+                sb.append("# HELP parom_kafka_job_messages_total Передано сообщений по задаче репликации Kafka\n");
+                sb.append("# TYPE parom_kafka_job_messages_total counter\n");
                 for (Object[] j : jobs) {
-                    sb.append(String.format(Locale.US, "replicator_kafka_job_messages_total{job_id=\"%s\",job_name=\"%s\",source_dc=\"%s\",target_dc=\"%s\",status=\"%s\"} %d\n",
+                    sb.append(String.format(Locale.US, "parom_kafka_job_messages_total{job_id=\"%s\",job_name=\"%s\",source_dc=\"%s\",target_dc=\"%s\",status=\"%s\"} %d\n",
                             escape(text(j[0])), escape(text(j[1])), escape(text(j[2])), escape(text(j[3])), escape(text(j[4])), number(j[5])));
                 }
 
-                sb.append("# HELP replicator_kafka_job_bytes_total Передано байт по задаче репликации Kafka\n");
-                sb.append("# TYPE replicator_kafka_job_bytes_total counter\n");
+                sb.append("# HELP parom_kafka_job_bytes_total Передано байт по задаче репликации Kafka\n");
+                sb.append("# TYPE parom_kafka_job_bytes_total counter\n");
                 for (Object[] j : jobs) {
-                    sb.append(String.format(Locale.US, "replicator_kafka_job_bytes_total{job_id=\"%s\",job_name=\"%s\",source_dc=\"%s\",target_dc=\"%s\",status=\"%s\"} %d\n",
+                    sb.append(String.format(Locale.US, "parom_kafka_job_bytes_total{job_id=\"%s\",job_name=\"%s\",source_dc=\"%s\",target_dc=\"%s\",status=\"%s\"} %d\n",
                             escape(text(j[0])), escape(text(j[1])), escape(text(j[2])), escape(text(j[3])), escape(text(j[4])), number(j[6])));
                 }
 
-                sb.append("# HELP replicator_kafka_job_lag_ms Текущий сквозной лаг репликации по задаче Kafka (мс)\n");
-                sb.append("# TYPE replicator_kafka_job_lag_ms gauge\n");
+                sb.append("# HELP parom_kafka_job_lag_ms Текущий сквозной лаг репликации по задаче Kafka (мс)\n");
+                sb.append("# TYPE parom_kafka_job_lag_ms gauge\n");
                 for (Object[] j : jobs) {
-                    sb.append(String.format(Locale.US, "replicator_kafka_job_lag_ms{job_id=\"%s\",job_name=\"%s\",source_dc=\"%s\",target_dc=\"%s\",status=\"%s\"} %d\n",
+                    sb.append(String.format(Locale.US, "parom_kafka_job_lag_ms{job_id=\"%s\",job_name=\"%s\",source_dc=\"%s\",target_dc=\"%s\",status=\"%s\"} %d\n",
                             escape(text(j[0])), escape(text(j[1])), escape(text(j[2])), escape(text(j[3])), escape(text(j[4])), number(j[7])));
                 }
 
-                sb.append("# HELP replicator_kafka_bandwidth_limit_mb Выделенный лимит полосы пропускания WAN для задачи Kafka (МБ/с)\n");
-                sb.append("# TYPE replicator_kafka_bandwidth_limit_mb gauge\n");
+                sb.append("# HELP parom_kafka_bandwidth_limit_mb Выделенный лимит полосы пропускания WAN для задачи Kafka (МБ/с)\n");
+                sb.append("# TYPE parom_kafka_bandwidth_limit_mb gauge\n");
                 for (Object[] j : jobs) {
                     double bw = j[8] instanceof Number n ? n.doubleValue() : 0.0;
-                    sb.append(String.format(Locale.US, "replicator_kafka_bandwidth_limit_mb{job_id=\"%s\",job_name=\"%s\",source_dc=\"%s\",target_dc=\"%s\"} %.2f\n",
+                    sb.append(String.format(Locale.US, "parom_kafka_bandwidth_limit_mb{job_id=\"%s\",job_name=\"%s\",source_dc=\"%s\",target_dc=\"%s\"} %.2f\n",
                             escape(text(j[0])), escape(text(j[1])), escape(text(j[2])), escape(text(j[3])), bw));
                 }
             }

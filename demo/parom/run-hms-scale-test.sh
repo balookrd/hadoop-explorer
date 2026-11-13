@@ -47,7 +47,7 @@ fi
 for _ in $(seq 1 60); do curl -sf "${ORCHESTRATOR_URL}/health" > /dev/null && break; sleep 5; done
 
 log "Запускаю рой: ${SWARM_AGENTS} агентов на ${SWARM_SECONDS} с"
-docker exec replicator-agent-dc1 java -Xmx512m -cp /app/parom-agent.jar \
+docker exec parom-agent-dc1 java -Xmx512m -cp /app/parom-agent.jar \
   io.github.balookrd.pristan.parom.tool.AgentSwarm orchestrator:50050 "$SECRET" "$SWARM_AGENTS" "$SWARM_SECONDS" \
   > "$SWARM_LOG" 2>&1 &
 SWARM_PID=$!

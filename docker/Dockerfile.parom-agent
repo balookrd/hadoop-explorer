@@ -17,7 +17,7 @@ RUN mkdir -p /tmp/staging /tmp/data /app/data && \
     touch /etc/krb5.conf && \
     chown -R appuser:appuser /tmp/staging /tmp/data /app /etc/krb5.conf
 
-# Копирование собранного Shaded Fat JAR Java Replicator Agent
+# Копирование собранного Shaded Fat JAR Java Parom Agent
 COPY backend/parom/agent/target/parom-agent-1.0.0-all.jar /app/parom-agent.jar
 
 USER appuser

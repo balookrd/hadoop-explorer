@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # ==============================================================================
-# Скрипт отправки Replicator Agent в кластер Apache Hadoop YARN
+# Скрипт отправки Parom Agent в кластер Apache Hadoop YARN
 # ==============================================================================
 set -euo pipefail
 
@@ -8,7 +8,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 BASE_DIR="$(cd "${SCRIPT_DIR}/.." && pwd)"
 
 # Поиск jar файла
-JAR_FILE="${JAR_FILE:-$(find "${BASE_DIR}/target" -name "replicator-agent-*-all.jar" 2>/dev/null | head -n 1 || true)}"
+JAR_FILE="${JAR_FILE:-$(find "${BASE_DIR}/target" -name "parom-agent-*-all.jar" 2>/dev/null | head -n 1 || true)}"
 if [[ -z "${JAR_FILE}" ]]; then
     JAR_FILE="${BASE_DIR}/target/parom-agent-1.0.0-all.jar"
 fi
@@ -24,7 +24,7 @@ if ! command -v hadoop &> /dev/null; then
     exit 1
 fi
 
-echo "==> Отправка Replicator Agent в YARN ResourceManager..."
+echo "==> Отправка Parom Agent в YARN ResourceManager..."
 hadoop jar "${JAR_FILE}" io.github.balookrd.pristan.parom.yarn.ParomYarnClient \
     --jar "${JAR_FILE}" \
     "$@"

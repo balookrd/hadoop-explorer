@@ -29,9 +29,9 @@ fi
 
 echo "==> 1. Генерация тестовых файлов данных в общем томе и HDFS..."
 # 1.1 Локальные файлы в контейнерах агентов
-docker exec replicator-agent-dc1 sh -c "mkdir -p /tmp/data && head -c 5242880 /dev/urandom > /tmp/data/prod_sales_dc1.csv" || true
-docker exec replicator-agent-dc2 sh -c "mkdir -p /tmp/data && head -c 3145728 /dev/urandom > /tmp/data/analytics_report_dc2.parquet" || true
-docker exec replicator-agent-dc1 sh -c "mkdir -p /tmp/data && head -c 2097152 /dev/urandom > /tmp/data/events_stream_dc1.json" || true
+docker exec parom-agent-dc1 sh -c "mkdir -p /tmp/data && head -c 5242880 /dev/urandom > /tmp/data/prod_sales_dc1.csv" || true
+docker exec parom-agent-dc2 sh -c "mkdir -p /tmp/data && head -c 3145728 /dev/urandom > /tmp/data/analytics_report_dc2.parquet" || true
+docker exec parom-agent-dc1 sh -c "mkdir -p /tmp/data && head -c 2097152 /dev/urandom > /tmp/data/events_stream_dc1.json" || true
 
 # 1.2 Создание каталогов и загрузка тестовых файлов в HDFS DC1 (hdfs-cluster-1)
 echo "   Подготовка HDFS кластера DC1..."
@@ -144,7 +144,7 @@ JOB5_RESP=$(curl -s -X POST "${ORCHESTRATOR_URL}/api/v1/jobs" \
     "target_cluster_id": "dc2",
     "total_bytes": 1048576,
     "run_as_service_account": true,
-    "execution_principal": "hdfs-replicator@REALM.LOCAL",
+    "execution_principal": "parom@REALM.LOCAL",
     "is_scheduled": true,
     "cron_expression": "@every_5m"
   }')
@@ -206,7 +206,7 @@ sasl.jaas.config=com.sun.security.auth.module.Krb5LoginModule required useKeyTab
     --create --if-not-exists --topic user-cache --partitions 1 --replication-factor 1 \
     --config cleanup.policy=compact >/dev/null 2>&1 || true
 
-  KAFKA_JOB_RESP=$(curl -s -X POST "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs" \
+  KAFKA_JOB_RESP=$(curl -s -X POST "${ORCHESTRATOR_URL}/api/v1/parom/kafka/jobs" \
     "${AUTH_HEADER[@]}" \
     -H "Content-Type: application/json" \
     -d '{

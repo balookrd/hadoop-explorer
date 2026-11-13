@@ -100,11 +100,11 @@ public class KafkaReplicationOrchestratorSmokeTest {
 
         // Конфигурация Kerberos для брокеров
         request.setSourceKerberosEnabled(true);
-        request.setSourcePrincipal("kafka-replicator@DC1.CORP");
+        request.setSourcePrincipal("parom-kafka@DC1.CORP");
         request.setSourceKeytabPath("/etc/security/keytabs/dc1-kafka.keytab");
 
         request.setTargetKerberosEnabled(true);
-        request.setTargetPrincipal("kafka-replicator@DC2.CORP");
+        request.setTargetPrincipal("parom-kafka@DC2.CORP");
         request.setTargetKeytabPath("/etc/security/keytabs/dc2-kafka.keytab");
 
         // Конфигурация Schema Registry с кросс-вендорной трансляцией и SPNEGO

@@ -40,7 +40,7 @@ class DataTransferChrootSandboxSecurityTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        tempSandboxDir = Files.createTempDirectory("replicator-chroot-test");
+        tempSandboxDir = Files.createTempDirectory("parom-chroot-test");
         sandboxRoot = tempSandboxDir.toFile().getCanonicalPath();
 
         fsManager = new HadoopFsManager("file:///", null, null, sandboxRoot);

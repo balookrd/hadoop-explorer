@@ -71,7 +71,7 @@ mvn clean package -DskipTests -f backend/parom/pom.xml -pl agent -am
     --orchestrator http://orchestrator-host:8005 \
     --port 50051 \
     --bandwidth 100 \
-    --staging-dir /tmp/replicator-staging
+    --staging-dir /tmp/parom-staging
 ```
 
 ### Запуск через java с classpath Hadoop
@@ -120,7 +120,7 @@ java -Xms1g -Xmx4g -cp "target/parom-agent-1.0.0-all.jar:${HADOOP_CLASSPATH}" \
 | `PAROM_GRPC_INSECURE_SKIP_VERIFY` | `false` | Отключение проверки TLS сертификатов для gRPC (тестовые стенды) |
 | `ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY` | `false` | Отключение проверки HTTPS-сертификатов оркестратора |
 | `KRB5_KEYTAB` | `null` | Путь к keytab-файлу Kerberos |
-| `KRB5_PRINCIPAL` | `null` | Kerberos Principal (например, `hdfs-replicator@REALM`) |
+| `KRB5_PRINCIPAL` | `null` | Kerberos Principal (например, `parom@REALM`) |
 | `PAROM_WIRE_COMPRESSION` | `zstd` | Кодек потокового сжатия трафика на лету: `zstd` (Zstandard), `lz4` (LZ4), `none` (отключено) |
 | `PAROM_WIRE_COMPRESSION_LEVEL` | `3` | Уровень сжатия для Zstandard (1–22); выше уровень — сильнее сжатие и больше нагрузка на CPU |
 | `INOTIFY_QUEUE_CAPACITY` | `10000` | Максимальная емкость локальной очереди `InotifyBatchProcessor` |
@@ -172,7 +172,7 @@ hadoop jar target/parom-agent-1.0.0-all.jar \
 ```
 
 Что происходит после запуска:
-1. `ParomYarnClient` загружает JAR в HDFS staging директорию `.replicator-staging/<appId>`.
+1. `ParomYarnClient` загружает JAR в HDFS staging директорию `.parom-staging/<appId>`.
 2. YARN ResourceManager выделяет контейнер для `ParomApplicationMaster`.
 3. ApplicationMaster регистрируется в RM и запрашивает указанное количество контейнеров (`num_containers`).
 4. На выделенных узлах запускаются контейнеры с `ParomAgentMain`, которые регистрируются в оркестраторе вызовом gRPC `RegisterAgent` сервиса Control Plane (`orchestrator_control_plane.proto`) и начинают обрабатывать задачи репликации из очереди.

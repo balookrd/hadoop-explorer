@@ -4,7 +4,7 @@ import java.net.InetAddress;
 import java.util.UUID;
 
 /**
- * Конфигурация Replicator Agent на Java.
+ * Конфигурация Parom Agent на Java.
  * Загружает параметры из переменных окружения с разумными значениями по умолчанию.
  */
 public class ParomAgentConfig {

@@ -84,17 +84,17 @@ api() {
     local method="$1" path="$2" body="${3:-}"
     if [ -n "$body" ]; then
         curl -s -X "$method" -H "Authorization: Bearer ${TOKEN}" -H "Content-Type: application/json" \
-            "${ORCHESTRATOR_URL}/api/v1/replicator/kafka${path}" -d "$body"
+            "${ORCHESTRATOR_URL}/api/v1/parom/kafka${path}" -d "$body"
     else
         curl -s -o /dev/null -w '%{http_code}' -X "$method" -H "Authorization: Bearer ${TOKEN}" \
-            "${ORCHESTRATOR_URL}/api/v1/replicator/kafka${path}"
+            "${ORCHESTRATOR_URL}/api/v1/parom/kafka${path}"
     fi
 }
 
-# Группа задачи: kafka-replicator-<dc-id агента>-<jobId>, регистр dc-id берется из --dc-id агента
+# Группа задачи: parom-kafka-<dc-id агента>-<jobId>, регистр dc-id берется из --dc-id агента
 job_group() {
     kexec kafka-cluster-1 "kafka-consumer-groups --bootstrap-server $BOOT1 \
-        --command-config /tmp/scale-client.properties --list 2>/dev/null" | grep -i "^kafka-replicator-dc1-${JOB_ID}$" | head -1
+        --command-config /tmp/scale-client.properties --list 2>/dev/null" | grep -i "^parom-kafka-dc1-${JOB_ID}$" | head -1
 }
 
 group_describe() {
@@ -142,7 +142,7 @@ check "Создание топика $TOPIC ($PARTITIONS партиций) в DC
 
 # Discovery через REST: регрессия на discovery без Kerberos (пустой список на SASL-кластере)
 discovery_sees_topic() {
-    curl -s -H "Authorization: Bearer ${TOKEN}" "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/discovery/topics?dc=dc1&search=${TOPIC}" \
+    curl -s -H "Authorization: Bearer ${TOKEN}" "${ORCHESTRATOR_URL}/api/v1/parom/kafka/discovery/topics?dc=dc1&search=${TOPIC}" \
         | grep -q "\"partitions\":${PARTITIONS}"
 }
 check "Discovery видит топик и его $PARTITIONS партиций через Kerberos" discovery_sees_topic
@@ -206,10 +206,10 @@ check "Все $PARTITIONS партиций распределены по аге�
 # Регрессия на дубль-пул: топик задачи не должен читать никто, кроме группы задачи
 no_foreign_groups() {
     local groups
-    groups=$(kexec kafka-cluster-1 "kafka-consumer-groups --bootstrap-server $BOOT1 --command-config /tmp/scale-client.properties --list 2>/dev/null" | grep '^kafka-replicator' || true)
+    groups=$(kexec kafka-cluster-1 "kafka-consumer-groups --bootstrap-server $BOOT1 --command-config /tmp/scale-client.properties --list 2>/dev/null" | grep '^parom-kafka' || true)
     local g
     for g in $groups; do
-        [ "$(echo "$g" | tr 'A-Z' 'a-z')" = "kafka-replicator-dc1-$(echo "$JOB_ID" | tr 'A-Z' 'a-z')" ] && continue
+        [ "$(echo "$g" | tr 'A-Z' 'a-z')" = "parom-kafka-dc1-$(echo "$JOB_ID" | tr 'A-Z' 'a-z')" ] && continue
         if kexec kafka-cluster-1 "kafka-consumer-groups --bootstrap-server $BOOT1 --command-config /tmp/scale-client.properties --describe --group $g 2>/dev/null" | grep -q "$TOPIC"; then
             info "топик читает посторонняя группа: $g"
             return 1
@@ -251,7 +251,7 @@ check "Число записей совпадает в каждой из $PARTIT
 job_metrics_reported() {
     local i body msgs
     for i in $(seq 1 10); do
-        body=$(curl -s -H "Authorization: Bearer ${TOKEN}" "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs/${JOB_ID}")
+        body=$(curl -s -H "Authorization: Bearer ${TOKEN}" "${ORCHESTRATOR_URL}/api/v1/parom/kafka/jobs/${JOB_ID}")
         # Поле есть и у задачи, и у каждого топика (там оно пока не обновляется): берется максимум
         msgs=$(echo "$body" | grep -o '"messages_replicated":[0-9]*' | cut -d: -f2 | sort -n | tail -1)
         if [ -n "$msgs" ] && [ "$msgs" -ge "$SOURCE_TOTAL" ]; then
@@ -288,7 +288,7 @@ paused_stays() {
 }
 check "На паузе в цель ничего не пишется" paused_stays
 job_status_is() {
-    curl -s -H "Authorization: Bearer ${TOKEN}" "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs/${JOB_ID}" | grep -q "\"status\":\"$1\""
+    curl -s -H "Authorization: Bearer ${TOKEN}" "${ORCHESTRATOR_URL}/api/v1/parom/kafka/jobs/${JOB_ID}" | grep -q "\"status\":\"$1\""
 }
 check "Статус PAUSED держится под heartbeat агентов" job_status_is PAUSED
 check "Возобновление задачи (HTTP 200)" test "$(api POST "/jobs/${JOB_ID}/resume")" = "200"
@@ -312,7 +312,7 @@ if [ "$DRAIN_SEC" -gt 0 ] 2>/dev/null; then
 fi
 
 section "5. Недоступность оркестратора под нагрузкой"
-docker pause replicator-orchestrator >/dev/null
+docker pause parom-orchestrator >/dev/null
 info "оркестратор приостановлен"
 sleep 8
 BEFORE_ORCH=$(topic_total kafka-cluster-2 "$BOOT2")
@@ -325,7 +325,7 @@ replication_survives_orchestrator() {
     [ "$now" -gt "$BEFORE_ORCH" ]
 }
 check "Репликация продолжается без оркестратора" replication_survives_orchestrator
-docker unpause replicator-orchestrator >/dev/null
+docker unpause parom-orchestrator >/dev/null
 ORCH_CATCHUP=$(await_catchup "$SOURCE_TOTAL" 180)
 check "После возврата оркестратора хвост догнан" test "$ORCH_CATCHUP" -ge 0
 
@@ -333,7 +333,7 @@ section "6. Падение агента под нагрузкой"
 produce 1000000 >/dev/null &
 PROD_PID=$!
 sleep 4
-docker kill kafka-replicator-agent-dc1-b >/dev/null
+docker kill parom-kafka-agent-dc1-b >/dev/null
 info "агент kafka-agent-dc1-b убит (SIGKILL)"
 wait "$PROD_PID"
 SOURCE_TOTAL=$(topic_total kafka-cluster-1 "$BOOT1")
@@ -341,7 +341,7 @@ KILL_CATCHUP=$(await_catchup "$SOURCE_TOTAL" 300)
 check "Оставшиеся агенты подобрали партиции и догнали источник" test "$KILL_CATCHUP" -ge 0
 AFTER_KILL=$(topic_total kafka-cluster-2 "$BOOT2")
 info "дублей после SIGKILL агента (at-least-once): $((AFTER_KILL - SOURCE_TOTAL))"
-docker start kafka-replicator-agent-dc1-b >/dev/null
+docker start parom-kafka-agent-dc1-b >/dev/null
 info "агент kafka-agent-dc1-b запущен снова"
 
 section "6a. Падение приемника под нагрузкой и его возврат"
@@ -358,19 +358,19 @@ no_target_shortfall() {
         | awk -F: '$3 < $2 {short++} END {exit short > 0}'
 }
 no_agent_errors() {
-    curl -s -H "Authorization: Bearer ${TOKEN}" "${ORCHESTRATOR_URL}/api/v1/replicator/kafka/jobs/${JOB_ID}" \
+    curl -s -H "Authorization: Bearer ${TOKEN}" "${ORCHESTRATOR_URL}/api/v1/parom/kafka/jobs/${JOB_ID}" \
         | grep -q '"agent_errors":\[\]'
 }
 produce 1000000 >/dev/null &
 PROD_PID=$!
 sleep 4
-docker kill kafka-replicator-agent-dc2-c >/dev/null
+docker kill parom-kafka-agent-dc2-c >/dev/null
 info "приемник kafka-agent-dc2-c убит (SIGKILL)"
 wait "$PROD_PID"
 SOURCE_TOTAL=$(topic_total kafka-cluster-1 "$BOOT1")
 RECV_KILL_CATCHUP=$(await_catchup "$SOURCE_TOTAL" 300)
 check "Без приемника остальные доставили хвост" test "$RECV_KILL_CATCHUP" -ge 0
-docker start kafka-replicator-agent-dc2-c >/dev/null
+docker start parom-kafka-agent-dc2-c >/dev/null
 info "приемник kafka-agent-dc2-c запущен снова"
 sleep 30
 produce 500000 >/dev/null

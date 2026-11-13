@@ -43,7 +43,7 @@ class ReadProbePathRefusalTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        Path sandbox = Files.createTempDirectory("replicator-read-probe");
+        Path sandbox = Files.createTempDirectory("parom-read-probe");
         sandboxRoot = sandbox.toFile().getCanonicalPath();
 
         HadoopFsManager fsManager = new HadoopFsManager("file:///", null, null, sandboxRoot);

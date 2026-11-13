@@ -54,16 +54,16 @@ cd demo/monitoring && ./run-monitoring-smoke-tests.sh
    - Скорость запросов (RPS), p50/p90/p95/p99-задержки, доля ответов 5xx, запросы в обработке по сервисам YARN, HDFS, SQL, Spark.
    - Входы через `/api/v1/auth/login` по кодам ответа, ответы 429 ограничителя частоты по уровням `login` и `api` (`hadoop_rate_limit_blocks_total`), ответы 5xx по классу исключения.
    - Сводка Parom.
-2. `hadoop-replicator-overview` — межкластерная репликация и шейпинг полосы:
+2. `parom-overview` — межкластерная репликация и шейпинг полосы:
    - Скорость репликации данных (MB/s), задержки троттлинга Token Bucket.
    - Статусы пакетных и потоковых задач HDFS.
-3. `hadoop-replicator-kafka` — потоковая репликация Kafka:
+3. `parom-kafka-dashboard` — потоковая репликация Kafka:
    - Сквозной лаг передачи (Lag ms), скорость сообщений и байт.
    - Статусы задач (ACTIVE/PAUSED), выделенные лимиты WAN.
-4. `hadoop-replicator-hms-dr` — DR-синхронизация Hive Metastore:
+4. `parom-hms-dr` — DR-синхронизация Hive Metastore:
    - Прогресс Bootstrap-синхронизации таблиц и партиций.
    - Статус изоляции кластеров (fencing) и аварийной остановки (kill switch).
-5. `hadoop-replicator-agents` — gRPC-агенты и воркеры передачи данных:
+5. `parom-agents-dashboard` — gRPC-агенты и воркеры передачи данных:
    - Онлайн-статус воркеров (основной DC1, резервный DC2).
    - Гистограмма задержек передачи gRPC чанков (SLA-бакеты 1 мс – 5 с).
    - Объем staging-буферов и очистка временных файлов.
@@ -87,9 +87,9 @@ cd demo/monitoring && ./run-monitoring-smoke-tests.sh
 - `HadoopLoginRateLimitSpike` — ограничитель частоты отвечает 429 на `/api/v1/auth/login` и `/api/v1/auth/sso` чаще 0,2 раза в секунду (около 60 отказов за 5 минут) в течение 2 минут.
 - `HadoopApiRateLimitSpike` — ограничитель частоты отвечает 429 на остальные запросы к `/api/*` чаще 1 раза в секунду (среднее за 5 минут) в течение 2 минут.
 - `HdfsOperationsHighFailureRate` — более 10% операций с файлами HDFS завершаются ошибками.
-- `ReplicationHighThrottlingDelay` — суммарная задержка троттлинга Token Bucket растет быстрее 5 секунд в секунду (`rate(replicator_throttling_delay_seconds_total[2m]) > 5`) в течение 2 минут.
-- `ReplicationJobsHighFailureRate` — более 10% задач репликации HDFS находятся в статусе `FAILED` (отношение значений gauge `replicator_jobs_total`) в течение 2 минут.
-- `ReplicationWorkerStarvation` — `replicator_active_workers` равен 0, а задачи в статусах `RUNNING` или `QUEUED` есть, в течение 2 минут.
+- `ReplicationHighThrottlingDelay` — суммарная задержка троттлинга Token Bucket растет быстрее 5 секунд в секунду (`rate(parom_throttling_delay_seconds_total[2m]) > 5`) в течение 2 минут.
+- `ReplicationJobsHighFailureRate` — более 10% задач репликации HDFS находятся в статусе `FAILED` (отношение значений gauge `parom_jobs_total`) в течение 2 минут.
+- `ReplicationWorkerStarvation` — `parom_active_workers` равен 0, а задачи в статусах `RUNNING` или `QUEUED` есть, в течение 2 минут.
 - `KafkaReplicationHighLag` и `KafkaReplicationCriticalLag` — `kafka_current_lag_ms` больше 1000 мс в течение 1 минуты и больше 5000 мс в течение 2 минут.
 - `KafkaReplicationJobPaused` — задача репликации Kafka в статусе `PAUSED` дольше 5 минут.
 

@@ -407,7 +407,7 @@ fail-closed — поведение несогласованно между ко�
   SQL-скрипт с индексами не подключён → seq scan по `replication_jobs` в тике планировщика каждые 5 с.
 
 ### Архитектура
-- `orchestrator/pom.xml:41-44` — оркестратор зависит от артефакта `replicator-agent` в compile scope и
+- `orchestrator/pom.xml:41-44` — оркестратор зависит от артефакта `parom-agent` в compile scope и
   тянет весь стек агента: `hadoop-common`, `hadoop-hdfs-client`, `hadoop-yarn-client`,
   `hive-standalone-metastore-common`, `kafka-clients`, zstd, lz4. Нет выделенного модуля
   `parom-proto`/`parom-model`. Следствия: раздутый classpath control plane, конфликты
@@ -419,7 +419,7 @@ fail-closed — поведение несогласованно между ко�
   `agent/src/main/proto/*.proto` (компилируется только она — `protoSourceRoot` в `agent/pom.xml:261`).
   Первая — мёртвый код, вводящий в заблуждение.
 - Схема БД разошлась с JPA-моделью: `schema-postgresql.sql` создаёт `dr_emergency_snapshots`,
-  `replicator_streaming_lease`, `replicator_cluster_locks`, тогда как сущности объявляют
+  `parom_streaming_lease`, `parom_cluster_locks`, тогда как сущности объявляют
   `replicator_dr_snapshots`, `replicator_streaming_leases`, `cluster_locks`; таблиц `hms_event_logs`
   и `hms_dead_letter_events` в скрипте нет вовсе. Скрипт нигде не подключён, миграций нет,
   партиции заданы статически только до `2027_01` без автосоздания.

@@ -42,9 +42,9 @@ class SafetyCommitManagerTest {
     @DisplayName("Отклонение коммита смещений для служебных групп репликатора и инфраструктуры")
     void shouldRejectBlacklistedConsumerGroups() {
         List<String> blacklisted = List.of(
-                "kafka-replicator-dc1",
-                "kafka-replicator-time-resolver-dc2",
-                "replicator-agent-01",
+                "parom-kafka-dc1",
+                "parom-kafka-time-resolver-dc2",
+                "parom-agent-01",
                 "__consumer_offsets",
                 "schema-registry-dc1",
                 "connect-cluster-01",

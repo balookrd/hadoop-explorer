@@ -28,7 +28,7 @@ class KerberosSpnegoAuthenticatorTest {
         KafkaKerberosConfig config = new KafkaKerberosConfig();
         config.setEnabled(true);
         config.setSrKerberosEnabled(true);
-        config.setPrincipal("kafka-replicator@REALM.CORP");
+        config.setPrincipal("parom-kafka@REALM.CORP");
         config.setKeytabPath("/non/existent/path/kafka.keytab");
 
         KerberosSpnegoAuthenticator authenticator = new KerberosSpnegoAuthenticator(config);

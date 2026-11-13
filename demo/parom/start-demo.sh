@@ -13,7 +13,7 @@ echo "========================================================================"
 AGENT_JAR="${REPO_ROOT}/backend/parom/agent/target/parom-agent-1.0.0-all.jar"
 ORCH_JAR="${REPO_ROOT}/backend/parom/orchestrator/target/parom-orchestrator-1.0.0.jar"
 if [[ ! -f "$AGENT_JAR" || ! -f "$ORCH_JAR" ]]; then
-    echo "==> Сборка Replicator компонентов (Agent + Orchestrator)..."
+    echo "==> Сборка Parom компонентов (Agent + Orchestrator)..."
     (cd "$REPO_ROOT" && make build-parom)
 fi
 
@@ -26,10 +26,10 @@ sleep 5
 
 echo "========================================================================"
 echo "✅ Все сервисы демо-стенда успешно запущены:"
-echo " • Replicator Orchestrator (Web UI): http://localhost:8005"
-echo " • Replicator Control Plane (gRPC):  localhost:50050"
-echo " • Replicator Agent (DC1):           localhost:50051 (gRPC)"
-echo " • Replicator Agent (DC2):           localhost:50052 (gRPC)"
+echo " • Parom Orchestrator (Web UI): http://localhost:8005"
+echo " • Parom Control Plane (gRPC):  localhost:50050"
+echo " • Parom Agent (DC1):           localhost:50051 (gRPC)"
+echo " • Parom Agent (DC2):           localhost:50052 (gRPC)"
 echo " • Primary HDFS (DC1 WebHDFS):       http://localhost:9870"
 echo " • DR Backup HDFS (DC2 WebHDFS):     http://localhost:9872"
 echo " • Hive Metastore DC1:               thrift://localhost:9083"

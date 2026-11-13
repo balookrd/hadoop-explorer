@@ -46,7 +46,7 @@ public class TaskController {
             );
         }
         if (session.isAdmin() || session.systemRole() == io.github.balookrd.pristan.zastava.model.Role.READER
-                || (session.groups() != null && session.groups().contains("replicator-agents"))) {
+                || (session.groups() != null && session.groups().contains("parom-agents"))) {
             return;
         }
         var opt = jobService.getJobEntity(jobId);

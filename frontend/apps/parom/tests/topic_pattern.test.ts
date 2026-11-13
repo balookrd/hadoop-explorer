@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { matchesPattern, patternError } from '../src/lib/topicPattern';
 
-describe('Replicator: подбор топиков Kafka по шаблону', () => {
+describe('Parom: подбор топиков Kafka по шаблону', () => {
   it('шаблон сравнивается с именем целиком', () => {
     expect(matchesPattern('orders', 'orders', '')).toBe(true);
     expect(matchesPattern('orders-dlq', 'orders', '')).toBe(false);

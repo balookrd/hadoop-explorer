@@ -77,11 +77,11 @@ class KerberosUgiProviderTest {
         UserGroupInformation.setLoginUser(testUser);
 
         Configuration conf = new Configuration();
-        KerberosUgiProvider provider = new KerberosUgiProvider(conf, "hdfs-replicator@REALM", null);
+        KerberosUgiProvider provider = new KerberosUgiProvider(conf, "parom@REALM", null);
 
         UserGroupInformation ugi = provider.getEffectiveUgi("alice@COMPANY.COM", false);
         assertNotNull(ugi);
         assertFalse(provider.isKerberosLoggedIn());
-        assertEquals("hdfs-replicator@REALM", provider.getServicePrincipal());
+        assertEquals("parom@REALM", provider.getServicePrincipal());
     }
 }

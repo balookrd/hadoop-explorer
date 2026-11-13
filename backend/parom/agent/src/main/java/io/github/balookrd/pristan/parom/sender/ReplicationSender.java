@@ -415,7 +415,7 @@ public class ReplicationSender implements AutoCloseable {
                     .setTargetPath(targetPath)
                     .setTotalBytes(fileBytes)
                     .setRunAsServiceAccount(asService)
-                    .setExecutionPrincipal(executionPrincipal != null ? executionPrincipal : "hdfs-replicator@REALM.LOCAL")
+                    .setExecutionPrincipal(executionPrincipal != null ? executionPrincipal : "parom@REALM.LOCAL")
                     .setCompressionCodec(effectiveCodec);
             if (taskToken != null && !taskToken.isBlank()) {
                 metaBuilder.setTaskToken(taskToken);
@@ -688,7 +688,7 @@ public class ReplicationSender implements AutoCloseable {
                     .setTargetPath(targetPath)
                     .setTotalBytes(fileBytes)
                     .setRunAsServiceAccount(job.getRunAsServiceAccount() != null ? job.getRunAsServiceAccount() : false)
-                    .setExecutionPrincipal(job.getExecutionPrincipal() != null ? job.getExecutionPrincipal() : "hdfs-replicator@REALM.LOCAL")
+                    .setExecutionPrincipal(job.getExecutionPrincipal() != null ? job.getExecutionPrincipal() : "parom@REALM.LOCAL")
                     .setCompressionCodec(effectiveCodec);
             addSourceAttributes(metaBuilder, sourcePath, job.getExecutionPrincipal(),
                     job.getRunAsServiceAccount() != null && job.getRunAsServiceAccount());

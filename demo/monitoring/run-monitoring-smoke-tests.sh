@@ -70,9 +70,9 @@ printf "\n${BLUE}▶ Шаг 2: Проверка конфигурации сбо�
 
 check_prometheus_config() {
     local cfg=$(curl -sf "${PROMETHEUS_URL}/api/v1/status/config")
-    echo "$cfg" | grep -q "pristan" && echo "$cfg" | grep -q "hadoop-replicator"
+    echo "$cfg" | grep -q "pristan" && echo "$cfg" | grep -q "parom"
 }
-run_check "Конфигурация скрейпинга (джобы pristan и hadoop-replicator)" check_prometheus_config
+run_check "Конфигурация скрейпинга (джобы pristan и parom)" check_prometheus_config
 
 check_prometheus_targets() {
     local targets=$(curl -sf "${PROMETHEUS_URL}/api/v1/targets")
@@ -157,17 +157,17 @@ verify_dashboard() {
 run_check "Дашборд: Сводный обзор платформы (pristan-overview)" \
     verify_dashboard "pristan-overview" "Pristan"
 
-run_check "Дашборд: Hadoop Replicator Overview (hadoop-replicator-overview)" \
-    verify_dashboard "hadoop-replicator-overview" "Replicator"
+run_check "Дашборд: Parom Overview (parom-overview)" \
+    verify_dashboard "parom-overview" "Parom"
 
-run_check "Дашборд: Replicator Kafka Streaming (hadoop-replicator-kafka)" \
-    verify_dashboard "hadoop-replicator-kafka" "Kafka"
+run_check "Дашборд: Parom Kafka Streaming (parom-kafka-dashboard)" \
+    verify_dashboard "parom-kafka-dashboard" "Kafka"
 
-run_check "Дашборд: Hive Metastore DR Синхронизация (hadoop-replicator-hms-dr)" \
-    verify_dashboard "hadoop-replicator-hms-dr" "Hive Metastore"
+run_check "Дашборд: Hive Metastore DR Синхронизация (parom-hms-dr)" \
+    verify_dashboard "parom-hms-dr" "Hive Metastore"
 
-run_check "Дашборд: gRPC Агенты и воркеры (hadoop-replicator-agents)" \
-    verify_dashboard "hadoop-replicator-agents" "Агенты"
+run_check "Дашборд: gRPC Агенты и воркеры (parom-agents-dashboard)" \
+    verify_dashboard "parom-agents-dashboard" "Агенты"
 
 run_check "Дашборд: Операции с файлами HDFS (sklad-operations)" \
     verify_dashboard "sklad-operations" "HDFS"

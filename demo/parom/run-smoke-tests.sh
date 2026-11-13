@@ -80,11 +80,11 @@ hdfs2_cmd() {
 }
 
 hms1_tool() {
-    docker exec replicator-agent-dc1 java -cp /app/parom-agent.jar io.github.balookrd.pristan.parom.hms.tool.HmsTool "$@"
+    docker exec parom-agent-dc1 java -cp /app/parom-agent.jar io.github.balookrd.pristan.parom.hms.tool.HmsTool "$@"
 }
 
 hms2_tool() {
-    docker exec replicator-agent-dc2 java -cp /app/parom-agent.jar io.github.balookrd.pristan.parom.hms.tool.HmsTool "$@"
+    docker exec parom-agent-dc2 java -cp /app/parom-agent.jar io.github.balookrd.pristan.parom.hms.tool.HmsTool "$@"
 }
 
 hive1_exec() {
@@ -144,15 +144,15 @@ if [ $COUNT -ge $MAX_TRIES ]; then
     printf "%b❌ Ошибка: Orchestrator недоступен по адресу %s%b\n" "$RED" "$ORCHESTRATOR_URL" "$NC"
     exit 1
 fi
-printf "%b  ✓ Replicator Orchestrator готов к работе! (%s)%b\n" "$GREEN" "$ORCHESTRATOR_URL" "$NC"
+printf "%b  ✓ Parom Orchestrator готов к работе! (%s)%b\n" "$GREEN" "$ORCHESTRATOR_URL" "$NC"
 
 check_tcp_port "$KDC_HOST" "$KDC_PORT" "Kerberos KDC" || true
 check_tcp_port "$HMS1_HOST" "$HMS1_PORT" "Hive Metastore DC1 (Thrift)" || true
 check_tcp_port "$HMS2_HOST" "$HMS2_PORT" "Hive Metastore DC2 (Thrift)" || true
 check_tcp_port "$HS2_1_HOST" "$HS2_1_PORT" "HiveServer2 DC1 (Thrift HS2)" || true
 check_tcp_port "$HS2_2_HOST" "$HS2_2_PORT" "HiveServer2 DC2 (Thrift HS2)" || true
-check_tcp_port "$AGENT1_HOST" "$AGENT1_PORT" "Replicator Agent DC1 (gRPC)" || true
-check_tcp_port "$AGENT2_HOST" "$AGENT2_PORT" "Replicator Agent DC2 (gRPC)" || true
+check_tcp_port "$AGENT1_HOST" "$AGENT1_PORT" "Parom Agent DC1 (gRPC)" || true
+check_tcp_port "$AGENT2_HOST" "$AGENT2_PORT" "Parom Agent DC2 (gRPC)" || true
 
 # Авторизация администратора
 printf "\n%b==> Авторизация в платформе под учетной записью администратора (admin_user)...%b\n" "$BLUE" "$NC"

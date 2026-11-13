@@ -9,13 +9,13 @@
 # (12 агентов на кластер) отличается только числом реплик сервиса, логика распределения
 # партиций та же. Реестры схем поднимаются, как в базовом стенде, с урезанным хипом.
 # ==============================================================================
-name: hadoop-replicator-kafka-demo
+name: parom-kafka-demo
 
 x-agent-common: &agent-common
   build:
     context: ../..
     dockerfile: docker/Dockerfile.parom-agent
-  image: hadoop-replicator-kafka-agent:scale
+  image: parom-kafka-agent:scale
   restart: unless-stopped
   environment:
     KRB5_CONFIG: "/shared/conf/krb5.conf"
@@ -69,17 +69,17 @@ services:
       # брокерам по SASL/GSSAPI. Список задается целиком: Spring не сливает элементы списка
       # из разных источников, и переопределение по индексу затерло бы остальные поля.
       SPRING_APPLICATION_JSON: >-
-        {"hadoop":{"replicator":{"clusters":[
+        {"parom":{"clusters":[
         {"id":"dc1","name":"Kafka DC1","dc-id":"dc1","grpc-host":"kafka-agent-dc1","grpc-port":50052,
         "kafka-bootstrap-servers":"kafka-cluster-1.demo-platform-net:9092",
         "schema-registry-url":"http://schema-registry-1:8081","schema-registry-type":"HORTONWORKS",
-        "kerberos-enabled":true,"principal":"kafka-replicator@COMPANY.LOCAL",
-        "keytab-path":"/etc/security/keytabs/kafka-replicator.keytab"},
+        "kerberos-enabled":true,"principal":"parom-kafka@COMPANY.LOCAL",
+        "keytab-path":"/etc/security/keytabs/parom-kafka.keytab"},
         {"id":"dc2","name":"Kafka DC2","dc-id":"dc2","grpc-host":"kafka-agent-dc2","grpc-port":50052,
         "kafka-bootstrap-servers":"kafka-cluster-2.demo-platform-net:9092",
         "schema-registry-url":"http://schema-registry-2:8082","schema-registry-type":"CONFLUENT",
-        "kerberos-enabled":true,"principal":"kafka-replicator@COMPANY.LOCAL",
-        "keytab-path":"/etc/security/keytabs/kafka-replicator.keytab"}]}}}
+        "kerberos-enabled":true,"principal":"parom-kafka@COMPANY.LOCAL",
+        "keytab-path":"/etc/security/keytabs/parom-kafka.keytab"}]}}
 
   # Базовые агенты переводятся на общий порт 50052, чтобы все приемники DC были одинаковыми
   kafka-agent-dc1:
@@ -107,9 +107,9 @@ services:
       - "orchestrator:50050"
       - "--kerberos-enabled"
       - "--principal"
-      - "kafka-replicator@COMPANY.LOCAL"
+      - "parom-kafka@COMPANY.LOCAL"
       - "--keytab"
-      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "/etc/security/keytabs/parom-kafka.keytab"
       - "--security-protocol"
       - "SASL_PLAINTEXT"
       - "--service-name"
@@ -144,9 +144,9 @@ services:
       - "orchestrator:50050"
       - "--kerberos-enabled"
       - "--principal"
-      - "kafka-replicator@COMPANY.LOCAL"
+      - "parom-kafka@COMPANY.LOCAL"
       - "--keytab"
-      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "/etc/security/keytabs/parom-kafka.keytab"
       - "--security-protocol"
       - "SASL_PLAINTEXT"
       - "--service-name"
@@ -159,7 +159,7 @@ services:
     healthcheck:
       disable: true
     hostname: kafka-agent-dc1-b
-    container_name: kafka-replicator-agent-dc1-b
+    container_name: parom-kafka-agent-dc1-b
     depends_on: [kafka-cluster-1, orchestrator, kafka-agent-dc1]
     command:
       - "--port"
@@ -182,9 +182,9 @@ services:
       - "orchestrator:50050"
       - "--kerberos-enabled"
       - "--principal"
-      - "kafka-replicator@COMPANY.LOCAL"
+      - "parom-kafka@COMPANY.LOCAL"
       - "--keytab"
-      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "/etc/security/keytabs/parom-kafka.keytab"
       - "--security-protocol"
       - "SASL_PLAINTEXT"
       - "--service-name"
@@ -198,7 +198,7 @@ services:
   kafka-agent-dc1-c:
     <<: *dc1-extra
     hostname: kafka-agent-dc1-c
-    container_name: kafka-replicator-agent-dc1-c
+    container_name: parom-kafka-agent-dc1-c
     command:
       - "--port"
       - "50052"
@@ -220,9 +220,9 @@ services:
       - "orchestrator:50050"
       - "--kerberos-enabled"
       - "--principal"
-      - "kafka-replicator@COMPANY.LOCAL"
+      - "parom-kafka@COMPANY.LOCAL"
       - "--keytab"
-      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "/etc/security/keytabs/parom-kafka.keytab"
       - "--security-protocol"
       - "SASL_PLAINTEXT"
       - "--service-name"
@@ -238,7 +238,7 @@ services:
     healthcheck:
       disable: true
     hostname: kafka-agent-dc2-b
-    container_name: kafka-replicator-agent-dc2-b
+    container_name: parom-kafka-agent-dc2-b
     depends_on: [kafka-cluster-2, orchestrator, kafka-agent-dc2]
     command:
       - "--port"
@@ -261,9 +261,9 @@ services:
       - "orchestrator:50050"
       - "--kerberos-enabled"
       - "--principal"
-      - "kafka-replicator@COMPANY.LOCAL"
+      - "parom-kafka@COMPANY.LOCAL"
       - "--keytab"
-      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "/etc/security/keytabs/parom-kafka.keytab"
       - "--security-protocol"
       - "SASL_PLAINTEXT"
       - "--service-name"
@@ -277,7 +277,7 @@ services:
   kafka-agent-dc2-c:
     <<: *dc2-extra
     hostname: kafka-agent-dc2-c
-    container_name: kafka-replicator-agent-dc2-c
+    container_name: parom-kafka-agent-dc2-c
     command:
       - "--port"
       - "50052"
@@ -299,9 +299,9 @@ services:
       - "orchestrator:50050"
       - "--kerberos-enabled"
       - "--principal"
-      - "kafka-replicator@COMPANY.LOCAL"
+      - "parom-kafka@COMPANY.LOCAL"
       - "--keytab"
-      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "/etc/security/keytabs/parom-kafka.keytab"
       - "--security-protocol"
       - "SASL_PLAINTEXT"
       - "--service-name"

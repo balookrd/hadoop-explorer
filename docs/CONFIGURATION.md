@@ -42,7 +42,7 @@
    - [Топология дата-центров и кластеров](#72-топология-дата-центров-и-кластеров)
    - [Многоуровневые лимиты полосы (DC-DC и HDFS-HDFS)](#73-многоуровневые-лимиты-полосы-dc-dc-и-hdfs-hdfs)
    - [Безопасность, RBAC и системная техучетка Kerberos](#74-безопасность-rbac-и-системная-техучетка-kerberos)
-   - [Настройка Replicator Agent (Full-Duplex) и буфера Staging](#75-настройка-replicator-agent-full-duplex-и-буфера-staging)
+   - [Настройка Replicator Agent (Full-Duplex) и буфера Staging](#75-настройка-parom-agent-full-duplex-и-буфера-staging)
    - [Разрешение целевых адресов (Service Discovery, AGENT_TARGET_* и Fallback)](#76-разрешение-целевых-адресов-service-discovery-agent_target_-и-fallback)
    - [Планировщик периодических задач (Cron Scheduler)](#77-планировщик-периодических-задач-cron-scheduler)
    - [Локальное ограничение пропускной способности агента (`AGENT_MAX_BANDWIDTH_MB_S`)](#78-локальное-ограничение-пропускной-способности-агента-agent_max_bandwidth_mb_s-и-модель-согласования-wan)
@@ -193,7 +193,7 @@ hadoop:
 
 Имена пользователей и групп сравниваются без учета регистра. Группы из конфигурации добавляются к встроенным спискам, а не заменяют их:
 - встроенные группы администраторов: `hadoop-admins`, `admins`, `data-platform-admins`, `platform-admins`, `superusers`;
-- встроенные группы writer: `data-engineers`, `engineers`, `iskra-users`, `etl-developers`, `artel-operators`, `operators`, `replicator-operators`, `dev-leads`.
+- встроенные группы writer: `data-engineers`, `engineers`, `iskra-users`, `etl-developers`, `artel-operators`, `operators`, `parom-operators`, `dev-leads`.
 
 Роли:
 - Пользователи из `admin-users` или из любой группы администраторов получают роль `ADMIN` (бейдж в UI — `ADM`).
@@ -909,7 +909,7 @@ hadoop:
         grpc-host: "agent-dc1"        # Адрес агента-приемника для этого кластера
         grpc-port: 50051
         kerberos-enabled: true
-        principal: "replicator@COMPANY.LOCAL"
+        principal: "parom@COMPANY.LOCAL"
         keytab-path: "/etc/security/keytabs/replicator.keytab"
       - id: "backup-cluster"
         name: "HDFS DR"
@@ -950,7 +950,7 @@ curl -X POST http://<orchestrator_host>:8005/api/v1/limits/dc-dc \
 - `ADMIN` (`admin_user`): видит и изменяет задачи всех пользователей, меняет лимиты полосы, отменяет любые задачи.
 - `WRITER` / `READER` (`de_user`, `analyst_user`): видят только свои задачи и системные задачи техучетки. Запрос на изменение лимитов возвращает `HTTP 403 Forbidden`.
 
-Системная техучетка. Задача с флагом `run_as_service_account: true` выполняется от системного принципала (`hdfs-replicator@REALM.LOCAL`). Флаг нужен для периодических репликаций по расписанию, которые запускаются без участия пользователя.
+Системная техучетка. Задача с флагом `run_as_service_account: true` выполняется от системного принципала (`parom@REALM.LOCAL`). Флаг нужен для периодических репликаций по расписанию, которые запускаются без участия пользователя.
 
 Изоляция Kerberos-кэша. Для каждой операции воркер создает отдельный credential cache `KRB5CCNAME=/tmp/krb5cc_repl_{uuid}` и удаляет его после завершения передачи, так что билеты одной задачи не попадают в другую.
 
@@ -958,7 +958,7 @@ curl -X POST http://<orchestrator_host>:8005/api/v1/limits/dc-dc \
 
 ### 7.5 Настройка Replicator Agent (Full-Duplex) и буфера Staging
 
-Агент репликации `backend.replicator.agent` объединяет в одном процессе gRPC-сервер приема (`Receiver`) и фоновый воркер передачи (`Sender`), поэтому один агент реплицирует в обе стороны (`DC1 ⇄ DC2`).
+Агент репликации `io.github.balookrd.pristan.parom.agent` объединяет в одном процессе gRPC-сервер приема (`Receiver`) и фоновый воркер передачи (`Sender`), поэтому один агент реплицирует в обе стороны (`DC1 ⇄ DC2`).
 
 При старте агент регистрируется на оркестраторе: объявляет свой gRPC-адрес (`advertised_grpc_address`) и кластер, который обслуживает, а затем периодически шлет heartbeat. Адреса агентов в `application.yml` прописывать не нужно.
 
@@ -1178,7 +1178,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 | Tolmach | `GET /actuator/prometheus` | `8003` | без аутентификации | Micrometer, `tolmach_query_duration_seconds` |
 | Iskra | `GET /actuator/prometheus` | `8004` | без аутентификации | Micrometer, `spark_*` |
 | Оркестратор Replicator | `GET /actuator/prometheus` | `8005` | без аутентификации | только Micrometer |
-| Оркестратор Replicator | `GET /metrics` | `8005` | пользователь платформы или HTTP Basic `prometheus:<scrape_token>` | Micrometer и `replicator_*`, `kafka_*` |
+| Оркестратор Replicator | `GET /metrics` | `8005` | пользователь платформы или HTTP Basic `prometheus:<scrape_token>` | Micrometer и `parom_*`, `kafka_*` |
 
 `<scrape_token>` — значение `PAROM_METRICS_SCRAPE_TOKEN` (`parom.metrics-scrape-token`) оркестратора, например вывод `openssl rand -hex 32`; учетка действует только на `GET /metrics`, пустое значение выключает Basic-доступ.
 
@@ -1231,25 +1231,25 @@ YARN, HDFS, SQL и Iskra:
 
 | Метрика | Тип | Лейблы | Описание |
 |---|---|---|---|
-| `replicator_bytes_total` | Counter | `status` | Объем переданных байтов репликации (`IN_PROGRESS`, `COMPLETED`, `FAILED`) |
-| `replicator_jobs_total` | Gauge | `status`, `mode` | Количество задач репликации HDFS по статусам и типу запуска. Ряды `SCHEDULED` и `MANUAL` несут лейбл `mode` и пересекаются со статусами: по статусам суммируйте `{mode=""}`, по режимам — `{mode!=""}` |
-| `replicator_tasks_total` | Gauge | `status` | Количество пофайловых задач в распределенном пуле |
-| `replicator_active_workers` | Gauge | — | Число активных онлайн-воркеров репликации |
-| `replicator_active_agents` | Gauge | `status` | Число доступных агентов репликации (`online`, `total`) |
-| `replicator_throttling_delay_seconds_total` | Counter | — | Суммарная задержка шейпинга сетевого канала (Token Bucket) |
-| `replicator_file_size_bytes` | Histogram | `le` | Распределение размеров файлов репликации |
-| `replicator_hms_jobs_total` | Gauge | `status` | Количество задач репликации Hive Metastore |
-| `replicator_hms_tables_total` | Gauge | `type` | Количество таблиц HMS (`total`, `replicated`) |
-| `replicator_hms_partitions_total` | Gauge | `type` | Количество партиций HMS (`total`, `replicated`) |
-| `replicator_hms_speed_bytes_per_second` | Gauge | — | Скорость первичной синхронизации HMS |
-| `replicator_dr_cluster_fenced` | Gauge | `cluster_id` | Статус изоляции кластера (1 = Fenced / Kill-Switch активирован, 0 = Active) |
-| `replicator_dr_reverse_jobs_total` | Gauge | `status` | Количество задач обратной репликации Failover |
-| `replicator_agent_status` | Gauge | `agent_id`, `cluster_id`, `mode`, `status` | Доступность агента: `1` для `status="online"`, `0` для `offline` и `stale` |
-| `replicator_agent_active_transfers` | Gauge | `agent_id`, `cluster_id`, `mode` | Текущее количество параллельных передач на агенте |
-| `replicator_agent_transferred_bytes_total` | Counter | `agent_id`, `cluster_id` | Суммарный объем байтов, переданных агентом |
-| `replicator_agent_errors_total` | Counter | `agent_id`, `cluster_id` | Количество ошибок передачи данных агента |
-| `replicator_agent_heartbeat_age_seconds` | Gauge | `agent_id`, `cluster_id` | Задержка keepalive heartbeat агента |
-| `replicator_agent_max_bandwidth_mb_s` | Gauge | `agent_id`, `cluster_id` | Выделенный локальный лимит полосы HTB агента в МБ/с |
+| `parom_bytes_total` | Counter | `status` | Объем переданных байтов репликации (`IN_PROGRESS`, `COMPLETED`, `FAILED`) |
+| `parom_jobs_total` | Gauge | `status`, `mode` | Количество задач репликации HDFS по статусам и типу запуска. Ряды `SCHEDULED` и `MANUAL` несут лейбл `mode` и пересекаются со статусами: по статусам суммируйте `{mode=""}`, по режимам — `{mode!=""}` |
+| `parom_tasks_total` | Gauge | `status` | Количество пофайловых задач в распределенном пуле |
+| `parom_active_workers` | Gauge | — | Число активных онлайн-воркеров репликации |
+| `parom_active_agents` | Gauge | `status` | Число доступных агентов репликации (`online`, `total`) |
+| `parom_throttling_delay_seconds_total` | Counter | — | Суммарная задержка шейпинга сетевого канала (Token Bucket) |
+| `parom_file_size_bytes` | Histogram | `le` | Распределение размеров файлов репликации |
+| `parom_hms_jobs_total` | Gauge | `status` | Количество задач репликации Hive Metastore |
+| `parom_hms_tables_total` | Gauge | `type` | Количество таблиц HMS (`total`, `replicated`) |
+| `parom_hms_partitions_total` | Gauge | `type` | Количество партиций HMS (`total`, `replicated`) |
+| `parom_hms_speed_bytes_per_second` | Gauge | — | Скорость первичной синхронизации HMS |
+| `parom_dr_cluster_fenced` | Gauge | `cluster_id` | Статус изоляции кластера (1 = Fenced / Kill-Switch активирован, 0 = Active) |
+| `parom_dr_reverse_jobs_total` | Gauge | `status` | Количество задач обратной репликации Failover |
+| `parom_agent_status` | Gauge | `agent_id`, `cluster_id`, `mode`, `status` | Доступность агента: `1` для `status="online"`, `0` для `offline` и `stale` |
+| `parom_agent_active_transfers` | Gauge | `agent_id`, `cluster_id`, `mode` | Текущее количество параллельных передач на агенте |
+| `parom_agent_transferred_bytes_total` | Counter | `agent_id`, `cluster_id` | Суммарный объем байтов, переданных агентом |
+| `parom_agent_errors_total` | Counter | `agent_id`, `cluster_id` | Количество ошибок передачи данных агента |
+| `parom_agent_heartbeat_age_seconds` | Gauge | `agent_id`, `cluster_id` | Задержка keepalive heartbeat агента |
+| `parom_agent_max_bandwidth_mb_s` | Gauge | `agent_id`, `cluster_id` | Выделенный локальный лимит полосы HTB агента в МБ/с |
 
 ### 9.3 Настройка сбора метрик в Prometheus
 
@@ -1270,7 +1270,7 @@ scrape_configs:
 
 Проверка: в Prometheus UI (**Status** → **Targets**) у заданий `hadoop-explorer` статус `UP`; запрос `up{job="pristan"}` возвращает `1` для каждой цели.
 
-Задание `hadoop-replicator` опрашивает `GET /metrics` оркестратора с HTTP Basic: пользователь `prometheus`, пароль — `PAROM_METRICS_SCRAPE_TOKEN` оркестратора. В демо-стенде одно и то же значение задано в `demo/parom/docker-compose.yml` и `demo/parom/docker-compose.kafka.yml` (переменная `DEMO_METRICS_SCRAPE_TOKEN` его переопределяет) и в `demo/monitoring/prometheus/prometheus.yml`; при замене меняйте значение во всех трех файлах, а если задаете `DEMO_METRICS_SCRAPE_TOKEN`, впишите то же значение в `demo/monitoring/prometheus/prometheus.yml`. `monitoring/prometheus/prometheus.yml` читает пароль из файла `/etc/prometheus/secrets/replicator-metrics-scrape-token`: смонтируйте его в контейнер Prometheus. При неверном или незаданном токене цель в Prometheus `DOWN` с `server returned HTTP status 401`.
+Задание `hadoop-replicator` опрашивает `GET /metrics` оркестратора с HTTP Basic: пользователь `prometheus`, пароль — `PAROM_METRICS_SCRAPE_TOKEN` оркестратора. В демо-стенде одно и то же значение задано в `demo/parom/docker-compose.yml` и `demo/parom/docker-compose.kafka.yml` (переменная `DEMO_METRICS_SCRAPE_TOKEN` его переопределяет) и в `demo/monitoring/prometheus/prometheus.yml`; при замене меняйте значение во всех трех файлах, а если задаете `DEMO_METRICS_SCRAPE_TOKEN`, впишите то же значение в `demo/monitoring/prometheus/prometheus.yml`. `monitoring/prometheus/prometheus.yml` читает пароль из файла `/etc/prometheus/secrets/parom-metrics-scrape-token`: смонтируйте его в контейнер Prometheus. При неверном или незаданном токене цель в Prometheus `DOWN` с `server returned HTTP status 401`.
 
 ### 9.4 Сбор метрик в Kubernetes
 
@@ -1302,7 +1302,7 @@ spec:
 2. [`sklad_operations.json`](../monitoring/grafana/dashboards/sklad_operations.json) — темп и доля ошибок операций HDFS, трафик upload/download по кластерам.
 3. [`artel_queues.json`](../monitoring/grafana/dashboards/artel_queues.json) — переходы заявок Change Request по статусам, p95 API Artel по URI.
 4. [`iskra_tolmach_analytics.json`](../monitoring/grafana/dashboards/iskra_tolmach_analytics.json) — активные сессии Spark, p95 Spark-инструкций, темп и p95 SQL-запросов по движкам.
-5. Дашборды Replicator: [`hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json), [`hadoop_replicator_agents.json`](../monitoring/grafana/dashboards/hadoop_replicator_agents.json), [`hadoop_replicator_hms_dr.json`](../monitoring/grafana/dashboards/hadoop_replicator_hms_dr.json), [`hadoop_replicator_kafka.json`](../monitoring/grafana/dashboards/hadoop_replicator_kafka.json).
+5. Дашборды Replicator: [`parom_overview.json`](../monitoring/grafana/dashboards/parom_overview.json), [`parom_agents.json`](../monitoring/grafana/dashboards/parom_agents.json), [`parom_hms_dr.json`](../monitoring/grafana/dashboards/parom_hms_dr.json), [`parom_kafka.json`](../monitoring/grafana/dashboards/parom_kafka.json).
 
 #### Импорт дашбордов в Grafana
 1. В веб-интерфейсе Grafana перейдите в **Dashboards** → **New** → **Import**.
@@ -1355,5 +1355,5 @@ spec:
 - [Руководство администратора Sklad (hdfs-admin-guide.md)](hdfs-admin-guide.md)
 - [Руководство администратора Tolmach (sql-admin-guide.md)](sql-admin-guide.md)
 - [Руководство администратора Iskra (spark-admin-guide.md)](spark-admin-guide.md)
-- [Руководство администратора Parom (replicator-admin-guide.md)](replicator-admin-guide.md)
+- [Руководство администратора Parom (parom-admin-guide.md)](parom-admin-guide.md)
 

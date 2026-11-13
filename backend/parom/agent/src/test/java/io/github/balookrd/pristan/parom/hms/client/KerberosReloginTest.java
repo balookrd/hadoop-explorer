@@ -29,7 +29,7 @@ class KerberosReloginTest {
     private static UserGroupInformation keytabUgi(boolean fromKeytab) throws Exception {
         UserGroupInformation ugi = mock(UserGroupInformation.class);
         when(ugi.isFromKeytab()).thenReturn(fromKeytab);
-        when(ugi.getShortUserName()).thenReturn("replicator");
+        when(ugi.getShortUserName()).thenReturn("parom");
         when(ugi.doAs(any(PrivilegedExceptionAction.class)))
                 .thenAnswer(inv -> ((PrivilegedExceptionAction<Object>) inv.getArgument(0)).run());
         return ugi;
@@ -55,7 +55,7 @@ class KerberosReloginTest {
     void tokenIssueReloginsFirst() throws Exception {
         UserGroupInformation ugi = keytabUgi(true);
         IMetaStoreClient client = mock(IMetaStoreClient.class);
-        when(client.getDelegationToken("analyst", "replicator")).thenReturn("token");
+        when(client.getDelegationToken("analyst", "parom")).thenReturn("token");
         MetaStoreConnectionFactory factory = new MetaStoreConnectionFactory(
                 "dc1", new Configuration(), ugi, conf -> client);
 
@@ -66,7 +66,7 @@ class KerberosReloginTest {
         }
 
         verify(ugi).checkTGTAndReloginFromKeytab();
-        verify(client).getDelegationToken("analyst", "replicator");
+        verify(client).getDelegationToken("analyst", "parom");
     }
 
     @Test

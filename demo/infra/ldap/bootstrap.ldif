@@ -240,7 +240,7 @@ dn: cn=platform-admins,ou=groups,dc=company,dc=local
 objectClass: top
 objectClass: groupOfNames
 cn: platform-admins
-description: Администраторы платформы (Spark, Replicator)
+description: Администраторы платформы (Spark, Parom)
 member: uid=admin,ou=users,dc=company,dc=local
 member: uid=admin_user,ou=users,dc=company,dc=local
 

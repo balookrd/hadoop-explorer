@@ -21,18 +21,18 @@ scrape_configs:
         labels:
           env: 'production'
 
-  - job_name: 'hadoop-replicator'
+  - job_name: 'parom'
     # GET /metrics needs authentication: HTTP Basic prometheus:<PAROM_METRICS_SCRAPE_TOKEN>
     metrics_path: '/metrics'
     scrape_interval: 5s
     honor_labels: true
     basic_auth:
       username: 'prometheus'
-      password_file: '/etc/prometheus/secrets/replicator-metrics-scrape-token'
+      password_file: '/etc/prometheus/secrets/parom-metrics-scrape-token'
     static_configs:
       - targets:
-          - 'replicator-orchestrator:8005'
+          - 'parom-orchestrator:8005'
           - 'localhost:8005'
         labels:
-          app: 'replicator'
+          app: 'parom'
           env: 'production'

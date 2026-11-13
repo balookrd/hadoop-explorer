@@ -8,7 +8,7 @@
 Подсистема репликации Apache Kafka вынесена в отдельный раздел 8: у нее свой демон, свой порт Data Plane и своя модель размещения.
 
 > [!NOTE]
-> Архитектура высокой доступности (HA), распределенного лизинга и матрица отказоустойчивости компонентов описаны в документе: [Руководство по отказоустойчивости (replicator-fault-tolerance.md)](replicator-fault-tolerance.md).
+> Архитектура высокой доступности (HA), распределенного лизинга и матрица отказоустойчивости компонентов описаны в документе: [Руководство по отказоустойчивости (parom-fault-tolerance.md)](parom-fault-tolerance.md).
 
 ---
 
@@ -26,10 +26,10 @@
    - [2.1 Пошаговая установка](#21-пошаговая-установка)
    - [2.2 Запуск нескольких агентов для одного кластера (горизонтальное масштабирование и HA)](#22-запуск-нескольких-агентов-для-одного-кластера-горизонтальное-масштабирование-и-ha)
    - [2.3 Совместное развертывание на узлах Hadoop (DataNode co-location) и локальный шейпинг полосы (`AGENT_MAX_BANDWIDTH_MB_S`)](#23-совместное-развертывание-на-узлах-hadoop-datanode-co-location-и-локальный-шейпинг-полосы-agent_max_bandwidth_mb_s)
-   - [2.4 Архитектура и структура JAR-артефактов Replicator Agent](#24-архитектура-и-структура-jar-артефактов-replicator-agent)
-   - [2.5 Варианты запуска Replicator Agent на узлах Hadoop](#25-варианты-запуска-replicator-agent-на-узлах-hadoop)
+   - [2.4 Архитектура и структура JAR-артефактов Replicator Agent](#24-архитектура-и-структура-jar-артефактов-parom-agent)
+   - [2.5 Варианты запуска Replicator Agent на узлах Hadoop](#25-варианты-запуска-parom-agent-на-узлах-hadoop)
    - [2.6 Запуск распределенного пула агентов в Apache Hadoop YARN](#26-запуск-распределенного-пула-агентов-в-apache-hadoop-yarn)
-   - [2.7 Сравнительная матрица вариантов развертывания Replicator Agent](#27-сравнительная-матрица-вариантов-развертывания-replicator-agent)
+   - [2.7 Сравнительная матрица вариантов развертывания Replicator Agent](#27-сравнительная-матрица-вариантов-развертывания-parom-agent)
    - [2.8 Отказоустойчивость, восстановление процессов и Failover Оркестратора](#28-отказоустойчивость-восстановление-процессов-и-failover-оркестратора)
 - [3. Режим 2: Docker & Docker Compose](#3-режим-2-docker--docker-compose)
    - [3.1 Запуск из предсобранных образов GitHub Container Registry (GHCR — рекомендуется)](#31-запуск-из-предсобранных-образов-github-container-registry-ghcr--рекомендуется)
@@ -54,18 +54,18 @@
    - [7.1 Примеры вызовов через CLI](#71-примеры-вызовов-через-cli)
 - [8. Подсистема репликации Apache Kafka (Kafka Replicator)](#8-подсистема-репликации-apache-kafka-kafka-replicator)
    - [8.1 Гарантии доставки, flow control и транскодинг схем](#81-гарантии-доставки-flow-control-и-транскодинг-схем)
-   - [8.2 Параметры командной строки демона `kafka-replicator-agent`](#82-параметры-командной-строки-демона-kafka-replicator-agent)
+   - [8.2 Параметры командной строки демона `parom-kafka-agent`](#82-параметры-командной-строки-демона-parom-kafka-agent)
    - [8.3 Защитный гейт синхронизации оффсетов (Consumer Group Safety Gate)](#83-защитный-гейт-синхронизации-оффсетов-consumer-group-safety-gate)
    - [8.4 Иерархический шейпинг полосы WAN (Hierarchical Token Bucket QoS) и совместная работа с HDFS](#84-иерархический-шейпинг-полосы-wan-hierarchical-token-bucket-qos-и-совместная-работа-с-hdfs)
-   - [8.5 Сайзинг и модели размещения Kafka Replicator Agent (Colocated vs Dedicated)](#85-сайзинг-и-модели-размещения-kafka-replicator-agent-colocated-vs-dedicated)
-   - [8.6 Пошаговая настройка и запуск Kafka Replicator Agent в режиме Colocated (на узлах брокеров Kafka)](#86-пошаговая-настройка-и-запуск-kafka-replicator-agent-в-режиме-colocated-на-узлах-брокеров-kafka)
+   - [8.5 Сайзинг и модели размещения Kafka Replicator Agent (Colocated vs Dedicated)](#85-сайзинг-и-модели-размещения-parom-kafka-agent-colocated-vs-dedicated)
+   - [8.6 Пошаговая настройка и запуск Kafka Replicator Agent в режиме Colocated (на узлах брокеров Kafka)](#86-пошаговая-настройка-и-запуск-parom-kafka-agent-в-режиме-colocated-на-узлах-брокеров-kafka)
 
 ---
 
 ## 1. Архитектура, безопасность и справочник конфигурации
 
 ### 1.1 Архитектура и компоненты системы
-Parom построен на симметричных агентах Replicator Agent (`Full-Duplex`). Каждый узел в ЦОД1 и ЦОД2 запускает агент `backend.replicator.agent`, который одновременно принимает входящие gRPC-потоки (:50051) и передает исходящие задачи из очереди Оркестратора. Поэтому двунаправленная репликация (`DC1 ⇄ DC2`, DR failback) работает в одном сервисе.
+Parom построен на симметричных агентах Replicator Agent (`Full-Duplex`). Каждый узел в ЦОД1 и ЦОД2 запускает агент `io.github.balookrd.pristan.parom.agent`, который одновременно принимает входящие gRPC-потоки (:50051) и передает исходящие задачи из очереди Оркестратора. Поэтому двунаправленная репликация (`DC1 ⇄ DC2`, DR failback) работает в одном сервисе.
 
 ```mermaid
 flowchart TD
@@ -273,16 +273,16 @@ flowchart TD
 | `PAROM_HMS_PARTITION_BATCH_SIZE` | Порция партиций: столько читается из метастора, применяется на приемнике и держится в памяти агента за раз (не больше 1000) | `1000` | Опционально |
 | `TARGET_HDFS_DEFAULTFS` / `TARGET_HDFS_DEFAULT_FS` | URI целевой HDFS файловой системы (например, `hdfs://hdfs-cluster-2:9000`) для перезаписи схем и путей таблиц/партиций в Thrift Hive Metastore через `HmsPathRewriter` | Не задано (используются эвристики и mappings) | Рекомендуется при межкластерной репликации |
 | `PAROM_FEDERATION_MAPPINGS` | Список сопоставлений HDFS authority для федерации кластеров через запятую (например, `hdfs-cluster-1:9000=hdfs-cluster-2:9000,dc1=dc2`) | Не задано | Опционально |
-| `HMS_LOOP_INTERVAL_MS` | Интервал фонового опроса и синхронизации метаданных HMS в изолированном потоке `replicator-hms-loop` (мс) | `2000` (2 сек) | Опционально |
+| `HMS_LOOP_INTERVAL_MS` | Интервал фонового опроса и синхронизации метаданных HMS в изолированном потоке `parom-hms-loop` (мс) | `2000` (2 сек) | Опционально |
 
 ### 1.5 Настройка Hadoop Impersonation (Proxy User) для Apache Ranger
 
 Чтобы политики Apache Ranger применялись к конечному пользователю, а в аудите стояло его имя, агент работает через Hadoop Proxy User (doAs-имперсонацию):
-1. Replicator Agent аутентифицируется в Kerberos KDC по системному keytab техучетки (`hdfs-replicator@REALM.LOCAL`).
+1. Replicator Agent аутентифицируется в Kerberos KDC по системному keytab техучетки (`parom@REALM.LOCAL`).
 2. При операциях с HDFS (`HadoopFsManager` / `FileSystem.get`) агент создает прокси-контекст `UserGroupInformation.createProxyUser(user, baseUgi).doAs(...)` от имени конечного пользователя (`user=alice`, извлеченное из `execution_principal` или сессии).
 3. NameNode и Apache Ranger проверяют политики доступа непосредственно для `alice`, а в Ranger Audit Log регистрируется запись вида:
    ```
-   UGI: alice (auth:PROXY via hdfs-replicator@REALM.LOCAL)
+   UGI: alice (auth:PROXY via parom@REALM.LOCAL)
    Resource: /data/production/events/...
    Action: WRITE / READ
    Access Result: ALLOWED / DENIED
@@ -464,9 +464,9 @@ Pristan поставляется собранными релизными арт�
 
 | Файл артефакта | Тип | Размер | Содержимое и назначение |
 |---|---|---|---|
-| `replicator-orchestrator-${VERSION}.jar` | Spring Boot 3 Fat JAR | ~50 МБ | Оркестратор репликации: веб-сервер, REST API, встроенный веб-интерфейс (Svelte 5 SPA предварительно упакован в `/static`), иерархический Token Bucket шейпер, драйверы БД (H2, PostgreSQL) и метрики Actuator. |
-| `replicator-agent-${VERSION}-all.jar` | Shaded Executable Fat JAR | ~81.5 МБ | Агент репликации: исполняемый JAR со всеми зависимостями (Netty HTTP/2, gRPC runtime, Apache Hadoop Client, YARN ApplicationMaster, Jackson). Запускается через `java -jar` или `hadoop jar`. |
-| `replicator-agent-${VERSION}.jar` | Lean JAR (тонкий) | ~211 КБ | Классы агента без внешних библиотек. Запускается на узлах Hadoop с системным `HADOOP_CLASSPATH` (`$(hadoop classpath)`). |
+| `parom-orchestrator-${VERSION}.jar` | Spring Boot 3 Fat JAR | ~50 МБ | Оркестратор репликации: веб-сервер, REST API, встроенный веб-интерфейс (Svelte 5 SPA предварительно упакован в `/static`), иерархический Token Bucket шейпер, драйверы БД (H2, PostgreSQL) и метрики Actuator. |
+| `parom-agent-${VERSION}-all.jar` | Shaded Executable Fat JAR | ~81.5 МБ | Агент репликации: исполняемый JAR со всеми зависимостями (Netty HTTP/2, gRPC runtime, Apache Hadoop Client, YARN ApplicationMaster, Jackson). Запускается через `java -jar` или `hadoop jar`. |
+| `parom-agent-${VERSION}.jar` | Lean JAR (тонкий) | ~211 КБ | Классы агента без внешних библиотек. Запускается на узлах Hadoop с системным `HADOOP_CLASSPATH` (`$(hadoop classpath)`). |
 | `SHA256SUMS.txt` | Текстовый файл контрольных сумм | <1 КБ | Контрольные суммы SHA-256 всех JAR-артефактов релиза. |
 
 #### Готовые контейнеры (GitHub Container Registry — GHCR)
@@ -542,7 +542,7 @@ sudo chmod 750 /var/lib/pristan/replicator/data /var/lib/pristan/replicator/stag
 
 ##### Способ А (для production): загрузка из GitHub Releases
 
-Fat JAR скачиваются из раздела релизов GitHub. Веб-ресурсы фронтенда (Svelte 5) встроены в `parom-orchestrator.jar`, библиотеки gRPC и Hadoop — в `replicator-agent-*-all.jar`.
+Fat JAR скачиваются из раздела релизов GitHub. Веб-ресурсы фронтенда (Svelte 5) встроены в `parom-orchestrator.jar`, библиотеки gRPC и Hadoop — в `parom-agent-*-all.jar`.
 
 ##### 1. Загрузка через GitHub CLI (`gh`)
 Если на сервере или шлюзе установлен `gh`:
@@ -554,8 +554,8 @@ RELEASE_DIR="/opt/pristan/replicator/releases/v${VERSION}"
 mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
 
 gh release download "v${VERSION}" --repo company/hadoop-explorer \
-    --pattern "replicator-orchestrator-*.jar" \
-    --pattern "replicator-agent-*-all.jar" \
+    --pattern "parom-orchestrator-*.jar" \
+    --pattern "parom-agent-*-all.jar" \
     --pattern "SHA256SUMS.txt"
 ```
 
@@ -572,8 +572,8 @@ RELEASE_DIR="/opt/pristan/replicator/releases/v${VERSION}"
 mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
 
 # Скачивание артефактов
-curl -fsSL -O "${BASE_URL}/replicator-orchestrator-${VERSION}.jar"
-curl -fsSL -O "${BASE_URL}/replicator-agent-${VERSION}-all.jar"
+curl -fsSL -O "${BASE_URL}/parom-orchestrator-${VERSION}.jar"
+curl -fsSL -O "${BASE_URL}/parom-agent-${VERSION}-all.jar"
 curl -fsSL -O "${BASE_URL}/SHA256SUMS.txt"
 ```
 
@@ -596,10 +596,10 @@ sha256sum -c SHA256SUMS.txt --ignore-missing
 BIN_DIR="/opt/pristan/replicator/bin"
 
 # Для сервера Оркестратора:
-ln -sfn "${RELEASE_DIR}/replicator-orchestrator-${VERSION}.jar" "${BIN_DIR}/parom-orchestrator.jar"
+ln -sfn "${RELEASE_DIR}/parom-orchestrator-${VERSION}.jar" "${BIN_DIR}/parom-orchestrator.jar"
 
 # Для серверов Агентов:
-ln -sfn "${RELEASE_DIR}/replicator-agent-${VERSION}-all.jar" "${BIN_DIR}/parom-agent.jar"
+ln -sfn "${RELEASE_DIR}/parom-agent-${VERSION}-all.jar" "${BIN_DIR}/parom-agent.jar"
 ```
 
 ##### 5. Скрипт развертывания `install-from-release.sh`
@@ -620,16 +620,16 @@ mkdir -p "${RELEASE_DIR}" "${BIN_DIR}"
 cd "${RELEASE_DIR}"
 
 echo "--> Загрузка артефактов..."
-curl -fsSL -O "${BASE_URL}/replicator-orchestrator-${VERSION}.jar"
-curl -fsSL -O "${BASE_URL}/replicator-agent-${VERSION}-all.jar"
+curl -fsSL -O "${BASE_URL}/parom-orchestrator-${VERSION}.jar"
+curl -fsSL -O "${BASE_URL}/parom-agent-${VERSION}-all.jar"
 curl -fsSL -O "${BASE_URL}/SHA256SUMS.txt"
 
 echo "--> Проверка контрольных сумм..."
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
 echo "--> Обновление символических ссылок..."
-ln -sfn "${RELEASE_DIR}/replicator-orchestrator-${VERSION}.jar" "${BIN_DIR}/parom-orchestrator.jar"
-ln -sfn "${RELEASE_DIR}/replicator-agent-${VERSION}-all.jar" "${BIN_DIR}/parom-agent.jar"
+ln -sfn "${RELEASE_DIR}/parom-orchestrator-${VERSION}.jar" "${BIN_DIR}/parom-orchestrator.jar"
+ln -sfn "${RELEASE_DIR}/parom-agent-${VERSION}-all.jar" "${BIN_DIR}/parom-agent.jar"
 
 echo "Версия v${VERSION} успешно установлена в ${BIN_DIR}!"
 ```
@@ -656,9 +656,9 @@ cd ..
 mvn clean package -DskipTests -f backend/parom/pom.xml
 
 # 3. Копирование артефактов в рабочий каталог bin
-cp backend/parom/orchestrator/target/replicator-orchestrator-*.jar \
+cp backend/parom/orchestrator/target/parom-orchestrator-*.jar \
    /opt/pristan/replicator/bin/parom-orchestrator.jar
-cp backend/parom/agent/target/replicator-agent-*-all.jar \
+cp backend/parom/agent/target/parom-agent-*-all.jar \
    /opt/pristan/replicator/bin/parom-agent.jar
 ```
 
@@ -674,8 +674,8 @@ spring:
     # Для Standalone / Тестирования:
     url: jdbc:h2:file:/var/lib/pristan/replicator/data/replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
     # Для промышленного кластера (PostgreSQL):
-    # url: jdbc:postgresql://pg.company.local:5432/replicator
-    # username: replicator_user
+    # url: jdbc:postgresql://pg.company.local:5432/parom
+    # username: parom_user
     # password: "DbPassword123"
   jpa:
     hibernate:
@@ -742,7 +742,7 @@ hadoop:
 
 #### Шаг 5: Создание systemd units
 
-##### 1. Сервис Оркестратора (`/etc/systemd/system/replicator-orchestrator.service`)
+##### 1. Сервис Оркестратора (`/etc/systemd/system/parom-orchestrator.service`)
 ```ini
 [Unit]
 Description=Parom Orchestrator
@@ -767,7 +767,7 @@ LimitNOFILE=65536
 WantedBy=multi-user.target
 ```
 
-##### 2. Сервис агента репликации (`/etc/systemd/system/replicator-agent.service`)
+##### 2. Сервис агента репликации (`/etc/systemd/system/parom-agent.service`)
 Устанавливается на серверах в каждом ЦОД (DC1 и DC2); для двунаправленной репликации (`DC1 ⇄ DC2`) агент нужен с обеих сторон:
 ```ini
 [Unit]
@@ -804,12 +804,12 @@ WantedBy=multi-user.target
 sudo systemctl daemon-reload
 
 # На сервере Оркестратора:
-sudo systemctl enable --now replicator-orchestrator
+sudo systemctl enable --now parom-orchestrator
 curl -s http://127.0.0.1:8005/health
 # {"status":"UP","database":"UP","service":"parom-orchestrator","uptime_seconds":...}
 
 # На серверах Агентов (DC1 и DC2):
-sudo systemctl enable --now replicator-agent
+sudo systemctl enable --now parom-agent
 ```
 
 #### Шаг 7: Обновление версии без остановки (rolling upgrade)
@@ -823,26 +823,26 @@ sudo systemctl enable --now replicator-agent
    NEW_DIR="/opt/pristan/replicator/releases/v${NEW_VER}"
    mkdir -p "${NEW_DIR}" && cd "${NEW_DIR}"
 
-   curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/replicator-orchestrator-${NEW_VER}.jar"
-   curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/replicator-agent-${NEW_VER}-all.jar"
+   curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/parom-orchestrator-${NEW_VER}.jar"
+   curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/parom-agent-${NEW_VER}-all.jar"
    curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/SHA256SUMS.txt"
    sha256sum -c SHA256SUMS.txt --ignore-missing
    ```
 
 2. Переключите символические ссылки (`ln -sfn` заменяет ссылку атомарно):
    ```bash
-   ln -sfn "${NEW_DIR}/replicator-orchestrator-${NEW_VER}.jar" /opt/pristan/replicator/bin/parom-orchestrator.jar
-   ln -sfn "${NEW_DIR}/replicator-agent-${NEW_VER}-all.jar" /opt/pristan/replicator/bin/parom-agent.jar
+   ln -sfn "${NEW_DIR}/parom-orchestrator-${NEW_VER}.jar" /opt/pristan/replicator/bin/parom-orchestrator.jar
+   ln -sfn "${NEW_DIR}/parom-agent-${NEW_VER}-all.jar" /opt/pristan/replicator/bin/parom-agent.jar
    ```
 
 3. Перезапустите сервисы:
    - Оркестратор: перезапуск занимает 2–3 секунды. Воркеры сохраняют состояние и переподключаются сами.
      ```bash
-     sudo systemctl restart replicator-orchestrator
+     sudo systemctl restart parom-orchestrator
      ```
    - Агенты: перезапускайте по одному (rolling restart). При остановке агента Оркестратор возвращает его активные задачи в очередь, и их забирают другие агенты (failover осиротевших задач, см. 2.2):
      ```bash
-     sudo systemctl restart replicator-agent
+     sudo systemctl restart parom-agent
      ```
 
 ---
@@ -862,7 +862,7 @@ sudo systemctl enable --now replicator-agent
   - Параметр `parom.max-task-retries` (по умолчанию `3`) определяет максимальное количество попыток до перевода в терминальный `FAILED`.
 
 #### Вариант 1: Запуск нескольких агентов в systemd (шаблонные юниты)
-Создайте шаблонный юнит `/etc/systemd/system/replicator-agent@.service`:
+Создайте шаблонный юнит `/etc/systemd/system/parom-agent@.service`:
 ```ini
 [Unit]
 Description=Hadoop Replicator Agent Instance %i
@@ -885,8 +885,8 @@ WantedBy=multi-user.target
 ```
 Запустите два экземпляра агента на одном узле:
 ```bash
-sudo systemctl enable --now replicator-agent@1
-sudo systemctl enable --now replicator-agent@2
+sudo systemctl enable --now parom-agent@1
+sudo systemctl enable --now parom-agent@2
 ```
 
 #### Вариант 2: Запуск нескольких агентов в Docker Compose
@@ -925,7 +925,7 @@ services:
 #### Локальный шейпер `AGENT_MAX_BANDWIDTH_MB_S`
 Задайте лимит полосы агента переменной окружения `AGENT_MAX_BANDWIDTH_MB_S`:
 ```ini
-# /etc/systemd/system/replicator-agent.service.d/override.conf
+# /etc/systemd/system/parom-agent.service.d/override.conf
 [Service]
 # Ограничить утилизацию сетевого интерфейса и дисков этой DataNode до 40 МБ/с
 Environment="AGENT_MAX_BANDWIDTH_MB_S=40.0"
@@ -957,11 +957,11 @@ mvn clean package -pl backend/parom/agent -am -DskipTests
 | Артефакт | Размер | Содержимое | Сценарии применения |
 |---|---|---|---|
 | `parom-agent-1.0.0-all.jar`<br/>(Shaded Fat JAR) | ~81.5 МБ | Классы агента, сгенерированные стабы gRPC/Protobuf и все runtime-зависимости: Netty HTTP/2, gRPC Java runtime, Apache Hadoop Client, YARN Client, Jackson, Commons CLI. | 1. Запуск в Docker-контейнерах (`Dockerfile.parom-agent`).<br/>2. Автономный запуск через `java -jar` на серверах без дистрибутива Hadoop.<br/>3. Отправка в YARN (`yarn jar` или `submit-yarn.sh` — JAR загружается в staging-каталог приложения в HDFS).<br/>4. Запуск через `hadoop jar` на DataNode и edge-узлах. |
-| `parom-agent-1.0.0.jar`<br/>(тонкий JAR) | ~211 КБ | Только классы агента и Protobuf DTO, без внешних библиотек. | 1. Maven-зависимость в `replicator-orchestrator` (`<artifactId>parom-agent</artifactId>`): внешние библиотеки агента не добавляются в classpath Оркестратора.<br/>2. Запуск на узлах Hadoop с подключением системного `HADOOP_CLASSPATH` (`hadoop classpath`). |
+| `parom-agent-1.0.0.jar`<br/>(тонкий JAR) | ~211 КБ | Только классы агента и Protobuf DTO, без внешних библиотек. | 1. Maven-зависимость в `parom-orchestrator` (`<artifactId>parom-agent</artifactId>`): внешние библиотеки агента не добавляются в classpath Оркестратора.<br/>2. Запуск на узлах Hadoop с подключением системного `HADOOP_CLASSPATH` (`hadoop classpath`). |
 
 #### 2.4.2 Почему артефактов два
 В Spring Boot сервисах плагин `spring-boot-maven-plugin` заменяет исходный JAR исполняемым fat-архивом. У Replicator Agent так сделать нельзя по двум причинам:
-1. Транзитивные зависимости. Модуль `replicator-orchestrator` подключает библиотеку `replicator-agent` ради Protobuf-моделей и служебных классов. Если бы Shade-плагин заменил базовый артефакт 80-мегабайтным Fat JAR, в classpath Оркестратора попали бы дублирующие и затененные версии Netty и Hadoop Client, и возникли бы конфликты версий (JAR hell).
+1. Транзитивные зависимости. Модуль `parom-orchestrator` подключает библиотеку `parom-agent` ради Protobuf-моделей и служебных классов. Если бы Shade-плагин заменил базовый артефакт 80-мегабайтным Fat JAR, в classpath Оркестратора попали бы дублирующие и затененные версии Netty и Hadoop Client, и возникли бы конфликты версий (JAR hell).
 2. Размер. В кластерах с установленным дистрибутивом Hadoop (Cloudera, Arenadata, Apache Hadoop) клиенты `hadoop-common` и `hadoop-hdfs-client` уже есть на узлах. Тонкий JAR (211 КБ) запускает агент без копирования 80+ МБ библиотек на каждый сервер.
 
 ---
@@ -1020,7 +1020,7 @@ JAR_FILE=/opt/pristan/replicator/bin/parom-agent.jar \
 #### 2.5.3 Способ В: постоянный сервис systemd (DataNode daemon)
 Для постоянной репликации на выделенных узлах зарегистрируйте агент как systemd-юнит.
 
-Создайте файл `/etc/systemd/system/replicator-agent.service`:
+Создайте файл `/etc/systemd/system/parom-agent.service`:
 ```ini
 [Unit]
 Description=Parom Agent (Java 21)
@@ -1061,7 +1061,7 @@ RestartSec=5s
 LimitNOFILE=65536
 StandardOutput=journal
 StandardError=journal
-SyslogIdentifier=replicator-agent
+SyslogIdentifier=parom-agent
 
 [Install]
 WantedBy=multi-user.target
@@ -1070,8 +1070,8 @@ WantedBy=multi-user.target
 Управление сервисом:
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable --now replicator-agent
-sudo systemctl status replicator-agent
+sudo systemctl enable --now parom-agent
+sudo systemctl status parom-agent
 ```
 
 #### 2.5.4 Справочник параметров командной строки и переменных окружения
@@ -1117,7 +1117,7 @@ sequenceDiagram
     participant Orch as Replicator Orchestrator
 
     Admin->>Client: yarn jar parom-agent-1.0.0-all.jar ...
-    Client->>HDFS: Загрузка fat JAR и токенов в .replicator-staging/<appId>
+    Client->>HDFS: Загрузка fat JAR и токенов в .parom-staging/<appId>
     Client->>RM: submitApplication(ApplicationSubmissionContext)
     RM->>AM: Выделение контейнера и запуск ApplicationMaster
     AM->>RM: registerApplicationMaster()
@@ -1241,7 +1241,7 @@ yarn rmadmin -refreshQueues
 При запуске в защищенном Kerberos-кластере:
 1. Перед `yarn jar` пользователь или планировщик выполняет `kinit`:
    ```bash
-   kinit -kt /etc/security/keytabs/hdfs-replicator.keytab hdfs-replicator@REALM.LOCAL
+   kinit -kt /etc/security/keytabs/hdfs-replicator.keytab parom@REALM.LOCAL
    ```
 2. `ParomYarnClient` при инициализации запрашивает у NameNode HDFS Delegation Token.
 3. Токены делегирования сериализуются в `Credentials` контекста `ApplicationSubmissionContext`.
@@ -1311,7 +1311,7 @@ yarn application -kill application_1728460000000_0042
 3. CDC-опрос Hive Metastore агентом:
    - Журнал событий `NOTIFICATION_LOG` для активных задач репликации опрашивает агент-источник (`HmsTaskExecutor.pollAndSyncCdc`).
    - Агент источника опрашивает локальный Thrift, конвертирует события и передает их целевому агенту по gRPC, после чего отправляет контрольную точку `lastProcessedEventId` и `eventLag` в Оркестратор по gRPC Control Plane (`ReportHmsProgress`).
-   - Перед запуском на боевых кластерах пройдите [чек-лист настройки HMS-репликации](replicator-hms-production-checklist.md): имперсонация агента на HDFS и метасторах, журнал событий и срок его хранения, события DML, оркестратор на PostgreSQL.
+   - Перед запуском на боевых кластерах пройдите [чек-лист настройки HMS-репликации](parom-hms-production-checklist.md): имперсонация агента на HDFS и метасторах, журнал событий и срок его хранения, события DML, оркестратор на PostgreSQL.
    - Клиент метастора — Hive 3.1 (`hive-standalone-metastore` 3.1.3, Thrift 0.9.3): он работает с HMS 3.1 / HDP 3.1 и с HMS 4.x (там сохранены методы 3.x). Клиент 4.0 вызывал методы `*_req` (`create_table_req` и др.), которых у метастора 3.1 нет. Проверка совместимости — `demo/parom/run-hms31-compat-test.sh`.
    - Какие события переносятся: `CREATE_TABLE`, `ALTER_TABLE` (включая `RENAME` — таблица на приемнике переименовывается с сохранением партиций), `DROP_TABLE`, `ADD_PARTITION`, `ALTER_PARTITION`, `DROP_PARTITION` и `INSERT`. Сообщения разбираются в форматах `json-0.2` (Hive 3 / HDP 3.1) и `gzip(json-2.0)` (Hive 4).
    - `INSERT` — дозапись в существующую таблицу или партицию без inotify: агент заводит свежую подзадачу копирования каталога (без переиспользования прошедшей копии), при `INSERT OVERWRITE` удаляет на приемнике файлы, которых в каталоге больше нет, и обновляет метаданные партиции (статистику). Событие пишется в журнал, только если на стороне, выполняющей DML, включено `hive.metastore.dml.events=true` (в HiveServer2 по умолчанию `false`). Spark событий `INSERT` не публикует: дозапись Spark в существующие партиции без inotify не переносится.
@@ -1410,11 +1410,11 @@ curl -X POST http://orchestrator:8005/api/v1/hms/jobs \
 - Правила перезаписи заданы (`PAROM_FEDERATION_MAPPINGS` или целевая ФС по умолчанию): путь мимо них считается ошибкой конфигурации. Таблица или партиция не переносится, в журнале событий задачи появляется запись `FAILED` с указанием локации, итоговый статус задачи — `ERROR`. Остальные таблицы обрабатываются как обычно.
 - Правила не заданы: это режим сквозного переноса для одинакового пространства имен на обеих сторонах. Путь переносится как есть, в лог агента пишется предупреждение.
 
-##### 2. Изоляция потоков worker и metadata (`replicator-hms-loop`)
-В ранних версиях опрос задач передачи файлов (`Worker`) и синхронизация схем/CDC Hive Metastore (`HmsTaskExecutor`) выполнялись в одном потоке `replicator-sender-loop`. При интенсивной передаче больших файлов HDFS поток блокировался на сетевых операциях ввода-вывода, что вызывало задержки до 60 секунд в регистрации метаданных.
+##### 2. Изоляция потоков worker и metadata (`parom-hms-loop`)
+В ранних версиях опрос задач передачи файлов (`Worker`) и синхронизация схем/CDC Hive Metastore (`HmsTaskExecutor`) выполнялись в одном потоке `parom-sender-loop`. При интенсивной передаче больших файлов HDFS поток блокировался на сетевых операциях ввода-вывода, что вызывало задержки до 60 секунд в регистрации метаданных.
 Сейчас цикл репликации схем работает в отдельном потоке:
-- `replicator-sender-loop` обрабатывает пофайловые задачи передачи HDFS (`claimTasks`);
-- `replicator-hms-loop` с интервалом `HMS_LOOP_INTERVAL_MS` (по умолчанию 2 секунды) опрашивает назначенные задачи HMS, выполняет параллельный Bootstrap схем таблиц, применяет CDC события из `NOTIFICATION_LOG` и продлевает распределенный лизинг на Оркестраторе.
+- `parom-sender-loop` обрабатывает пофайловые задачи передачи HDFS (`claimTasks`);
+- `parom-hms-loop` с интервалом `HMS_LOOP_INTERVAL_MS` (по умолчанию 2 секунды) опрашивает назначенные задачи HMS, выполняет параллельный Bootstrap схем таблиц, применяет CDC события из `NOTIFICATION_LOG` и продлевает распределенный лизинг на Оркестраторе.
 
 Передача больших файлов больше не задерживает синхронизацию метаданных.
 
@@ -1465,13 +1465,13 @@ docker build -t ghcr.io/company/pristan/parom-agent:latest \
 ### 3.3 Полный `docker-compose.yml` (двунаправленная репликация DC1 ⇄ DC2)
 Готовый compose-файл находится в `demo/parom/docker-compose.yml`:
 ```yaml
-name: hadoop-replicator-demo
+name: parom-demo
 
 services:
   # 1. Orchestrator (Web UI, API, Token Bucket, Scheduler, Prometheus)
   orchestrator:
     image: ghcr.io/company/pristan/parom-orchestrator:1.0.0
-    container_name: replicator-orchestrator
+    container_name: parom-orchestrator
     hostname: orchestrator
     restart: unless-stopped
     environment:
@@ -1480,13 +1480,13 @@ services:
       SPRING_DATASOURCE_URL: "jdbc:h2:file:/app/data/parom;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;AUTO_SERVER=TRUE"
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:-}"
     volumes:
-      - replicator-data:/app/data
+      - parom-data:/app/data
       - /etc/krb5.conf:/etc/krb5.conf:ro
       - /etc/security/keytabs:/etc/security/keytabs:ro
     ports:
       - "8005:8005"
     networks:
-      - replicator-net
+      - parom-net
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8005/health"]
       interval: 15s
@@ -1496,7 +1496,7 @@ services:
   # 2. Агент DC1 (Primary ЦОД: Москва, dc1 / demo-cluster) — Полный дуплекс
   agent-dc1:
     image: ghcr.io/company/pristan/parom-agent:1.0.0
-    container_name: replicator-agent-dc1
+    container_name: parom-agent-dc1
     hostname: agent-dc1
     restart: unless-stopped
     environment:
@@ -1521,12 +1521,12 @@ services:
     depends_on:
       - orchestrator
     networks:
-      - replicator-net
+      - parom-net
 
   # 3. Агент DC2 (DR ЦОД: Санкт-Петербург, dc2 / backup-cluster) — Полный дуплекс
   agent-dc2:
     image: ghcr.io/company/pristan/parom-agent:1.0.0
-    container_name: replicator-agent-dc2
+    container_name: parom-agent-dc2
     hostname: agent-dc2
     restart: unless-stopped
     environment:
@@ -1551,15 +1551,15 @@ services:
     depends_on:
       - orchestrator
     networks:
-      - replicator-net
+      - parom-net
 
 volumes:
-  replicator-data:
+  parom-data:
   agent-dc1-staging:
   agent-dc2-staging:
 
 networks:
-  replicator-net:
+  parom-net:
     driver: bridge
 ```
 
@@ -1625,7 +1625,7 @@ metadata:
 apiVersion: v1
 kind: Secret
 metadata:
-  name: replicator-secrets
+  name: parom-secrets
   namespace: hadoop-replicator
 type: Opaque
 stringData:
@@ -1639,11 +1639,11 @@ stringData:
 apiVersion: v1
 kind: ConfigMap
 metadata:
-  name: replicator-agent-config
+  name: parom-agent-config
   namespace: hadoop-replicator
 data:
   # Имя Service оркестратора и порт gRPC Control Plane
-  ORCHESTRATOR_GRPC_ADDRESS: "replicator-orchestrator:50050"
+  ORCHESTRATOR_GRPC_ADDRESS: "parom-orchestrator:50050"
   AGENT_CLUSTER_ID: "<cluster_id>"
   HDFS_DEFAULT_FS: "<hdfs_default_fs>"
   PAROM_GRPC_TLS_ENABLED: "true"
@@ -1653,14 +1653,14 @@ data:
 Сертификат gRPC и keytab создайте из файлов:
 
 ```bash
-kubectl -n hadoop-replicator create secret generic replicator-grpc-tls --from-file=tls.crt=server.crt --from-file=tls.key=server.key --from-file=ca.crt=ca.crt
+kubectl -n hadoop-replicator create secret generic parom-grpc-tls --from-file=tls.crt=server.crt --from-file=tls.key=server.key --from-file=ca.crt=ca.crt
 ```
 
 ```bash
-kubectl -n hadoop-replicator create secret generic replicator-agent-keytab --from-file=agent.keytab=agent.keytab
+kubectl -n hadoop-replicator create secret generic parom-agent-keytab --from-file=agent.keytab=agent.keytab
 ```
 
-Сертификат сервера должен содержать в SAN имя `replicator-orchestrator`, иначе агент отклонит соединение
+Сертификат сервера должен содержать в SAN имя `parom-orchestrator`, иначе агент отклонит соединение
 при проверке имени узла.
 
 #### 2. Deployment и Service Оркестратора
@@ -1668,17 +1668,17 @@ kubectl -n hadoop-replicator create secret generic replicator-agent-keytab --fro
 apiVersion: apps/v1
 kind: Deployment
 metadata:
-  name: replicator-orchestrator
+  name: parom-orchestrator
   namespace: hadoop-replicator
 spec:
   replicas: 2
   selector:
     matchLabels:
-      app: replicator-orchestrator
+      app: parom-orchestrator
   template:
     metadata:
       labels:
-        app: replicator-orchestrator
+        app: parom-orchestrator
     spec:
       imagePullSecrets:
         - name: ghcr-secret
@@ -1695,19 +1695,19 @@ spec:
               value: "replicator"
             - name: POSTGRES_USER
               valueFrom:
-                secretKeyRef: {name: replicator-secrets, key: postgres-user}
+                secretKeyRef: {name: parom-secrets, key: postgres-user}
             - name: POSTGRES_PASSWORD
               valueFrom:
-                secretKeyRef: {name: replicator-secrets, key: postgres-password}
+                secretKeyRef: {name: parom-secrets, key: postgres-password}
             - name: JWT_SECRET_KEY
               valueFrom:
-                secretKeyRef: {name: replicator-secrets, key: jwt-secret-key}
+                secretKeyRef: {name: parom-secrets, key: jwt-secret-key}
             - name: PAROM_AGENT_SECRET
               valueFrom:
-                secretKeyRef: {name: replicator-secrets, key: agent-secret}
+                secretKeyRef: {name: parom-secrets, key: agent-secret}
             - name: PAROM_METRICS_SCRAPE_TOKEN
               valueFrom:
-                secretKeyRef: {name: replicator-secrets, key: metrics-scrape-token}
+                secretKeyRef: {name: parom-secrets, key: metrics-scrape-token}
             - name: HADOOP_AUTH_MODE
               value: "ldap"
             - name: LDAP_URL
@@ -1716,7 +1716,7 @@ spec:
               value: "<ldap_manager_dn>"
             - name: LDAP_MANAGER_PASSWORD
               valueFrom:
-                secretKeyRef: {name: replicator-secrets, key: ldap-manager-password}
+                secretKeyRef: {name: parom-secrets, key: ldap-manager-password}
             - name: LDAP_USER_SEARCH_BASE
               value: "<ldap_user_search_base>"
             - name: PAROM_GRPC_CERT_CHAIN
@@ -1757,17 +1757,17 @@ spec:
       volumes:
         - name: grpc-tls
           secret:
-            secretName: replicator-grpc-tls
+            secretName: parom-grpc-tls
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: replicator-orchestrator
+  name: parom-orchestrator
   namespace: hadoop-replicator
 spec:
   type: ClusterIP
   selector:
-    app: replicator-orchestrator
+    app: parom-orchestrator
   ports:
     - port: 8005
       targetPort: 8005
@@ -1788,7 +1788,7 @@ spec:
 
 #### 3. StatefulSet и Service Replicator Agent (Full-Duplex)
 
-Агент развертывается как StatefulSet: имя пода (`replicator-agent-0`) не меняется при рестарте и служит
+Агент развертывается как StatefulSet: имя пода (`parom-agent-0`) не меняется при рестарте и служит
 `AGENT_ID`. С Deployment каждый рестарт пода регистрирует нового агента, строки прежних в таблице агентов
 оркестратора не удаляются.
 
@@ -1796,18 +1796,18 @@ spec:
 apiVersion: apps/v1
 kind: StatefulSet
 metadata:
-  name: replicator-agent
+  name: parom-agent
   namespace: hadoop-replicator
 spec:
-  serviceName: replicator-agent
+  serviceName: parom-agent
   replicas: 2
   selector:
     matchLabels:
-      app: replicator-agent
+      app: parom-agent
   template:
     metadata:
       labels:
-        app: replicator-agent
+        app: parom-agent
     spec:
       imagePullSecrets:
         - name: ghcr-secret
@@ -1817,7 +1817,7 @@ spec:
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
-                name: replicator-agent-config
+                name: parom-agent-config
           env:
             - name: AGENT_ID
               valueFrom:
@@ -1836,7 +1836,7 @@ spec:
               value: "50051"
             - name: PAROM_AGENT_SECRET
               valueFrom:
-                secretKeyRef: {name: replicator-secrets, key: agent-secret}
+                secretKeyRef: {name: parom-secrets, key: agent-secret}
             - name: KRB5_KEYTAB
               value: "/etc/replicator/keytab/agent.keytab"
             - name: KRB5_PRINCIPAL
@@ -1864,23 +1864,23 @@ spec:
       volumes:
         - name: grpc-tls
           secret:
-            secretName: replicator-grpc-tls
+            secretName: parom-grpc-tls
             items:
               - key: ca.crt
                 path: ca.crt
         - name: keytab
           secret:
-            secretName: replicator-agent-keytab
+            secretName: parom-agent-keytab
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: replicator-agent
+  name: parom-agent
   namespace: hadoop-replicator
 spec:
   clusterIP: None
   selector:
-    app: replicator-agent
+    app: parom-agent
   ports:
     - port: 50051
       targetPort: 50051
@@ -1900,17 +1900,17 @@ HA-nameservice): смонтируйте их так же, как в образа
 1. Дождитесь готовности оркестратора:
 
    ```bash
-   kubectl -n hadoop-replicator rollout status deployment/replicator-orchestrator
+   kubectl -n hadoop-replicator rollout status deployment/parom-orchestrator
    ```
 
 2. Убедитесь, что активен профиль `prod`. Команда должна вывести строку `The following 1 profile is active: "prod"`:
 
    ```bash
-   kubectl -n hadoop-replicator logs deployment/replicator-orchestrator | grep 'profile is active'
+   kubectl -n hadoop-replicator logs deployment/parom-orchestrator | grep 'profile is active'
    ```
 
 3. Убедитесь, что агенты зарегистрировались: в веб-консоли на странице агентов оба пода
-   (`replicator-agent-0`, `replicator-agent-1`) в статусе `ONLINE`. Если агента нет, смотрите его лог:
+   (`parom-agent-0`, `parom-agent-1`) в статусе `ONLINE`. Если агента нет, смотрите его лог:
    отказ `UNAUTHENTICATED` означает несовпадение `PAROM_AGENT_SECRET`, отказ регистрации кластера —
    отсутствие `<cluster_id>` в топологии оркестратора.
 
@@ -1927,73 +1927,73 @@ HA-nameservice): смонтируйте их так же, как в образа
 > (`parom.metrics-scrape-token`) и настройте в задании скрейпа HTTP Basic с
 > пользователем `prometheus` и этим токеном. Учетка принимается только на `GET /metrics` и не
 > дает доступа к REST API. Пока токен не задан, Basic-доступ выключен. `/actuator/prometheus`
-> открыт без аутентификации, но содержит только метрики Micrometer, без `replicator_*` и `kafka_*`.
+> открыт без аутентификации, но содержит только метрики Micrometer, без `parom_*` и `kafka_*`.
 
 Токен сгенерируйте командой `openssl rand -hex 32` и запишите в файл, который читает Prometheus:
 
 ```yaml
-  - job_name: 'hadoop-replicator'
+  - job_name: 'parom'
     metrics_path: '/metrics'
     basic_auth:
       username: 'prometheus'
-      password_file: '/etc/prometheus/secrets/replicator-metrics-scrape-token'
+      password_file: '/etc/prometheus/secrets/parom-metrics-scrape-token'
     static_configs:
       - targets: ['orchestrator:8005']
 ```
 
-Проверка: `curl -s -u "prometheus:$PAROM_METRICS_SCRAPE_TOKEN" http://orchestrator:8005/metrics | grep -c '^replicator_'` выводит число больше нуля; с неверным токеном `curl -s -o /dev/null -w '%{http_code}' -u prometheus:wrong http://orchestrator:8005/metrics` выводит `401`.
+Проверка: `curl -s -u "prometheus:$PAROM_METRICS_SCRAPE_TOKEN" http://orchestrator:8005/metrics | grep -c '^parom_'` выводит число больше нуля; с неверным токеном `curl -s -o /dev/null -w '%{http_code}' -u prometheus:wrong http://orchestrator:8005/metrics` выводит `401`.
 
 Оркестратор экспортирует метрики передачи данных, пула задач, очередей, token bucket, HMS-репликации, Disaster Recovery и телеметрии gRPC-агентов:
 
 #### Метрики HDFS-репликации и задач
-- `replicator_bytes_total{status="COMPLETED|IN_PROGRESS|FAILED"}` — суммарный объем успешно переданных или находящихся в процессе передачи байтов данных.
-- `replicator_active_workers` — количество зарегистрированных активных воркеров в пуле.
-- `replicator_active_agents{status="online|total"}` — количество доступных gRPC-агентов репликации.
-- `replicator_jobs_total{status="SCHEDULED|QUEUED|RUNNING|COMPLETED|FAILED|MANUAL", mode="manual|scheduled"}` — количество задач репликации по статусам и типу запуска. Ряды `SCHEDULED` и `MANUAL` несут лейбл `mode` и пересекаются со статусами `QUEUED`–`FAILED`: распределение по статусам считайте по `replicator_jobs_total{mode=""}`, по режимам запуска — по `replicator_jobs_total{mode!=""}`. Метрика — gauge, `rate()` к ней не применяется.
-- `replicator_tasks_total{status="QUEUED|RUNNING|COMPLETED|FAILED"}` — количество пофайловых подзадач распределенного пула передачи.
-- `replicator_throttling_delay_seconds_total` — суммарное время принудительной задержки передачи из-за исчерпания сетевых токенов (иерархический шейпинг Token Bucket).
-- `replicator_throttling_delay_seconds` — мгновенная накопленная задержка из-за ограничения полосы Token Bucket.
-- `replicator_throttling_global_limit_bytes_per_sec` — текущий глобальный лимит пропускной способности репликации.
-- `replicator_file_size_bytes` — бакеты распределения размеров файлов репликации (histogram).
+- `parom_bytes_total{status="COMPLETED|IN_PROGRESS|FAILED"}` — суммарный объем успешно переданных или находящихся в процессе передачи байтов данных.
+- `parom_active_workers` — количество зарегистрированных активных воркеров в пуле.
+- `parom_active_agents{status="online|total"}` — количество доступных gRPC-агентов репликации.
+- `parom_jobs_total{status="SCHEDULED|QUEUED|RUNNING|COMPLETED|FAILED|MANUAL", mode="manual|scheduled"}` — количество задач репликации по статусам и типу запуска. Ряды `SCHEDULED` и `MANUAL` несут лейбл `mode` и пересекаются со статусами `QUEUED`–`FAILED`: распределение по статусам считайте по `parom_jobs_total{mode=""}`, по режимам запуска — по `parom_jobs_total{mode!=""}`. Метрика — gauge, `rate()` к ней не применяется.
+- `parom_tasks_total{status="QUEUED|RUNNING|COMPLETED|FAILED"}` — количество пофайловых подзадач распределенного пула передачи.
+- `parom_throttling_delay_seconds_total` — суммарное время принудительной задержки передачи из-за исчерпания сетевых токенов (иерархический шейпинг Token Bucket).
+- `parom_throttling_delay_seconds` — мгновенная накопленная задержка из-за ограничения полосы Token Bucket.
+- `parom_throttling_global_limit_bytes_per_sec` — текущий глобальный лимит пропускной способности репликации.
+- `parom_file_size_bytes` — бакеты распределения размеров файлов репликации (histogram).
 
 #### Метрики Hive Metastore и Disaster Recovery
-- `replicator_hms_jobs_total{status="QUEUED|BOOTSTRAPPING|ACTIVE|PAUSED|ERROR|WAITING_FOR_AGENTS|STOPPED|FAILED"}` — количество задач репликации метаданных HMS по статусам (включая потоковый CDC).
-- `replicator_hms_tables_total{type="total|replicated"}` — количество таблиц в схемах HMS.
-- `replicator_hms_partitions_total{type="total|replicated"}` — количество партиций таблиц HMS.
-- `replicator_hms_speed_bytes_per_second` — средняя скорость первичной синхронизации HMS.
-- `replicator_dr_cluster_fenced{cluster_id="dc1|dc2"}` — флаг сетевого ограждения и аварийной изоляции кластера при активном Kill-Switch (`0` = нормальный режим / Active, `1` = изолирован / Fenced Read-Only).
-- `replicator_dr_reverse_jobs_total{status="RUNNING|COMPLETED"}` — количество задач обратной репликации при аварийном переключении Failover.
+- `parom_hms_jobs_total{status="QUEUED|BOOTSTRAPPING|ACTIVE|PAUSED|ERROR|WAITING_FOR_AGENTS|STOPPED|FAILED"}` — количество задач репликации метаданных HMS по статусам (включая потоковый CDC).
+- `parom_hms_tables_total{type="total|replicated"}` — количество таблиц в схемах HMS.
+- `parom_hms_partitions_total{type="total|replicated"}` — количество партиций таблиц HMS.
+- `parom_hms_speed_bytes_per_second` — средняя скорость первичной синхронизации HMS.
+- `parom_dr_cluster_fenced{cluster_id="dc1|dc2"}` — флаг сетевого ограждения и аварийной изоляции кластера при активном Kill-Switch (`0` = нормальный режим / Active, `1` = изолирован / Fenced Read-Only).
+- `parom_dr_reverse_jobs_total{status="RUNNING|COMPLETED"}` — количество задач обратной репликации при аварийном переключении Failover.
 
 #### Метрики флота gRPC-агентов (Fleet Telemetry)
-- `replicator_agent_status{agent_id="...", cluster_id="...", mode="...", status="online|offline|stale"}` — статус доступности агента: `1` для `online`, `0` для `offline` и `stale`. Недоступные агенты считает `count(replicator_agent_status == 0)`.
-- `replicator_agent_active_transfers{agent_id="...", cluster_id="...", mode="..."}` — текущее количество активных рабочих передач у агента.
-- `replicator_agent_transferred_bytes_total{agent_id="...", cluster_id="..."}` — суммарный объем байт данных, фактически переданных агентом (из heartbeat-телеметрии).
-- `replicator_agent_errors_total{agent_id="...", cluster_id="..."}` — суммарное число ошибок передачи файлов на стороне агента.
-- `replicator_agent_heartbeat_age_seconds{agent_id="...", cluster_id="..."}` — время в секундах, прошедшее с момента последнего успешного keepalive-запроса от агента.
-- `replicator_agent_max_bandwidth_mb_s{agent_id="...", cluster_id="..."}` — выделенный локальный лимит полосы пропускания HTB агента в МБ/с.
+- `parom_agent_status{agent_id="...", cluster_id="...", mode="...", status="online|offline|stale"}` — статус доступности агента: `1` для `online`, `0` для `offline` и `stale`. Недоступные агенты считает `count(parom_agent_status == 0)`.
+- `parom_agent_active_transfers{agent_id="...", cluster_id="...", mode="..."}` — текущее количество активных рабочих передач у агента.
+- `parom_agent_transferred_bytes_total{agent_id="...", cluster_id="..."}` — суммарный объем байт данных, фактически переданных агентом (из heartbeat-телеметрии).
+- `parom_agent_errors_total{agent_id="...", cluster_id="..."}` — суммарное число ошибок передачи файлов на стороне агента.
+- `parom_agent_heartbeat_age_seconds{agent_id="...", cluster_id="..."}` — время в секундах, прошедшее с момента последнего успешного keepalive-запроса от агента.
+- `parom_agent_max_bandwidth_mb_s{agent_id="...", cluster_id="..."}` — выделенный локальный лимит полосы пропускания HTB агента в МБ/с.
 
 #### Метрики сжатия трафика на лету (Wire Compression)
-- `replicator_compression_raw_bytes_total{agent_id="...", cluster_id="..."}` — суммарный объем исходных несжатых данных в байтах.
-- `replicator_compression_compressed_bytes_total{agent_id="...", cluster_id="..."}` — объем фактически переданных по сети сжатых данных (Zstd/LZ4) в байтах.
-- `replicator_compression_ratio{cluster_id="all|..."}` — эффективный коэффициент сжатия сетевого потока (`raw_bytes / compressed_bytes`).
+- `parom_compression_raw_bytes_total{agent_id="...", cluster_id="..."}` — суммарный объем исходных несжатых данных в байтах.
+- `parom_compression_compressed_bytes_total{agent_id="...", cluster_id="..."}` — объем фактически переданных по сети сжатых данных (Zstd/LZ4) в байтах.
+- `parom_compression_ratio{cluster_id="all|..."}` — эффективный коэффициент сжатия сетевого потока (`raw_bytes / compressed_bytes`).
 
 #### Метрики задержек передачи gRPC-чанков (Transfer Latency)
-- `replicator_grpc_chunk_transfer_latency_avg_ms{agent_id="...", cluster_id="..."}` — средняя задержка передачи чанка данных через gRPC-канал (мс).
-- `replicator_grpc_chunk_transfer_latency_max_ms{agent_id="...", cluster_id="..."}` — максимальная зарегистрированная задержка передачи чанка (мс).
-- `replicator_grpc_chunk_transfer_latency_seconds_bucket{le="..."}` — гистограмма времени передачи чанков со стандартными SLA-бакетами (от `0.001` до `5.0` с) и счетчиками `_sum`, `_count`.
+- `parom_grpc_chunk_transfer_latency_avg_ms{agent_id="...", cluster_id="..."}` — средняя задержка передачи чанка данных через gRPC-канал (мс).
+- `parom_grpc_chunk_transfer_latency_max_ms{agent_id="...", cluster_id="..."}` — максимальная зарегистрированная задержка передачи чанка (мс).
+- `parom_grpc_chunk_transfer_latency_seconds_bucket{le="..."}` — гистограмма времени передачи чанков со стандартными SLA-бакетами (от `0.001` до `5.0` с) и счетчиками `_sum`, `_count`.
 
 #### Метрики буфера Staging на приемнике (Staging Queue & Memory)
-- `replicator_staging_queue_size` — общее количество активных файлов в процессе промежуточной сборки на целевых кластерах.
-- `replicator_staging_active_files{agent_id="...", cluster_id="..."}` — количество файлов в staging-буфере по каждому агенту.
-- `replicator_staging_active_bytes{agent_id="...", cluster_id="..."}` — совокупный текущий объем данных в staging-буфере в байтах.
-- `replicator_staging_orphans_cleaned_total{agent_id="...", cluster_id="..."}` — количество осиротевших staging-файлов, удаленных сборщиком мусора (HDFS Reaper).
+- `parom_staging_queue_size` — общее количество активных файлов в процессе промежуточной сборки на целевых кластерах.
+- `parom_staging_active_files{agent_id="...", cluster_id="..."}` — количество файлов в staging-буфере по каждому агенту.
+- `parom_staging_active_bytes{agent_id="...", cluster_id="..."}` — совокупный текущий объем данных в staging-буфере в байтах.
+- `parom_staging_orphans_cleaned_total{agent_id="...", cluster_id="..."}` — количество осиротевших staging-файлов, удаленных сборщиком мусора (HDFS Reaper).
 
 ### 5.2 Дашборды Grafana
 
 Для системы репликации есть три дашборда Grafana, они подключаются через provisioning:
 
-#### 1. Сводный обзор платформы репликации (`hadoop_replicator_overview.json`)
-Файл: [`monitoring/grafana/dashboards/hadoop_replicator_overview.json`](../monitoring/grafana/dashboards/hadoop_replicator_overview.json):
+#### 1. Сводный обзор платформы репликации (`parom_overview.json`)
+Файл: [`monitoring/grafana/dashboards/parom_overview.json`](../monitoring/grafana/dashboards/parom_overview.json):
 - KPI репликации и статус флота: мгновенная скорость передачи (Throughput Bps), суммарный объем данных, активные воркеры, задержка шейпера, активные задачи HDFS и задачи по расписанию, онлайн агенты, ошибки передачи, пофайловые задачи в очереди/работе, активные HMS-задачи и Fencing-статус кластера.
 - Сжатие, задержки и staging-буфер (wire compression, latency & staging buffer): эффективный коэффициент сжатия WAN, экономия полосы за счет сжатия, распределение исходного и сжатого трафика (Raw vs Compressed Bps), средняя и максимальная задержка передачи gRPC-чанков во времени, размер очереди staging, объем буфера на приемниках и частота очистки осиротевших файлов HDFS Reaper.
 - Сетевой поток и пропускная способность: динамика сетевой скорости WAN (MB/s) и кумулятивный объем переданных данных во времени.
@@ -2001,20 +2001,20 @@ HA-nameservice): смонтируйте их так же, как в образа
 - Жизненный цикл задач и планировщик: круговые диаграммы статусов заданий (Job Statuses), режимов запуска (Manual vs Scheduled Cron), распределения пофайловых задач (File Tasks) и статусов HMS-репликации.
 - Размеры файлов и системные ресурсы: распределение размеров файлов, загрузка CPU процессом оркестратора (`process_cpu_usage`) и занятая память JVM (`jvm_memory_used_bytes`, сумма по пулам; это не RSS процесса).
 
-#### 2. Флот агентов и воркеры передачи данных (`hadoop_replicator_agents.json`)
-Файл: [`monitoring/grafana/dashboards/hadoop_replicator_agents.json`](../monitoring/grafana/dashboards/hadoop_replicator_agents.json):
+#### 2. Флот агентов и воркеры передачи данных (`parom_agents.json`)
+Файл: [`monitoring/grafana/dashboards/parom_agents.json`](../monitoring/grafana/dashboards/parom_agents.json):
 - Состояние флота агентов: общее число агентов онлайн/офлайн, суммарная активность потоков, общий объем байт и ошибок по всем агентам.
 - Сжатие трафика по агентам (wire compression): коэффициенты компрессии по агентам и раздельные графики исходного и сжатого сетевого трафика.
 - Задержки передачи gRPC-чанков по агентам (chunk transfer latency & SLA): метрики текущей средней и пиковой задержки передачи чанка (мс) и их динамика во времени.
 - Состояние staging-буфера на приемниках (staging buffer & cleanup): число активных файлов staging, суммарный объем буфера (Bytes) по агентам-приемникам и удаление осиротевших файлов сборщиком мусора Reaper.
-- Активность параллельных передач по агентам: временной график загрузки воркеров параллельной передачи данных (`replicator_agent_active_transfers`).
-- Скорость передачи и накопленный объем: динамика скорости передачи (Bps) и кумулятивный график байт по каждому агенту (`replicator_agent_transferred_bytes_total`).
-- Задержки heartbeat и ошибки передачи: мониторинг возраста последнего keepalive (`replicator_agent_heartbeat_age_seconds`) с порогом 30с и динамика ошибок передачи файлов (`rate(replicator_agent_errors_total)`).
+- Активность параллельных передач по агентам: временной график загрузки воркеров параллельной передачи данных (`parom_agent_active_transfers`).
+- Скорость передачи и накопленный объем: динамика скорости передачи (Bps) и кумулятивный график байт по каждому агенту (`parom_agent_transferred_bytes_total`).
+- Задержки heartbeat и ошибки передачи: мониторинг возраста последнего keepalive (`parom_agent_heartbeat_age_seconds`) с порогом 30с и динамика ошибок передачи файлов (`rate(parom_agent_errors_total)`).
 - Инвентарная таблица агентов: сводка по каждому агенту (ID, ЦОД, Кластер, Статус, Передачи, Байт передано, Ошибки, Задержка Heartbeat).
 
-#### 3. HMS-репликация и Disaster Recovery (`hadoop_replicator_hms_dr.json`)
-Файл: [`monitoring/grafana/dashboards/hadoop_replicator_hms_dr.json`](../monitoring/grafana/dashboards/hadoop_replicator_hms_dr.json):
-- KPI отказоустойчивости (DR & failover): статус Kill-Switch и сетевого ограждения Fencing (`replicator_dr_cluster_fenced`), активные CDC стримы, завершенные и упавшие задачи HMS.
+#### 3. HMS-репликация и Disaster Recovery (`parom_hms_dr.json`)
+Файл: [`monitoring/grafana/dashboards/parom_hms_dr.json`](../monitoring/grafana/dashboards/parom_hms_dr.json):
+- KPI отказоустойчивости (DR & failover): статус Kill-Switch и сетевого ограждения Fencing (`parom_dr_cluster_fenced`), активные CDC стримы, завершенные и упавшие задачи HMS.
 - Мониторинг Kill-Switch и split-brain fencing: временной график активации изоляции кластеров (0 = Normal, 1 = Fenced/RO).
 - Жизненный цикл задач HMS: круговая диаграмма распределения статусов схем метаданных и таймлайн выполнения задач во времени.
 - Потоковый CDC и события Thrift: динамика активных CDC потоков репликации `NOTIFICATION_LOG`.
@@ -2086,9 +2086,9 @@ backend/parom/
 ├── model/                  # Общие DTO, HMS-модель, аттестация задач, телеметрия gRPC
 │   └── pom.xml             # io.github.balookrd.pristan:parom-model:1.0.0
 ├── agent/                  # Агент репликации (DataNode/Edge Node/YARN)
-│   └── pom.xml             # io.github.balookrd.pristan:replicator-agent:1.0.0
+│   └── pom.xml             # io.github.balookrd.pristan:parom-agent:1.0.0
 └── orchestrator/           # Высокопроизводительный оркестратор
-    ├── pom.xml             # io.github.balookrd.pristan:replicator-orchestrator:1.0.0
+    ├── pom.xml             # io.github.balookrd.pristan:parom-orchestrator:1.0.0
     └── src/
         ├── main/
         │   ├── java/       # Контроллеры, Сервисы, Реестры, Токен-бакет
@@ -2096,7 +2096,7 @@ backend/parom/
         └── test/           # Интеграционные и юнит-тесты MockMvc / H2
 ```
 
-Оркестратор не зависит от `replicator-agent`: общее лежит в `parom-proto` и
+Оркестратор не зависит от `parom-agent`: общее лежит в `parom-proto` и
 `parom-model`. Запрет закреплен в сборке правилом `bannedDependencies`
 (`maven-enforcer-plugin` в `orchestrator/pom.xml`) — возврат зависимости ломает сборку.
 Модуль `parom-model` держится тонким: Jackson, SLF4J, `grpc-api`, `grpc-services` и
@@ -2130,8 +2130,8 @@ mvn clean package -DskipTests -f backend/parom/pom.xml -pl orchestrator -am
 ```bash
 java -jar -Dspring.profiles.active=prod \
   -Dserver.port=8005 \
-  -Dspring.datasource.url=jdbc:postgresql://postgres.hadoop.local:5432/replicator \
-  -Dspring.datasource.username=replicator_user \
+  -Dspring.datasource.url=jdbc:postgresql://postgres.hadoop.local:5432/parom \
+  -Dspring.datasource.username=parom_user \
   -Dspring.datasource.password=secret_password \
   -Dhadoop.security.auth.mode=kerberos \
   backend/parom/orchestrator/target/parom-orchestrator-1.0.0.jar
@@ -2385,7 +2385,7 @@ curl -s -X POST "http://orchestrator:8005/api/v1/dr/jobs/job-123/undo-reverse"
 
 > [!TIP]
 > Пошаговый регламент, сетевое ограждение и защита от split-brain описаны в документе:
-> [Руководство по Disaster Recovery, сетевой изоляции и безопасному Failback (replicator-disaster-recovery-guide.md)](replicator-disaster-recovery-guide.md).
+> [Руководство по Disaster Recovery, сетевой изоляции и безопасному Failback (parom-disaster-recovery-guide.md)](parom-disaster-recovery-guide.md).
 
 ---
 
@@ -2402,7 +2402,7 @@ flowchart LR
     subgraph DC1["ЦОД-1 (Primary)"]
         K1[("Kafka Cluster 1")]
         SR1["Schema Registry 1<br/>(HWX / Confluent)"]
-        A1["kafka-replicator-agent DC1<br/><code>:50052 (Data Plane)</code>"]
+        A1["parom-kafka-agent DC1<br/><code>:50052 (Data Plane)</code>"]
         K1 <--> A1
         SR1 <--> A1
     end
@@ -2410,7 +2410,7 @@ flowchart LR
     subgraph DC2["ЦОД-2 (Disaster Recovery)"]
         K2[("Kafka Cluster 2")]
         SR2["Schema Registry 2<br/>(Confluent / HWX)"]
-        A2["kafka-replicator-agent DC2<br/><code>:50052 (Data Plane)</code>"]
+        A2["parom-kafka-agent DC2<br/><code>:50052 (Data Plane)</code>"]
         K2 <--> A2
         SR2 <--> A2
     end
@@ -2431,7 +2431,7 @@ flowchart LR
    - Порядок записей партиции сохраняется и под конвейером приемника: отправка батчей одной партиции выстроена в цепочку, разные партиции идут параллельно.
 
 2. Изоляция задач репликации:
-   - Каждая задача получает свою группу консьюмеров `kafka-replicator-<dc>-<jobId>`, свой пул консьюмеров и свой список целевых эндпоинтов. Остановка или перезапуск одной задачи не вызывает ребаланс у остальных, а топики маршрутизируются строго к приемникам своей задачи.
+   - Каждая задача получает свою группу консьюмеров `parom-kafka-<dc>-<jobId>`, свой пул консьюмеров и свой список целевых эндпоинтов. Остановка или перезапуск одной задачи не вызывает ребаланс у остальных, а топики маршрутизируются строго к приемникам своей задачи.
 
 3. Двусторонний flow control (backpressure):
    - Backpressure на сервере: в `KafkaDataTransferServiceImpl` отключен автоматический входящий поток (`disableAutoInboundFlowControl()`). Запрос следующего батча (`callStream.request(1)`) выполняется только после того, как текущий батч зафиксирован локальным `KafkaProducer`.
@@ -2454,7 +2454,7 @@ flowchart LR
    - Каждая запись помечается заголовком `X-Repl-Origin: <sourceDcId>`.
    - Фильтр блокирует повторную передачу сообщений, уже содержащих текущий `targetDcId` в цепочке `X-Repl-Origin`.
 
-### 8.2 Параметры командной строки демона `kafka-replicator-agent`
+### 8.2 Параметры командной строки демона `parom-kafka-agent`
 
 ```bash
 java -Xmx4g -XX:+ExitOnOutOfMemoryError -cp parom-agent.jar io.github.balookrd.pristan.parom.kafka.agent.ParomKafkaAgentMain \
@@ -2471,8 +2471,8 @@ java -Xmx4g -XX:+ExitOnOutOfMemoryError -cp parom-agent.jar io.github.balookrd.p
   --batch-size 2000 \
   --consumer-threads 8 \
   --kerberos-enabled \
-  --principal "kafka-replicator@CORP.LOCAL" \
-  --keytab "/etc/security/keytabs/kafka-replicator.keytab"
+  --principal "parom-kafka@CORP.LOCAL" \
+  --keytab "/etc/security/keytabs/parom-kafka.keytab"
 ```
 
 | Параметр | Переменная окружения | По умолчанию | Описание |
@@ -2532,7 +2532,7 @@ java -Xmx4g -XX:+ExitOnOutOfMemoryError -cp parom-agent.jar io.github.balookrd.p
    - В `ConsumerGroupBlacklistFilter` действует регулярный шаблон исключения:
      `^(kafka-replicator-.*|replicator-.*|hadoop-replicator-.*|connect-.*|schema-registry-.*|console-consumer-.*|kafka-exporter-.*|__.*)$`
    - Исключаются:
-     - Собственные группы репликатора (`kafka-replicator-*`, `kafka-replicator-time-resolver-*`): иначе перенос перезаписывал бы локальные смещения агента, а в топологии active-active смещения ходили бы по кругу (offset feedback loop).
+     - Собственные группы репликатора (`kafka-replicator-*`, `parom-kafka-time-resolver-*`): иначе перенос перезаписывал бы локальные смещения агента, а в топологии active-active смещения ходили бы по кругу (offset feedback loop).
      - Системные группы брокера Kafka (`__*`, включая `__consumer_offsets`).
      - Инфраструктурные сервисы (`schema-registry-*`, `connect-*`): их смещения относятся к внутреннему состоянию кэшей схем и коннекторов конкретного кластера.
      - Временные консольные группы (`console-consumer-*`, `kafka-exporter-*`).
@@ -2552,7 +2552,7 @@ java -Xmx4g -XX:+ExitOnOutOfMemoryError -cp parom-agent.jar io.github.balookrd.p
    - Каждый узел оркестратора держит свою копию бакетов с лимитом, деленным на число активных узлов, так что в сумме по узлам лимит не превышается.
    - Канал без явного лимита в топологии троттлер считает равным 100 МБ/с (`TopologyRegistry.getDcLimit`), то есть HDFS по нему идет не быстрее 60 МБ/с суммарно по всем узлам оркестратора. Чтобы поднять потолок, задайте лимит канала явно.
    - Бакет доли Kafka (`dcKafkaBuckets`, 40%) в коде троттлера есть, но gRPC-путем не используется: до него доходят только прямые вызовы `requestTokens(..., TrafficClass.KAFKA)` из тестов.
-2. Квота Kafka при расчете лимита задачи (`KafkaReplicationOrchestratorService.createJob`, тот же расчет показывает `GET /api/v1/replicator/kafka/qos-calculation`):
+2. Квота Kafka при расчете лимита задачи (`KafkaReplicationOrchestratorService.createJob`, тот же расчет показывает `GET /api/v1/parom/kafka/qos-calculation`):
    - Если в запросе не задан `bandwidth_limit_mb`, лимит задачи выводится из 40% явно заданного лимита канала (квота WAN HTB) и суммы `--max-bandwidth-mb-s` агентов-отправителей (пункт 3).
    - Канал без явного лимита (или с лимитом 0) квоты не дает: из 100 МБ/с по умолчанию лимит задачи не выводится.
    - Квота считается один раз, при создании задачи. Полученный `bandwidth_limit_mb` оркестратор делит между агентами-отправителями (`perAgentBandwidthMb`) и передает им по gRPC; соблюдает его каждый агент сам. Текущую загрузку канала трафиком HDFS этот расчет не учитывает.
@@ -2577,7 +2577,7 @@ Kafka Replicator развертывается по одной из двух мо
 
 | Характеристика | Модель Colocated (на узлах Kafka Brokers) | Модель Dedicated (выделенные Edge Gateway) |
 |---|---|---|
-| Размещение | Демон `kafka-replicator-agent` развертывается на каждом сервере брокера Kafka | 2–4 выделенных сервера репликации на ЦОД с 25G/40G NIC |
+| Размещение | Демон `parom-kafka-agent` развертывается на каждом сервере брокера Kafka | 2–4 выделенных сервера репликации на ЦОД с 25G/40G NIC |
 | Ресурсы (vCPU / RAM) | 2–4 vCPU, 4–8 GB heap | 8–16 vCPU, 16–32 GB heap |
 | Локальность данных | Локальная вычитка по `localhost:9092` (0 байт трафика в LAN ЦОД) | Чтение сообщений по LAN ЦОД от брокеров кластера |
 | Дисковая подсистема | In-memory буферизация на Virtual Threads (staging-диск не требуется) | In-memory буферизация (SSD только под системные логи) |
@@ -2614,9 +2614,9 @@ sudo ln -sfn /opt/pristan/replicator/releases/parom-agent-1.0.0-all.jar \
 
 ---
 
-#### Шаг 2: Создание файла конфигурации окружения (`/etc/default/kafka-replicator-agent`)
+#### Шаг 2: Создание файла конфигурации окружения (`/etc/default/parom-kafka-agent`)
 
-Создайте файл `/etc/default/kafka-replicator-agent` с правами доступа `0640`:
+Создайте файл `/etc/default/parom-kafka-agent` с правами доступа `0640`:
 ```ini
 # Сетевые параметры Data Plane
 PORT=50052
@@ -2643,21 +2643,21 @@ TOPICS=orders-avro,payments-stream,telemetry-events
 
 # Аутентификация Kerberos в локальном брокере Kafka
 KERBEROS_ENABLED=true
-PRINCIPAL=kafka-replicator/broker-01.dc1.corp@CORP.LOCAL
-KEYTAB=/etc/security/keytabs/kafka-replicator.keytab
+PRINCIPAL=parom-kafka/broker-01.dc1.corp@CORP.LOCAL
+KEYTAB=/etc/security/keytabs/parom-kafka.keytab
 SECURITY_PROTOCOL=SASL_PLAINTEXT
 SERVICE_NAME=kafka
 
 # МежЦОДное mTLS шифрование на порту 50052
 TLS_ENABLED=true
-TLS_CERT_CHAIN=/etc/security/certs/replicator-agent.crt
-TLS_PRIVATE_KEY=/etc/security/certs/replicator-agent.key
+TLS_CERT_CHAIN=/etc/security/certs/parom-agent.crt
+TLS_PRIVATE_KEY=/etc/security/certs/parom-agent.key
 TLS_TRUST_CERT=/etc/security/certs/ca.crt
 ```
 
 ---
 
-#### Шаг 3: Создание `systemd`-юнита с cgroups-изоляцией (`/etc/systemd/system/kafka-replicator-agent.service`)
+#### Шаг 3: Создание `systemd`-юнита с cgroups-изоляцией (`/etc/systemd/system/parom-kafka-agent.service`)
 
 Чтобы агент не отнимал CPU и память у брокера Kafka, задайте в systemd ограничения cgroups v2 (`CPUQuota`, `MemoryMax`, `Nice`):
 
@@ -2672,7 +2672,7 @@ Documentation=https://github.com/balookrd/hadoop-explorer
 Type=simple
 User=kafka-replicator
 Group=kafka-replicator
-EnvironmentFile=/etc/default/kafka-replicator-agent
+EnvironmentFile=/etc/default/parom-kafka-agent
 
 # =========================================================================
 # Ресурсная изоляция (cgroups): защита брокера Kafka от деградации
@@ -2740,16 +2740,16 @@ WantedBy=multi-user.target
 ```bash
 # Перечитать конфигурацию systemd и включить автозагрузку
 sudo systemctl daemon-reload
-sudo systemctl enable --now kafka-replicator-agent
+sudo systemctl enable --now parom-kafka-agent
 
 # Проверить статус службы
-sudo systemctl status kafka-replicator-agent
+sudo systemctl status parom-kafka-agent
 
 # Проверить, что gRPC Data Plane порт 50052 открыт и слушает входящие соединения
 sudo ss -tulpn | grep 50052
 
 # Просмотр системного журнала службы
-sudo journalctl -u kafka-replicator-agent -f
+sudo journalctl -u parom-kafka-agent -f
 ```
 
 ---
@@ -2766,7 +2766,7 @@ sudo journalctl -u kafka-replicator-agent -f
    ```bash
    # Просмотр текущей утилизации памяти и CPU процессом агента
    systemd-cgtop
-   cat /sys/fs/cgroup/system.slice/kafka-replicator-agent.service/memory.current
+   cat /sys/fs/cgroup/system.slice/parom-kafka-agent.service/memory.current
    ```
 
 3. Backpressure и подтверждения:

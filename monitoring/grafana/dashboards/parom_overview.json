@@ -65,13 +65,13 @@
       "includeVars": false,
       "keepTime": true,
       "tags": [
-        "replicator",
+        "parom",
         "agents"
       ],
       "targetBlank": false,
       "title": "🤖 Флот агентов gRPC",
       "type": "link",
-      "url": "/d/hadoop-replicator-agents"
+      "url": "/d/parom-agents-dashboard"
     },
     {
       "asDropdown": false,
@@ -79,14 +79,14 @@
       "includeVars": false,
       "keepTime": true,
       "tags": [
-        "replicator",
+        "parom",
         "dr",
         "hms"
       ],
       "targetBlank": false,
       "title": "🛡️ HMS & Disaster Recovery",
       "type": "link",
-      "url": "/d/hadoop-replicator-hms-dr"
+      "url": "/d/parom-hms-dr"
     },
     {
       "asDropdown": false,
@@ -94,13 +94,13 @@
       "includeVars": false,
       "keepTime": true,
       "tags": [
-        "replicator",
+        "parom",
         "kafka"
       ],
       "targetBlank": false,
       "title": "📨 Потоковая репликация Kafka",
       "type": "link",
-      "url": "/d/hadoop-replicator-kafka"
+      "url": "/d/parom-kafka-dashboard"
     }
   ],
   "liveNow": false,
@@ -178,7 +178,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(replicator_bytes_total{status=\"IN_PROGRESS\"}[$__rate_interval]))",
+          "expr": "sum(rate(parom_bytes_total{status=\"IN_PROGRESS\"}[$__rate_interval]))",
           "legendFormat": "Скорость",
           "range": true,
           "refId": "A"
@@ -240,7 +240,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_bytes_total{status=\"COMPLETED\"})",
+          "expr": "sum(parom_bytes_total{status=\"COMPLETED\"})",
           "legendFormat": "Объем",
           "range": true,
           "refId": "A"
@@ -306,7 +306,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_active_workers",
+          "expr": "parom_active_workers",
           "legendFormat": "Воркеры",
           "range": true,
           "refId": "A"
@@ -376,7 +376,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(rate(replicator_throttling_delay_seconds_total[$__rate_interval]))",
+          "expr": "sum(rate(parom_throttling_delay_seconds_total[$__rate_interval]))",
           "legendFormat": "Задержка",
           "range": true,
           "refId": "A"
@@ -438,7 +438,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_jobs_total{status=~\"RUNNING|QUEUED\"})",
+          "expr": "sum(parom_jobs_total{status=~\"RUNNING|QUEUED\"})",
           "legendFormat": "Активные задачи",
           "range": true,
           "refId": "A"
@@ -500,7 +500,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_jobs_total{status=\"SCHEDULED\"})",
+          "expr": "sum(parom_jobs_total{status=\"SCHEDULED\"})",
           "legendFormat": "Запланировано",
           "range": true,
           "refId": "A"
@@ -530,7 +530,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_agent_status{status=\"online\"})",
+          "expr": "sum(parom_agent_status{status=\"online\"})",
           "legendFormat": "Онлайн",
           "range": true,
           "refId": "A"
@@ -596,7 +596,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_agent_errors_total)",
+          "expr": "sum(parom_agent_errors_total)",
           "legendFormat": "Ошибок",
           "range": true,
           "refId": "A"
@@ -662,7 +662,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_tasks_total{status=\"QUEUED\"})",
+          "expr": "sum(parom_tasks_total{status=\"QUEUED\"})",
           "legendFormat": "В очереди",
           "range": true,
           "refId": "A"
@@ -732,7 +732,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_tasks_total{status=\"RUNNING\"})",
+          "expr": "sum(parom_tasks_total{status=\"RUNNING\"})",
           "legendFormat": "В процессе",
           "range": true,
           "refId": "A"
@@ -798,7 +798,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_hms_jobs_total{status=~\"BOOTSTRAPPING|ACTIVE\"})",
+          "expr": "sum(parom_hms_jobs_total{status=~\"BOOTSTRAPPING|ACTIVE\"})",
           "legendFormat": "HMS активны",
           "range": true,
           "refId": "A"
@@ -864,7 +864,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_dr_cluster_fenced",
+          "expr": "parom_dr_cluster_fenced",
           "legendFormat": "Fencing",
           "range": true,
           "refId": "A"
@@ -1020,7 +1020,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (rate(replicator_bytes_total[$__rate_interval]))",
+          "expr": "sum by (status) (rate(parom_bytes_total[$__rate_interval]))",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
@@ -1110,7 +1110,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (replicator_bytes_total)",
+          "expr": "sum by (status) (parom_bytes_total)",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
@@ -1222,7 +1222,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(replicator_throttling_delay_seconds_total[$__rate_interval])",
+          "expr": "rate(parom_throttling_delay_seconds_total[$__rate_interval])",
           "legendFormat": "Суммарная задержка троттлинга (с/с)",
           "range": true,
           "refId": "A"
@@ -1292,7 +1292,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(replicator_throttling_delay_seconds_total[1m])",
+          "expr": "rate(parom_throttling_delay_seconds_total[1m])",
           "legendFormat": "Текущая задержка",
           "range": true,
           "refId": "A"
@@ -1453,7 +1453,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (replicator_jobs_total{mode=\"\"})",
+          "expr": "sum by (status) (parom_jobs_total{mode=\"\"})",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
@@ -1557,7 +1557,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (mode) (replicator_jobs_total{mode!=\"\"})",
+          "expr": "sum by (mode) (parom_jobs_total{mode!=\"\"})",
           "legendFormat": "{{mode}}",
           "range": true,
           "refId": "A"
@@ -1587,7 +1587,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (replicator_tasks_total)",
+          "expr": "sum by (status) (parom_tasks_total)",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
@@ -1714,7 +1714,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (replicator_hms_jobs_total)",
+          "expr": "sum by (status) (parom_hms_jobs_total)",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
@@ -1915,7 +1915,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (le) (rate(replicator_file_size_bytes_bucket[$__rate_interval]))",
+          "expr": "sum by (le) (rate(parom_file_size_bytes_bucket[$__rate_interval]))",
           "legendFormat": "<= {{le}} байт",
           "range": true,
           "refId": "A"
@@ -2024,7 +2024,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "sum by (instance) (jvm_memory_used_bytes{job=~\"hadoop-replicator|replicator\"})",
+          "expr": "sum by (instance) (jvm_memory_used_bytes{job=~\"parom\"})",
           "legendFormat": "{{instance}}",
           "range": true,
           "refId": "A"
@@ -2035,7 +2035,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "process_cpu_usage{job=~\"hadoop-replicator|replicator\"} * 100",
+          "expr": "process_cpu_usage{job=~\"parom\"} * 100",
           "legendFormat": "CPU Usage",
           "range": true,
           "refId": "B"
@@ -2117,7 +2117,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_compression_ratio{cluster_id=\"all\"}",
+          "expr": "parom_compression_ratio{cluster_id=\"all\"}",
           "legendFormat": "Коэффициент сжатия WAN",
           "range": true,
           "refId": "A"
@@ -2179,7 +2179,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "clamp_min(rate(replicator_compression_raw_bytes_total[$__rate_interval]) - rate(replicator_compression_compressed_bytes_total[$__rate_interval]), 0)",
+          "expr": "clamp_min(rate(parom_compression_raw_bytes_total[$__rate_interval]) - rate(parom_compression_compressed_bytes_total[$__rate_interval]), 0)",
           "legendFormat": "Экономия полосы",
           "range": true,
           "refId": "A"
@@ -2249,7 +2249,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "avg(replicator_grpc_chunk_transfer_latency_avg_ms)",
+          "expr": "avg(parom_grpc_chunk_transfer_latency_avg_ms)",
           "legendFormat": "Средняя задержка",
           "range": true,
           "refId": "A"
@@ -2319,7 +2319,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_staging_queue_size",
+          "expr": "parom_staging_queue_size",
           "legendFormat": "Файлов в Staging",
           "range": true,
           "refId": "A"
@@ -2415,7 +2415,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(replicator_compression_raw_bytes_total[$__rate_interval])",
+          "expr": "rate(parom_compression_raw_bytes_total[$__rate_interval])",
           "legendFormat": "Исходный объем (Uncompressed)",
           "range": true,
           "refId": "A"
@@ -2426,7 +2426,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "rate(replicator_compression_compressed_bytes_total[$__rate_interval])",
+          "expr": "rate(parom_compression_compressed_bytes_total[$__rate_interval])",
           "legendFormat": "Фактический поток в WAN (Wire Compressed)",
           "range": true,
           "refId": "B"
@@ -2522,7 +2522,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "avg(replicator_grpc_chunk_transfer_latency_avg_ms)",
+          "expr": "avg(parom_grpc_chunk_transfer_latency_avg_ms)",
           "legendFormat": "Средняя задержка чанка (мс)",
           "range": true,
           "refId": "A"
@@ -2533,7 +2533,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "max(replicator_grpc_chunk_transfer_latency_max_ms)",
+          "expr": "max(parom_grpc_chunk_transfer_latency_max_ms)",
           "legendFormat": "Пиковая задержка чанка (мс)",
           "range": true,
           "refId": "B"
@@ -2646,7 +2646,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_staging_active_bytes",
+          "expr": "parom_staging_active_bytes",
           "legendFormat": "Объем буфера Staging",
           "range": true,
           "refId": "A"
@@ -2657,7 +2657,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "replicator_staging_queue_size",
+          "expr": "parom_staging_queue_size",
           "legendFormat": "Файлов в очереди Staging",
           "range": true,
           "refId": "B"
@@ -2668,7 +2668,7 @@
             "uid": "prometheus"
           },
           "editorMode": "code",
-          "expr": "increase(replicator_staging_orphans_cleaned_total[$__rate_interval])",
+          "expr": "increase(parom_staging_orphans_cleaned_total[$__rate_interval])",
           "legendFormat": "Удалено сирот (Reaper)",
           "range": true,
           "refId": "C"
@@ -2682,7 +2682,7 @@
   "schemaVersion": 39,
   "tags": [
     "pristan",
-    "replicator",
+    "parom",
     "hdfs",
     "grpc",
     "token-bucket",
@@ -2724,6 +2724,6 @@
   },
   "timezone": "browser",
   "title": "Parom — Межкластерная репликация и шейпинг (QoS & Throttling)",
-  "uid": "hadoop-replicator-overview",
+  "uid": "parom-overview",
   "version": 1
 }

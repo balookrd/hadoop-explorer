@@ -398,7 +398,7 @@ public class KafkaJobPoolManager implements Closeable {
      * переносились дважды.
      */
     static String consumerGroupFor(KafkaJobItemProto job, String localDcId, String jobId) {
-        return "kafka-replicator-" + canonicalLocalDc(job, localDcId) + "-" + jobId;
+        return "parom-kafka-" + canonicalLocalDc(job, localDcId) + "-" + jobId;
     }
 
     private String consumerGroupFor(KafkaJobItemProto job, String jobId) {

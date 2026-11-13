@@ -21,7 +21,7 @@ scrape_configs:
         labels:
           env: 'demo'
 
-  - job_name: 'hadoop-replicator'
+  - job_name: 'parom'
     # GET /metrics needs authentication: HTTP Basic prometheus:<PAROM_METRICS_SCRAPE_TOKEN>
     # (demo value from demo/parom/docker-compose.yml)
     metrics_path: '/metrics'
@@ -32,8 +32,8 @@ scrape_configs:
       password: 'demo-replicator-metrics-token-0123456789'
     static_configs:
       - targets:
-          - 'replicator-orchestrator:8005'
+          - 'parom-orchestrator:8005'
           - 'host.docker.internal:8005'
         labels:
-          app: 'replicator'
+          app: 'parom'
           env: 'demo'

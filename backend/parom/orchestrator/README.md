@@ -53,9 +53,9 @@
 ### Метрики Prometheus и Micrometer (`ParomMetricsService`)
 
 - Эндпоинт `/metrics` для Prometheus.
-- Сжатие трафика: `replicator_compression_raw_bytes_total`, `replicator_compression_compressed_bytes_total`, `replicator_compression_ratio`.
-- Гистограмма задержек передачи gRPC-чанков с SLA-бакетами от 1 мс до 5 с: `replicator_grpc_chunk_transfer_latency_seconds_bucket`, `_sum`, `_count`, а также `replicator_grpc_chunk_transfer_latency_avg_ms` и `max_ms`.
-- Очередь и буфер staging на целевых кластерах: `replicator_staging_queue_size`, `replicator_staging_active_files`, `replicator_staging_active_bytes`, `replicator_staging_orphans_cleaned_total`.
+- Сжатие трафика: `parom_compression_raw_bytes_total`, `parom_compression_compressed_bytes_total`, `parom_compression_ratio`.
+- Гистограмма задержек передачи gRPC-чанков с SLA-бакетами от 1 мс до 5 с: `parom_grpc_chunk_transfer_latency_seconds_bucket`, `_sum`, `_count`, а также `parom_grpc_chunk_transfer_latency_avg_ms` и `max_ms`.
+- Очередь и буфер staging на целевых кластерах: `parom_staging_queue_size`, `parom_staging_active_files`, `parom_staging_active_bytes`, `parom_staging_orphans_cleaned_total`.
 
 ### Создание топиков Kafka (`KafkaTopicProvisioner`, `KafkaReplicationOrchestratorService`)
 
@@ -215,14 +215,14 @@ make test-java
 | `POST` | `/api/v1/hms/jobs` | Создание новой задачи репликации схемы HMS | JWT (`ADMIN` / `WRITER`) |
 | `GET` | `/api/v1/topology` | Топология дата-центров, кластеров и активные лимиты | JWT (`USER` / `ADMIN`) |
 | `PUT` | `/api/v1/tokens/limit` | Изменение лимитов полосы пропускания на лету | JWT (`ADMIN`) |
-| `GET` | `/api/v1/replicator/kafka/jobs` | Список задач межкластерной репликации Kafka | JWT (`USER` / `ADMIN`) |
-| `POST` | `/api/v1/replicator/kafka/jobs` | Регистрация задачи репликации Kafka с автосозданием топиков | JWT (`ADMIN` / `WRITER`) |
-| `GET` | `/api/v1/replicator/kafka/jobs/{id}` | Детали задачи репликации Kafka | JWT (`USER` / `ADMIN`) |
-| `POST` | `/api/v1/replicator/kafka/jobs/{id}/provision-topics` | Предварительная проверка и автосоздание/расширение топиков | JWT (`ADMIN` / `WRITER`) |
-| `POST` | `/api/v1/replicator/kafka/jobs/{id}/pause` | Приостановка репликации Kafka | JWT (`ADMIN` / `WRITER`) |
-| `POST` | `/api/v1/replicator/kafka/jobs/{id}/resume` | Возобновление репликации Kafka | JWT (`ADMIN` / `WRITER`) |
-| `POST` | `/api/v1/replicator/kafka/jobs/{id}/failover` | Запуск failover консьюмеров | JWT (`ADMIN`) |
-| `DELETE` | `/api/v1/replicator/kafka/jobs/{id}` | Удаление задачи репликации Kafka | JWT (`ADMIN`) |
-| `GET` | `/api/v1/replicator/kafka/discovery/clusters` | Обнаружение доступных кластеров Kafka в ЦОД | JWT (`USER` / `ADMIN`) |
-| `GET` | `/api/v1/replicator/kafka/discovery/topics` | Обнаружение топиков для автокомплита в UI | JWT (`USER` / `ADMIN`) |
-| `GET` | `/api/v1/replicator/kafka/discovery/groups` | Обнаружение консьюмер-групп в ЦОД | JWT (`USER` / `ADMIN`) |
+| `GET` | `/api/v1/parom/kafka/jobs` | Список задач межкластерной репликации Kafka | JWT (`USER` / `ADMIN`) |
+| `POST` | `/api/v1/parom/kafka/jobs` | Регистрация задачи репликации Kafka с автосозданием топиков | JWT (`ADMIN` / `WRITER`) |
+| `GET` | `/api/v1/parom/kafka/jobs/{id}` | Детали задачи репликации Kafka | JWT (`USER` / `ADMIN`) |
+| `POST` | `/api/v1/parom/kafka/jobs/{id}/provision-topics` | Предварительная проверка и автосоздание/расширение топиков | JWT (`ADMIN` / `WRITER`) |
+| `POST` | `/api/v1/parom/kafka/jobs/{id}/pause` | Приостановка репликации Kafka | JWT (`ADMIN` / `WRITER`) |
+| `POST` | `/api/v1/parom/kafka/jobs/{id}/resume` | Возобновление репликации Kafka | JWT (`ADMIN` / `WRITER`) |
+| `POST` | `/api/v1/parom/kafka/jobs/{id}/failover` | Запуск failover консьюмеров | JWT (`ADMIN`) |
+| `DELETE` | `/api/v1/parom/kafka/jobs/{id}` | Удаление задачи репликации Kafka | JWT (`ADMIN`) |
+| `GET` | `/api/v1/parom/kafka/discovery/clusters` | Обнаружение доступных кластеров Kafka в ЦОД | JWT (`USER` / `ADMIN`) |
+| `GET` | `/api/v1/parom/kafka/discovery/topics` | Обнаружение топиков для автокомплита в UI | JWT (`USER` / `ADMIN`) |
+| `GET` | `/api/v1/parom/kafka/discovery/groups` | Обнаружение консьюмер-групп в ЦОД | JWT (`USER` / `ADMIN`) |

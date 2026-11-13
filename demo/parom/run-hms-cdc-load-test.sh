@@ -40,8 +40,8 @@ FAILED=0
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 fail() { log "ОШИБКА: $*"; exit 1; }
 check() { if [ "$2" = "$3" ]; then log "   OK   $1 ($2)"; else log "   FAIL $1: ожидалось $3, получено $2"; FAILED=1; fi; }
-src_tool() { docker exec replicator-agent-dc1 "${TOOL[@]}" "$@" 2>/dev/null; }
-dst_tool() { docker exec replicator-agent-dc2 "${TOOL[@]}" "$@" 2>/dev/null; }
+src_tool() { docker exec parom-agent-dc1 "${TOOL[@]}" "$@" 2>/dev/null; }
+dst_tool() { docker exec parom-agent-dc2 "${TOOL[@]}" "$@" 2>/dev/null; }
 
 # Токен обновляется в основном потоке сценария: api вызывается и из подстановок $(...),
 # где присвоение переменной не переживает подоболочку
@@ -135,8 +135,8 @@ done
 check "FAILED-событий в журналах задач" "$FAILED_EVENTS" "0"
 check "задач в ERROR" "$(field_values status | grep -c '^ERROR$' || true)" "0"
 check "ошибок аренды у оркестраторов" \
-  "$( (docker logs --since "$(( $(date +%s) - CATCHUP - LOAD_SECONDS - 120 ))" replicator-orchestrator 2>&1;
-       docker logs --since "$(( $(date +%s) - CATCHUP - LOAD_SECONDS - 120 ))" replicator-orchestrator-2 2>&1 || true) \
+  "$( (docker logs --since "$(( $(date +%s) - CATCHUP - LOAD_SECONDS - 120 ))" parom-orchestrator 2>&1;
+       docker logs --since "$(( $(date +%s) - CATCHUP - LOAD_SECONDS - 120 ))" parom-orchestrator-2 2>&1 || true) \
      | grep -cE 'StaleStateException|OptimisticLock' || true)" "0"
 
 [ "$FAILED" = "0" ] || fail "проверка CDC под нагрузкой не пройдена"

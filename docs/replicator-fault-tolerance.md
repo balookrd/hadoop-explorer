@@ -356,7 +356,7 @@ stateDiagram-v2
    - при работе нескольких агентов в режиме `AGENT_MODE=all` задание в статусе `QUEUED` анализирует только один агент;
    - захват выполняется атомарным SQL-запросом `claimJobForAnalysis`:
      ```sql
-     UPDATE replicator_job SET status = 'ANALYZING', message = :message, updated_at = :now
+     UPDATE parom_job SET status = 'ANALYZING', message = :message, updated_at = :now
      WHERE id = :jobId AND status = 'QUEUED'
      ```
    - задание захватывает ровно один агент. Остальные получают `updated == 0` и отступают, поэтому очереди не удаляются повторно и уже выполняющиеся подзадачи не уничтожаются.
@@ -402,21 +402,21 @@ stateDiagram-v2
 
 | Метрика | Тип | Описание |
 |---|---|---|
-| `replicator_streamer_active_count` | Gauge | Количество активных лидеров стриминга (норма: ровно 1 на кластер) |
-| `replicator_streamer_standby_count`| Gauge | Количество резервных стримеров в пуле (норма: $\ge 1$) |
-| `replicator_streamer_txid_lag`      | Gauge | Отставание стримера от NameNode в количестве транзакций |
-| `replicator_orchestrator_ha_leader`| Gauge | Флаг лидера фоновых процессов текущего экземпляра (1 или 0) |
-| `replicator_worker_claimed_tasks`  | Gauge | Количество задач, находящихся в обработке воркерами |
-| `replicator_task_retry_total`      | Counter | Общее количество перезапущенных задач из-за сбоев воркеров |
+| `parom_streamer_active_count` | Gauge | Количество активных лидеров стриминга (норма: ровно 1 на кластер) |
+| `parom_streamer_standby_count`| Gauge | Количество резервных стримеров в пуле (норма: $\ge 1$) |
+| `parom_streamer_txid_lag`      | Gauge | Отставание стримера от NameNode в количестве транзакций |
+| `parom_orchestrator_ha_leader`| Gauge | Флаг лидера фоновых процессов текущего экземпляра (1 или 0) |
+| `parom_worker_claimed_tasks`  | Gauge | Количество задач, находящихся в обработке воркерами |
+| `parom_task_retry_total`      | Counter | Общее количество перезапущенных задач из-за сбоев воркеров |
 
 ### Правила алертов
 
 ```yaml
 groups:
-  - name: replicator-ha-alerts
+  - name: parom-ha-alerts
     rules:
       - alert: ReplicatorStreamerNoStandby
-        expr: replicator_streamer_standby_count{cluster="dc1"} < 1
+        expr: parom_streamer_standby_count{cluster="dc1"} < 1
         for: 2m
         labels:
           severity: warning
@@ -425,7 +425,7 @@ groups:
           description: "В кластере работает только 1 стример. При его падении Near-Zero RPO будет нарушен."
 
       - alert: ReplicatorStreamerSplitBrainRisk
-        expr: replicator_streamer_active_count{cluster="dc1"} > 1
+        expr: parom_streamer_active_count{cluster="dc1"} > 1
         for: 10s
         labels:
           severity: critical
@@ -434,7 +434,7 @@ groups:
           description: "Более одного активного стримера читают EditLog одновременно!"
 
       - alert: ReplicatorStreamerHighLag
-        expr: replicator_streamer_txid_lag > 50000
+        expr: parom_streamer_txid_lag > 50000
         for: 3m
         labels:
           severity: warning
@@ -570,7 +570,7 @@ export HADOOP_NAMENODE_RPC_ADDRESS=hdfs://nn-dc2-01.prod.corp:8020
 export KERBEROS_PRINCIPAL=hdfs-streamer/edge-dc2-01.prod.corp@PROD.CORP
 export KERBEROS_KEYTAB=/etc/security/keytabs/hdfs-streamer.keytab
 
-java -jar /opt/replicator-agent/parom-agent.jar
+java -jar /opt/parom-agent/parom-agent.jar
 ```
 
 ---
@@ -587,7 +587,7 @@ java -jar /opt/replicator-agent/parom-agent.jar
    - показывает объем несинхронизированных байт и событий CDC в реальном времени и сигнализирует, когда достигнут RPO = 0 и нагрузку можно возвращать.
 4. Снятие изоляции без перезаписи данных (unfence и защита failback):
    - при восстановлении DC1 сетевое ограждение снимается (Unfence Network), но прямые задачи остаются остановленными, чтобы не перезаписать свежие данные в DC2;
-   - пошаговый регламент и диаграммы: [Руководство по Disaster Recovery и защите от Split-Brain (replicator-disaster-recovery-guide.md)](replicator-disaster-recovery-guide.md).
+   - пошаговый регламент и диаграммы: [Руководство по Disaster Recovery и защите от Split-Brain (parom-disaster-recovery-guide.md)](parom-disaster-recovery-guide.md).
 
 ---
 
@@ -965,19 +965,19 @@ DDL, которые целевой кластер не может примени
 
 ## 16. Kafka Replicator: отказоустойчивость и безопасность
 
-Подсистема репликации Apache Kafka (`kafka-replicator-agent`) рассчитана на работу 24/7 с пиковой нагрузкой до 1 000 000 сообщений в секунду и переживает сетевые сбои, перегрузку брокеров и отказы отдельных воркеров.
+Подсистема репликации Apache Kafka (`parom-kafka-agent`) рассчитана на работу 24/7 с пиковой нагрузкой до 1 000 000 сообщений в секунду и переживает сетевые сбои, перегрузку брокеров и отказы отдельных воркеров.
 
 ### 16.1 Клиентская балансировка и карантин узлов (`KafkaTargetBalancer`)
 
 1. Распределение партиций между агентами (multi-agent partition-pinned load balancing):
-   - каждая задача репликации получает свою группу консьюмеров `kafka-replicator-<dc>-<jobId>` и свой пул консьюмеров с собственным списком целевых эндпоинтов. Прежняя схема с единым `group.id` на весь демон означала, что задачи делили партиции и перезапуск или остановка одной задачи вызывал ребаланс у остальных, а маршрутизация топиков уходила не к тем приемникам;
+   - каждая задача репликации получает свою группу консьюмеров `parom-kafka-<dc>-<jobId>` и свой пул консьюмеров с собственным списком целевых эндпоинтов. Прежняя схема с единым `group.id` на весь демон означала, что задачи делили партиции и перезапуск или остановка одной задачи вызывал ребаланс у остальных, а маршрутизация топиков уходила не к тем приемникам;
    - внутри группы партиции распределяет встроенный балансировщик Kafka, а привязка партиции к узлу-приемнику делается консистентным хешированием (HRW), поэтому порядок записей партиции сохраняется и при смене состава приемников.
 2. Карантин сбойных узлов:
    - при сетевой ошибке или падении приемника целевой узел уходит в карантин (по умолчанию на 10 секунд);
    - балансировщик исключает узел из пула активных адресов и направляет батчи на остальные узлы; репликация не останавливается, сообщения не теряются;
    - после карантина узел возвращается в ротацию, если проходят healthcheck-запросы.
 3. Обнаружение приемников через оркестратор:
-   - список онлайн-приемников запрашивается у оркестратора (`GET /api/v1/replicator/kafka/agents/receivers?clusterId={clusterId}`). Новые приемники отправители подхватывают без перезапуска.
+   - список онлайн-приемников запрашивается у оркестратора (`GET /api/v1/parom/kafka/agents/receivers?clusterId={clusterId}`). Новые приемники отправители подхватывают без перезапуска.
 
 ### 16.2 Двусторонний backpressure и защита от OOM
 

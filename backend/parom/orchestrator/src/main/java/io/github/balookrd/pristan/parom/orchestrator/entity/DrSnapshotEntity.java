@@ -4,7 +4,7 @@ import jakarta.persistence.*;
 import java.time.Instant;
 
 @Entity
-@Table(name = "replicator_dr_snapshots")
+@Table(name = "parom_dr_snapshots")
 public class DrSnapshotEntity {
 
     @Id

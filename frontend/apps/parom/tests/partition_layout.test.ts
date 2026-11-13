@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { agentColor, AGENT_COLORS, buildPartitionLayout, parseAssignment } from '../src/lib/partitionLayout';
 
-describe('Replicator: раскладка партиций Kafka-задачи по агентам', () => {
+describe('Parom: раскладка партиций Kafka-задачи по агентам', () => {
   it('разбирает ответ оркестратора и отбрасывает неполные записи', () => {
     expect(parseAssignment([
       { agent_id: 'agent-1', topic: 'orders', partitions: [0, 1, 'x', -1] },

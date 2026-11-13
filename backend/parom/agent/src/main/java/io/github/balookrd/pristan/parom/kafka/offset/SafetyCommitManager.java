@@ -138,7 +138,7 @@ public class SafetyCommitManager {
                 }
 
                 if (targetOffset >= 0) {
-                    offsetsToCommit.put(tp, new OffsetAndMetadata(targetOffset, "Replicated by Kafka gRPC Replicator"));
+                    offsetsToCommit.put(tp, new OffsetAndMetadata(targetOffset, "Replicated by Parom Kafka"));
                     appliedOffsets.add(TopicPartitionOffset.newBuilder()
                             .setTopic(tpo.getTopic())
                             .setPartition(tpo.getPartition())

@@ -200,11 +200,11 @@
   let enableKerberos = $state(true);
   // Kerberos приемника задается своим кластером; null — как у источника
   let targetKerberosEnabled = $state<boolean | null>(null);
-  let sourcePrincipal = $state('kafka-replicator@COMPANY.LOCAL');
+  let sourcePrincipal = $state('parom-kafka@COMPANY.LOCAL');
   // Путь keytab не зашит: его подставляет топология кластера, а заданный путь у
   // не-администратора оркестратор отвергает (403)
   let sourceKeytabPath = $state('');
-  let targetPrincipal = $state('kafka-replicator@COMPANY.LOCAL');
+  let targetPrincipal = $state('parom-kafka@COMPANY.LOCAL');
   let targetKeytabPath = $state('');
   let sourceServiceName = $state('kafka');
   let targetServiceName = $state('kafka');
@@ -1942,13 +1942,13 @@
                   <input
                     type="text"
                     bind:value={sourcePrincipal}
-                    placeholder="kafka-replicator@COMPANY.LOCAL"
+                    placeholder="parom-kafka@COMPANY.LOCAL"
                     class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
                   />
                   <input
                     type="text"
                     bind:value={sourceKeytabPath}
-                    placeholder="/etc/security/keytabs/kafka-replicator.keytab"
+                    placeholder="/etc/security/keytabs/parom-kafka.keytab"
                     class="mt-1.5 w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
                   />
                   <input
@@ -1969,13 +1969,13 @@
                   <input
                     type="text"
                     bind:value={targetPrincipal}
-                    placeholder="kafka-replicator@COMPANY.LOCAL"
+                    placeholder="parom-kafka@COMPANY.LOCAL"
                     class="w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
                   />
                   <input
                     type="text"
                     bind:value={targetKeytabPath}
-                    placeholder="/etc/security/keytabs/kafka-replicator.keytab"
+                    placeholder="/etc/security/keytabs/parom-kafka.keytab"
                     class="mt-1.5 w-full text-xs px-2.5 py-1.5 rounded-lg border border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-900 font-mono"
                   />
                   <input
@@ -2237,7 +2237,7 @@
                     </div>
                   {/if}
                   <p class="text-[10px] text-slate-400">
-                    Партиции распределяются между физическими нодами отправителей через общую Consumer Group <code class="text-indigo-500 font-mono">kafka-replicator-{newJobName.slice(0, 12)}</code>.
+                    Партиции распределяются между физическими нодами отправителей через общую Consumer Group <code class="text-indigo-500 font-mono">parom-kafka-{newJobName.slice(0, 12)}</code>.
                   </p>
                 </div>
 

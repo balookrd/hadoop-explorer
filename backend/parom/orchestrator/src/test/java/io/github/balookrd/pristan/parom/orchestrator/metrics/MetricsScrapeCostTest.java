@@ -88,7 +88,7 @@ class MetricsScrapeCostTest {
         String body = metricsService.renderParomPrometheusMetrics();
         List<String> sql = CapturingStatementInspector.stop();
 
-        assertTrue(body.contains("replicator_file_size_bytes"), "Метрика размеров файлов должна остаться");
+        assertTrue(body.contains("parom_file_size_bytes"), "Метрика размеров файлов должна остаться");
 
         long fullTaskScans = sql.stream()
                 .filter(q -> q.toLowerCase().contains("from replication_tasks"))
@@ -174,7 +174,7 @@ class MetricsScrapeCostTest {
         String body = metricsService.renderParomPrometheusMetrics();
         List<String> sql = CapturingStatementInspector.stop();
 
-        assertTrue(body.contains("replicator_jobs_total"), "Метрики заданий должны остаться");
+        assertTrue(body.contains("parom_jobs_total"), "Метрики заданий должны остаться");
 
         assertEquals(0, CapturingStatementInspector.countFullScans(sql, "replication_jobs"),
                 "Скрейп вычитывает задания HDFS целиком, и так на каждом интервале Prometheus. SQL: " + sql);
@@ -191,22 +191,22 @@ class MetricsScrapeCostTest {
 
         String body = metricsService.renderParomPrometheusMetrics();
 
-        assertTrue(body.contains("replicator_bytes_total{status=\"COMPLETED\"} 9000"),
-                gauge(body, "replicator_bytes_total"));
-        assertTrue(body.contains("replicator_bytes_total{status=\"IN_PROGRESS\"} 1500"),
-                gauge(body, "replicator_bytes_total"));
-        assertTrue(body.contains("replicator_jobs_total{status=\"SCHEDULED\",mode=\"scheduled\"} 1"),
-                gauge(body, "replicator_jobs_total"));
-        assertTrue(body.contains("replicator_jobs_total{status=\"MANUAL\",mode=\"manual\"} 2"),
-                gauge(body, "replicator_jobs_total"));
-        assertTrue(body.contains("replicator_hms_tables_total{type=\"total\"} 30"),
-                gauge(body, "replicator_hms_tables_total"));
-        assertTrue(body.contains("replicator_hms_tables_total{type=\"replicated\"} 12"),
-                gauge(body, "replicator_hms_tables_total"));
-        assertTrue(body.contains("replicator_hms_partitions_total{type=\"total\"} 700"),
-                gauge(body, "replicator_hms_partitions_total"));
-        assertTrue(body.contains("replicator_hms_partitions_total{type=\"replicated\"} 250"),
-                gauge(body, "replicator_hms_partitions_total"));
+        assertTrue(body.contains("parom_bytes_total{status=\"COMPLETED\"} 9000"),
+                gauge(body, "parom_bytes_total"));
+        assertTrue(body.contains("parom_bytes_total{status=\"IN_PROGRESS\"} 1500"),
+                gauge(body, "parom_bytes_total"));
+        assertTrue(body.contains("parom_jobs_total{status=\"SCHEDULED\",mode=\"scheduled\"} 1"),
+                gauge(body, "parom_jobs_total"));
+        assertTrue(body.contains("parom_jobs_total{status=\"MANUAL\",mode=\"manual\"} 2"),
+                gauge(body, "parom_jobs_total"));
+        assertTrue(body.contains("parom_hms_tables_total{type=\"total\"} 30"),
+                gauge(body, "parom_hms_tables_total"));
+        assertTrue(body.contains("parom_hms_tables_total{type=\"replicated\"} 12"),
+                gauge(body, "parom_hms_tables_total"));
+        assertTrue(body.contains("parom_hms_partitions_total{type=\"total\"} 700"),
+                gauge(body, "parom_hms_partitions_total"));
+        assertTrue(body.contains("parom_hms_partitions_total{type=\"replicated\"} 250"),
+                gauge(body, "parom_hms_partitions_total"));
     }
 
     private String gauge(String body, String prefix) {
@@ -218,8 +218,8 @@ class MetricsScrapeCostTest {
     void testFileSizeHistogramValues() {
         String body = metricsService.renderParomPrometheusMetrics();
 
-        assertTrue(body.contains("replicator_file_size_bytes_count 50"),
+        assertTrue(body.contains("parom_file_size_bytes_count 50"),
                 "Количество файлов в гистограмме должно соответствовать данным, получено:\n"
-                        + body.lines().filter(l -> l.startsWith("replicator_file_size_bytes")).toList());
+                        + body.lines().filter(l -> l.startsWith("parom_file_size_bytes")).toList());
     }
 }

@@ -1,0 +1,107 @@
+# published and demo secret values stay byte-identical
+keep	replicator-secure-agent-secret-key-12345
+keep	demo-replicator-agent-secret-0123456789
+keep	demo-replicator-metrics-token-0123456789
+keep	POSTGRES_PASSWORD: replicator
+keep	SPRING_DATASOURCE_PASSWORD: "replicator"
+keep	Min32CharSecretKeyForReplicatorTokens
+# legacy consumer-group exclusion branches in ConsumerGroupBlacklistFilter
+keep	kafka-replicator-.*
+keep	replicator-.*
+keep	hadoop-replicator-.*
+# shared login component and its app ids stay until Task 11
+keep	    replicator: [
+keep	id: 'replicator', label: 'Replicator'
+keep	'yarn' | 'replicator' | 'sql'
+keep	return 'replicator'
+keep	app="replicator"
+# existing docs and image file names (renamed in Task 11)
+keep	replicator-presentation
+keep	replicator_topology_screen.png
+# dashboards
+sub	hadoop_replicator_	parom_
+sub	hadoop-replicator-agents	parom-agents-dashboard
+sub	hadoop-replicator-hms-dr	parom-hms-dr
+sub	hadoop-replicator-kafka-demo	parom-kafka-demo
+sub	hadoop-replicator-kafka-agent	parom-kafka-agent
+sub	hadoop-replicator-kafka	parom-kafka-dashboard
+sub	hadoop-replicator-overview	parom-overview
+sub	hadoop-replicator-demo	parom-demo
+sub	job_name: 'hadoop-replicator'	job_name: 'parom'
+sub	job=~\"hadoop-replicator|replicator\"	job=~\"parom\"
+sub	job=~\"hadoop-replicator\"	job=~\"parom\"
+sub	grep -q "hadoop-replicator"	grep -q "parom"
+sub	app: 'replicator'	app: 'parom'
+sub	replicator-metrics-scrape-token	parom-metrics-scrape-token
+sub	"replicator"	"parom"	monitoring/grafana/dashboards/*
+# kafka
+sub	{"hadoop":{"replicator":{"clusters":[	{"parom":{"clusters":[
+sub	.keytab"}]}}}	.keytab"}]}}
+sub	"kafka-replicator-" +	"parom-kafka-" +
+sub	kafka-replicator-time-resolver-	parom-kafka-time-resolver-
+sub	kafka-replicator-dc	parom-kafka-dc
+sub	kafka-replicator-<	parom-kafka-<
+sub	kafka-replicator-agent	parom-kafka-agent
+sub	kafka-replicator.keytab	parom-kafka.keytab
+sub	kafka-replicator@	parom-kafka@
+sub	kafka-replicator/	parom-kafka/
+# kerberos and hdfs
+sub	hdfs-replicator@REALM.LOCAL	parom@REALM.LOCAL
+sub	hdfs-replicator@	parom@
+sub	"replicator@	"parom@
+sub	replicator-dc1.keytab	parom-dc1.keytab
+sub	replicator-dc2.keytab	parom-dc2.keytab
+sub	/etc/replicator.keytab	/etc/parom.keytab
+sub	.replicator-staging	.parom-staging
+sub	/tmp/replicator	/tmp/parom
+sub	replicator-hms-token	parom-hms-token
+sub	Hadoop-Replicator-Agent-	Parom-Agent-
+sub	"replicator"	"parom"	*KerberosReloginTest.java
+# ldap
+sub	replicator-operators	parom-operators
+sub	replicator-agents	parom-agents
+# containers, volumes, db
+sub	replicator-orchestrator	parom-orchestrator
+sub	replicator-streamer	parom-streamer
+sub	replicator-smoke-test	parom-smoke-test
+sub	replicator-ha-pg-data	parom-ha-pg-data
+sub	replicator-db-data	parom-db-data
+sub	replicator-db	parom-db
+sub	replicator-agent	parom-agent
+sub	POSTGRES_DB:replicator	POSTGRES_DB:parom
+sub	POSTGRES_DB: replicator	POSTGRES_DB: parom
+sub	POSTGRES_USER: replicator	POSTGRES_USER: parom
+sub	POSTGRES_USER:replicator	POSTGRES_USER:parom
+sub	pg_isready -U replicator -d replicator	pg_isready -U parom -d parom
+sub	SPRING_DATASOURCE_USERNAME: "replicator"	SPRING_DATASOURCE_USERNAME: "parom"
+sub	:5432/replicator	:5432/parom
+# api and ui state
+sub	/api/v1/replicator/kafka	/api/v1/parom/kafka
+sub	/replicator/kafka	/parom/kafka
+sub	replicator_active_tab	parom_active_tab
+sub	backend.replicator.agent	io.github.balookrd.pristan.parom.agent
+# metrics and telemetry
+sub	replicator.dc_id	parom.dc_id
+re	"replicator\.(compression|grpc|staging)\.	"parom.\1.
+re	(?<![A-Za-z0-9_])replicator_(?!dr_snapshots|streaming_leases)	parom_
+sub	ReplicatorHmsLagHigh	ParomHmsLagHigh
+sub	ReplicatorChecksumMismatch	ParomChecksumMismatch
+# thread names, temp prefixes, remaining service-id style names
+sub	/replicator.stdout	/parom.stdout
+sub	/replicator.stderr	/parom.stderr
+sub	hadoop-replicator-job-	parom-job-
+re	(?<![A-Za-z0-9_./-])replicator-(?=[a-z0-9])	parom-
+# product-name phrases
+sub	Hadoop gRPC Replicator	Parom	backend/*,frontend/*,demo/*,docker/*,scripts/*,monitoring/*,ansible/*,.github/*,Makefile,pom.xml,.ast-grep/*
+sub	Kafka gRPC Replicator	Parom Kafka	backend/*,frontend/*,demo/*,docker/*,scripts/*,monitoring/*,ansible/*,.github/*,Makefile,pom.xml,.ast-grep/*
+sub	gRPC Replicator	Parom	backend/*,frontend/*,demo/*,docker/*,scripts/*,monitoring/*,ansible/*,.github/*,Makefile,pom.xml,.ast-grep/*
+sub	Hadoop Replicator	Parom	backend/*,frontend/*,demo/*,docker/*,scripts/*,monitoring/*,ansible/*,.github/*,Makefile,pom.xml,.ast-grep/*
+sub	HADOOP REPLICATOR	PAROM	backend/*,frontend/*,demo/*,docker/*,scripts/*,monitoring/*,ansible/*,.github/*,Makefile,pom.xml,.ast-grep/*
+sub	KAFKA REPLICATOR	PAROM KAFKA	backend/*,frontend/*,demo/*,docker/*,scripts/*,monitoring/*,ansible/*,.github/*,Makefile,pom.xml,.ast-grep/*
+sub	Kafka Replicator	Parom Kafka	backend/*,frontend/*,demo/*,docker/*,scripts/*,monitoring/*,ansible/*,.github/*,Makefile,pom.xml,.ast-grep/*
+sub	Replicator Explorer	Parom	backend/*,frontend/*,demo/*,docker/*,scripts/*,monitoring/*,ansible/*,.github/*,Makefile,pom.xml,.ast-grep/*
+sub	(yarn, hdfs, sql, spark, replicator)	(artel, sklad, tolmach, iskra, parom)	Makefile
+sub	'spark', 'replicator', 'hadoop'	'spark', 'parom', 'hadoop'	scripts/check-russian-*.py
+# final sweep: remaining standalone prose words in code areas
+re	(?<![A-Za-z0-9_./-])Replicator(?![A-Za-z0-9_-])	Parom	backend/*,frontend/*,demo/*,docker/*,scripts/*,monitoring/*,ansible/*,.github/*,Makefile,pom.xml,.ast-grep/*
+re	(?<![A-Za-z0-9_./-])replicator(?![A-Za-z0-9_./-])	Parom	backend/*,frontend/*,demo/*,docker/*,scripts/*,monitoring/*,ansible/*,.github/*,Makefile,pom.xml,.ast-grep/*

@@ -51,7 +51,7 @@ groups:
           description: "Более 10% операций с файлами HDFS на кластере {{ $labels.cluster }} завершаются ошибками."
 
       - alert: ReplicationHighThrottlingDelay
-        expr: rate(replicator_throttling_delay_seconds_total[2m]) > 5
+        expr: rate(parom_throttling_delay_seconds_total[2m]) > 5
         for: 2m
         labels:
           severity: warning
@@ -60,8 +60,8 @@ groups:
           description: "Воркеры ожидают квоты более 5 секунд в секунду из-за достижения лимита полосы WAN или ЦОД."
 
       - alert: ReplicationJobsHighFailureRate
-        # replicator_jobs_total is a gauge of jobs per status, so this is the share of FAILED jobs, not a rate
-        expr: sum(replicator_jobs_total{status="FAILED"}) / sum(replicator_jobs_total{status=~"QUEUED|RUNNING|COMPLETED|FAILED"}) > 0.10
+        # parom_jobs_total is a gauge of jobs per status, so this is the share of FAILED jobs, not a rate
+        expr: sum(parom_jobs_total{status="FAILED"}) / sum(parom_jobs_total{status=~"QUEUED|RUNNING|COMPLETED|FAILED"}) > 0.10
         for: 2m
         labels:
           severity: critical
@@ -70,7 +70,7 @@ groups:
           description: "Более 10% задач репликации HDFS находятся в статусе FAILED."
 
       - alert: ReplicationWorkerStarvation
-        expr: replicator_active_workers == 0 and on() sum(replicator_jobs_total{status=~"RUNNING|QUEUED"}) > 0
+        expr: parom_active_workers == 0 and on() sum(parom_jobs_total{status=~"RUNNING|QUEUED"}) > 0
         for: 2m
         labels:
           severity: warning
@@ -97,7 +97,7 @@ groups:
           description: "Сквозной лаг потоковой репликации Kafka превышает 5000 мс в течение 2 минут. Возможна задержка данных в целевом кластере."
 
       - alert: KafkaReplicationJobPaused
-        expr: replicator_kafka_jobs_total{status="PAUSED"} > 0
+        expr: parom_kafka_jobs_total{status="PAUSED"} > 0
         for: 5m
         labels:
           severity: warning

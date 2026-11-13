@@ -227,10 +227,10 @@ public class ParomAgent {
         // Трассировка поднимается до первых вызовов, иначе начало работы агента
         // (регистрация и первый забор задач) в трассу не попадет
         this.telemetry = io.github.balookrd.pristan.parom.telemetry.AgentTelemetry
-                .startIfConfigured("replicator-agent", config.getAgentId(), config.getClusterId());
+                .startIfConfigured("parom-agent", config.getAgentId(), config.getClusterId());
 
         logger.info("======================================================================");
-        logger.info("Старт Replicator Agent (Java 17): id='{}', cluster='{}', mode='{}'",
+        logger.info("Старт Parom Agent (Java 17): id='{}', cluster='{}', mode='{}'",
                 config.getAgentId(), config.getClusterId(), config.getMode());
         logger.info("Оркестратор: {}, Advertised gRPC: {}",
                 config.getOrchestratorUrl(), config.getAdvertisedGrpcAddress());
@@ -375,7 +375,7 @@ public class ParomAgent {
 
         // Периодический keepalive
         heartbeatExecutor = Executors.newSingleThreadScheduledExecutor(r -> {
-            Thread t = new Thread(r, "replicator-heartbeat");
+            Thread t = new Thread(r, "parom-heartbeat");
             t.setDaemon(true);
             return t;
         });
@@ -414,7 +414,7 @@ public class ParomAgent {
     }
 
     private void startSenderLoop() {
-        senderThread = new Thread(this::runSenderLoop, "replicator-sender-loop");
+        senderThread = new Thread(this::runSenderLoop, "parom-sender-loop");
         senderThread.setUncaughtExceptionHandler((t, e) -> {
             logger.error("КРИТИЧЕСКИЙ СБОЙ потока {}: {}", t.getName(), e.getMessage(), e);
         });
@@ -423,7 +423,7 @@ public class ParomAgent {
     }
 
     private void startHmsLoop() {
-        hmsThread = new Thread(this::runHmsLoop, "replicator-hms-loop");
+        hmsThread = new Thread(this::runHmsLoop, "parom-hms-loop");
         hmsThread.setUncaughtExceptionHandler((t, e) -> {
             logger.error("КРИТИЧЕСКИЙ СБОЙ потока {}: {}", t.getName(), e.getMessage(), e);
         });
@@ -703,7 +703,7 @@ public class ParomAgent {
         if (!running.get()) return;
         running.set(false);
 
-        logger.info("Остановка Replicator Agent '{}'...", config.getAgentId());
+        logger.info("Остановка Parom Agent '{}'...", config.getAgentId());
 
         if (senderThread != null) {
             senderThread.interrupt();
@@ -772,7 +772,7 @@ public class ParomAgent {
             orchestratorClient.close();
         }
 
-        logger.info("Replicator Agent '{}' успешно остановлен", config.getAgentId());
+        logger.info("Parom Agent '{}' успешно остановлен", config.getAgentId());
     }
 
     public OrchestratorGrpcClient getOrchestratorClient() {

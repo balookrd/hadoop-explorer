@@ -186,7 +186,7 @@
                             <rules>
                                 <requireJavaVersion>
                                     <version>[21,22)</version>
-                                    <message>Build and test the replicator on Java 21 LTS: on JDK 24+ Hadoop 3.3.6 loses impersonation (Subject.getSubject throws UnsupportedOperationException after JEP 486) and -Djava.security.manager=allow no longer starts the VM, so a green run there says nothing about production. Use: make test-parom (or JAVA_HOME=&lt;jdk21&gt; mvn ...)</message>
+                                    <message>Build and test Parom on Java 21 LTS: on JDK 24+ Hadoop 3.3.6 loses impersonation (Subject.getSubject throws UnsupportedOperationException after JEP 486) and -Djava.security.manager=allow no longer starts the VM, so a green run there says nothing about production. Use: make test-parom (or JAVA_HOME=&lt;jdk21&gt; mvn ...)</message>
                                 </requireJavaVersion>
                             </rules>
                             <fail>true</fail>
@@ -201,10 +201,10 @@
                             <rules>
                                 <bannedDependencies>
                                     <excludes>
-                                        <exclude>io.github.balookrd.pristan:replicator-agent</exclude>
+                                        <exclude>io.github.balookrd.pristan:parom-agent</exclude>
                                     </excludes>
                                     <searchTransitive>true</searchTransitive>
-                                    <message>replicator-orchestrator must not depend on replicator-agent: share code through parom-proto / parom-model</message>
+                                    <message>parom-orchestrator must not depend on parom-agent: share code through parom-proto / parom-model</message>
                                 </bannedDependencies>
                             </rules>
                             <fail>true</fail>

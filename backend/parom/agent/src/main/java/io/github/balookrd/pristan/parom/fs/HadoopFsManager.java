@@ -46,7 +46,7 @@ import java.util.stream.Stream;
 public class HadoopFsManager {
 
     private static final Logger logger = LoggerFactory.getLogger(HadoopFsManager.class);
-    private static final String DEFAULT_SERVICE_PRINCIPAL = "hdfs-replicator@REALM.LOCAL";
+    private static final String DEFAULT_SERVICE_PRINCIPAL = "parom@REALM.LOCAL";
 
     private final Configuration conf;
     private final String defaultFsUri;
@@ -887,7 +887,7 @@ public class HadoopFsManager {
             return true;
         }
 
-        // Staging-файлы Replicator (строгий суффикс ._staging_<id>)
+        // Staging-файлы Parom (строгий суффикс ._staging_<id>)
         if (lower.contains("._staging_")) {
             int idx = lower.lastIndexOf("._staging_");
             String after = lower.substring(idx + "._staging_".length());

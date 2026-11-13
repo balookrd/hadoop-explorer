@@ -36,8 +36,8 @@ class KafkaConsumerGroupCleanerTest {
     }
 
     private static final KafkaConsumerGroupCleaner.GroupTarget TARGET = new KafkaConsumerGroupCleaner.GroupTarget(
-            "kafka-dc1:9092", true, "replicator@PROD", "/etc/replicator.keytab", "kafka",
-            "kafka-replicator-dc1-kafka-job-1");
+            "kafka-dc1:9092", true, "parom@PROD", "/etc/parom.keytab", "kafka",
+            "parom-kafka-dc1-kafka-job-1");
 
     @Test
     @DisplayName("Группа еще не пуста: удаление повторяется, пока брокер его не примет")
@@ -51,9 +51,9 @@ class KafkaConsumerGroupCleanerTest {
 
         new KafkaConsumerGroupCleaner(factory, 20L, 5).scheduleDeletion("kafka-job-1", List.of(TARGET));
 
-        verify(admin, timeout(5_000).times(3)).deleteConsumerGroups(List.of("kafka-replicator-dc1-kafka-job-1"));
-        verify(factory, atLeastOnce()).createAdminClient("kafka-dc1:9092", true, "replicator@PROD",
-                "/etc/replicator.keytab", "kafka");
+        verify(admin, timeout(5_000).times(3)).deleteConsumerGroups(List.of("parom-kafka-dc1-kafka-job-1"));
+        verify(factory, atLeastOnce()).createAdminClient("kafka-dc1:9092", true, "parom@PROD",
+                "/etc/parom.keytab", "kafka");
         verify(admin, timeout(5_000).times(3)).close();
     }
 

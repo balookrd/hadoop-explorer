@@ -153,7 +153,7 @@ public class TarStreamPipeline {
 
             // 1. Метаданные бандла
             boolean asService = task.getRunAsServiceAccount() != null && task.getRunAsServiceAccount();
-            String principal = task.getExecutionPrincipal() != null ? task.getExecutionPrincipal() : "hdfs-replicator@REALM.LOCAL";
+            String principal = task.getExecutionPrincipal() != null ? task.getExecutionPrincipal() : "parom@REALM.LOCAL";
             boolean allPrecompressed = entries.stream().allMatch(e ->
                     WireCompressor.isPrecompressedPath(e.getSourcePath()) || WireCompressor.isPrecompressedPath(e.getRelativePath()));
             CompressionCodec tarCodec = allPrecompressed ? CompressionCodec.COMPRESSION_NONE : defaultCompressionCodec;

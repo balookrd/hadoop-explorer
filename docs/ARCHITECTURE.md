@@ -276,7 +276,7 @@ Pristan — веб-платформа для работы с экосистем�
   - Маркеры коммита и файлы метаданных (`_SUCCESS`, `_SUCCESS.crc`, `_metadata`, `_common_metadata`) реплицируются.
   - Фильтр применяется с обеих сторон: на источнике (Sender/Analyzer) при построении пула задач и на приемнике (Receiver) при построении манифеста.
 - Безопасность, Kerberos-изоляция и имперсонация (Apache Ranger):
-  - `HadoopFsManager` аутентифицирует сервисную учетную запись по keytab (`hdfs-replicator@REALM.LOCAL`).
+  - `HadoopFsManager` аутентифицирует сервисную учетную запись по keytab (`parom@REALM.LOCAL`).
   - Kerberos Data Transfer Protection: SASL-защита канала передачи блоков DataNode (`dfs.data.transfer.protection = integrity/privacy`) настраивается автоматически; без нее передача между Kerberized-узлами обрывалась с `SocketException: Connection reset`.
   - Hadoop proxy user и doAs: агент подключается под доверенной сервисной учетной записью и выполняет операции с HDFS под UGI пользователя (`UserGroupInformation.createProxyUser(user, baseUgi).doAs(...)`). Apache Ranger проверяет политики для пользователя и пишет в Ranger Audit Log `ugi: user (auth:PROXY via hdfs-replicator)`.
   - HiveServer2: протестирована работа с Apache Hive 4.0.0 через Beeline по Kerberos/JDBC (создание баз, таблиц, партиций, выборка данных).
@@ -317,10 +317,10 @@ Pristan — веб-платформа для работы с экосистем�
   - Отдельный раздел интерфейса «Kafka Replicator» синхронизирует топики Apache Kafka 2.8+ / 3.x между кластерами через gRPC-канал в WAN с TLS, пропускной способностью от 1M msg/s и ограничением полосы (Hierarchical Token Bucket).
   - Data Plane (`KafkaDataTransferService`, порт TCP 50052):
     - Двунаправленный поток `StreamKafkaBatches` поверх HTTP/2 с взаимной TLS-аутентификацией (mTLS, TLS 1.3).
-    - Отдельный процесс `kafka-replicator-agent` отделяет потоковую нагрузку Kafka от пакетного I/O файлов HDFS и метаданных Hive.
+    - Отдельный процесс `parom-kafka-agent` отделяет потоковую нагрузку Kafka от пакетного I/O файлов HDFS и метаданных Hive.
   - Шардирование и балансировка (Multi-Agent Partition-Pinned Load Balancing):
     - Топики и номера партиций распределяются по пулу агентов-отправителей консистентным хэшированием при общем `group.id`, поэтому одна партиция не вычитывается дважды.
-    - `KafkaTargetBalancer` распределяет нагрузку по приемникам и находит их через REST API оркестратора (`/api/v1/replicator/kafka/agents/receivers`).
+    - `KafkaTargetBalancer` распределяет нагрузку по приемникам и находит их через REST API оркестратора (`/api/v1/parom/kafka/agents/receivers`).
     - Адреса брокеров Kafka определяются по `clusterId` через `TopologyRegistry` (`topology.clusters.<id>.kafka-bootstrap` или `kafka.clusters.<id>.bootstrap-servers`); значений по умолчанию в коде нет (`defaultValue = "DC1"` удален, параметр `clusterId` обязателен).
     - Карантин узлов: отказавший целевой агент исключается на 10 секунд, его партиции переходят к оставшимся активным узлам без остановки репликации и без потери данных.
   - Адаптивный пул потребителей `KafkaBatchConsumerPool`:
@@ -343,10 +343,10 @@ Pristan — веб-платформа для работы с экосистем�
     - Синхронизация Schema Registry (Confluent / Aiven, порт 8081): `ZeroCopyWireTranscoder` заменяет Magic Byte и Schema ID в заголовках Avro/Protobuf без аллокаций в памяти, со single-flight разрешением в `ConcurrentHashMap`.
 - Модули и сборка:
   - Оркестратор на Java 21 / Spring Boot 3 (`backend/parom/orchestrator`): мультиплексированный gRPC Control Plane (`OrchestratorControlPlaneService`, порт 50050), стартер `zastava`, Spring Data JPA, потокобезопасный `TokenBucketThrottler`, `AgentRegistry` с защитой от SSRF, cron-планировщик и раздача собранного Svelte 5 SPA.
-  - Агент на Java 21 (`backend/parom/agent`): воркер для DataNode и контейнеров Apache Hadoop YARN с сервисами HDFS (`DataTransferService`), Hive Metastore (`HmsTransferService`) и Kafka (`KafkaDataTransferService`); с оркестратором связывается через `OrchestratorGrpcClient`. Циклы `replicator-hms-loop` и потоки Kafka отделены от `replicator-sender-loop`, поэтому передача больших блоков данных не блокирует HMS и Kafka.
+  - Агент на Java 21 (`backend/parom/agent`): воркер для DataNode и контейнеров Apache Hadoop YARN с сервисами HDFS (`DataTransferService`), Hive Metastore (`HmsTransferService`) и Kafka (`KafkaDataTransferService`); с оркестратором связывается через `OrchestratorGrpcClient`. Циклы `parom-hms-loop` и потоки Kafka отделены от `parom-sender-loop`, поэтому передача больших блоков данных не блокирует HMS и Kafka.
   - Схема БД как миграции (Flyway): DDL живет в `db/migration/common` (базовая схема, выгруженная из модели JPA) и `db/migration/{vendor}` (специфика PostgreSQL: частичные индексы по активным статусам, `fillfactor` и параметры autovacuum горячих таблиц). `ddl-auto` во всех профилях стоит в `validate`, поэтому расхождение модели и схемы ломает старт, а не правится молча; существующие базы подхватываются через `baseline-on-migrate`.
   - Мультимодульный Maven-проект (`backend/parom/pom.xml`) объединяет `proto`, `model`, `agent` и `orchestrator` в общий цикл компиляции и тестирования (`make test-parom`).
-  - Общие контракты в отдельных модулях (`parom-proto`, `parom-model`): схемы `.proto` со сгенерированными gRPC-стабами вынесены в `backend/parom/proto`, а общие DTO, HMS-модель, HMAC-аттестация задач и gRPC-перехватчик агента — в `backend/parom/model`. Модуль `model` держится тонким (Jackson, SLF4J, `grpc-api`): ни Hadoop, ни Hive Thrift, ни Kafka-клиента в нем нет, поэтому control plane больше не наследует стек данных агента. Запрет закреплен в сборке правилом `bannedDependencies` (`maven-enforcer-plugin`) в `orchestrator/pom.xml`: попытка вернуть зависимость на `replicator-agent` ломает сборку оркестратора.
+  - Общие контракты в отдельных модулях (`parom-proto`, `parom-model`): схемы `.proto` со сгенерированными gRPC-стабами вынесены в `backend/parom/proto`, а общие DTO, HMS-модель, HMAC-аттестация задач и gRPC-перехватчик агента — в `backend/parom/model`. Модуль `model` держится тонким (Jackson, SLF4J, `grpc-api`): ни Hadoop, ни Hive Thrift, ни Kafka-клиента в нем нет, поэтому control plane больше не наследует стек данных агента. Запрет закреплен в сборке правилом `bannedDependencies` (`maven-enforcer-plugin`) в `orchestrator/pom.xml`: попытка вернуть зависимость на `parom-agent` ломает сборку оркестратора.
 
 ### 5.6 Фронтенд (Svelte 5 и Tailwind 4)
 Все приложения написаны на Svelte 5 с реактивностью на рунах (`$state`, `$derived`, `$effect`):
@@ -424,16 +424,16 @@ SQL и Iskra отправляют обновления по Server-Sent Events (
 
 ### 7.2 Метрики Prometheus по сервисам и дашборды Grafana
 YARN, HDFS, SQL и Iskra публикуют метрики на `/actuator/prometheus` (см. 4.1). Метрики Replicator отдает оркестратор на `/metrics`: `ParomMetricsService.renderParomPrometheusMetrics()` формирует их текстом при каждом опросе из состояния БД и реестра агентов:
-- `replicator_bytes_total`, `replicator_jobs_total`, `replicator_tasks_total`, `replicator_active_workers`, `replicator_active_agents`, `replicator_throttling_delay_seconds_total`, `replicator_file_size_bytes`, `replicator_hms_jobs_total`, `replicator_hms_tables_total`, `replicator_hms_partitions_total`, `replicator_hms_speed_bytes_per_second`, `replicator_dr_cluster_fenced`, `replicator_dr_reverse_jobs_total`, `replicator_agent_status`, `replicator_agent_active_transfers`, `replicator_agent_transferred_bytes_total`, `replicator_agent_errors_total`, `replicator_agent_heartbeat_age_seconds`, `replicator_agent_max_bandwidth_mb_s`.
+- `parom_bytes_total`, `parom_jobs_total`, `parom_tasks_total`, `parom_active_workers`, `parom_active_agents`, `parom_throttling_delay_seconds_total`, `parom_file_size_bytes`, `parom_hms_jobs_total`, `parom_hms_tables_total`, `parom_hms_partitions_total`, `parom_hms_speed_bytes_per_second`, `parom_dr_cluster_fenced`, `parom_dr_reverse_jobs_total`, `parom_agent_status`, `parom_agent_active_transfers`, `parom_agent_transferred_bytes_total`, `parom_agent_errors_total`, `parom_agent_heartbeat_age_seconds`, `parom_agent_max_bandwidth_mb_s`.
 - Дашборды Grafana с автоматической загрузкой (provisioning) в `monitoring/grafana/dashboards/`:
   - `pristan_overview.json` — HTTP golden signals YARN, HDFS, SQL и Iskra, входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Replicator.
-  - `hadoop_replicator_overview.json` — межкластерная репликация, скорость WAN, иерархическое ограничение полосы Token Bucket Throttler, статусы задач HDFS/HMS, DR Fencing и KPI.
-  - `hadoop_replicator_agents.json` — gRPC-агенты: статусы узлов, параллельные воркеры, переданные байты, частота heartbeat и ошибки.
-  - `hadoop_replicator_hms_dr.json` — репликация Hive Metastore (Bootstrap/CDC), трансляция путей, Disaster Recovery (Fencing и аварийный Kill-Switch).
+  - `parom_overview.json` — межкластерная репликация, скорость WAN, иерархическое ограничение полосы Token Bucket Throttler, статусы задач HDFS/HMS, DR Fencing и KPI.
+  - `parom_agents.json` — gRPC-агенты: статусы узлов, параллельные воркеры, переданные байты, частота heartbeat и ошибки.
+  - `parom_hms_dr.json` — репликация Hive Metastore (Bootstrap/CDC), трансляция путей, Disaster Recovery (Fencing и аварийный Kill-Switch).
   - `sklad_operations.json` — файловые операции WebHDFS, сетевой обмен и отказы.
   - `artel_queues.json` — переходы заявок Change Request и задержка API Artel.
   - `iskra_tolmach_analytics.json` — интерактивная аналитика Livy Spark и запросы Trino/Hive.
-  - `hadoop_replicator_kafka.json` — репликация топиков Kafka.
+  - `parom_kafka.json` — репликация топиков Kafka.
 
 ---
 
@@ -555,6 +555,6 @@ YARN, HDFS, SQL и Iskra публикуют метрики на `/actuator/prome
 - [Руководство администратора Sklad (hdfs-admin-guide.md)](hdfs-admin-guide.md)
 - [Руководство администратора Tolmach (sql-admin-guide.md)](sql-admin-guide.md)
 - [Руководство администратора Iskra (spark-admin-guide.md)](spark-admin-guide.md)
-- [Руководство администратора Parom (replicator-admin-guide.md)](replicator-admin-guide.md)
-- [Руководство по Disaster Recovery и защите от split-brain (replicator-disaster-recovery-guide.md)](replicator-disaster-recovery-guide.md)
-- [Руководство по отказоустойчивости Replicator (replicator-fault-tolerance.md)](replicator-fault-tolerance.md)
+- [Руководство администратора Parom (parom-admin-guide.md)](parom-admin-guide.md)
+- [Руководство по Disaster Recovery и защите от split-brain (parom-disaster-recovery-guide.md)](parom-disaster-recovery-guide.md)
+- [Руководство по отказоустойчивости Replicator (parom-fault-tolerance.md)](parom-fault-tolerance.md)

@@ -26,12 +26,12 @@
       "includeVars": false,
       "keepTime": true,
       "tags": [
-        "replicator"
+        "parom"
       ],
       "targetBlank": false,
-      "title": "🔄 gRPC Replicator",
+      "title": "🔄 Parom",
       "type": "link",
-      "url": "/d/hadoop-replicator-overview"
+      "url": "/d/parom-overview"
     },
     {
       "asDropdown": false,
@@ -78,13 +78,13 @@
       "includeVars": false,
       "keepTime": true,
       "tags": [
-        "replicator",
+        "parom",
         "agents"
       ],
       "targetBlank": false,
-      "title": "🤖 Replicator Agents",
+      "title": "🤖 Parom Agents",
       "type": "link",
-      "url": "/d/hadoop-replicator-agents"
+      "url": "/d/parom-agents-dashboard"
     },
     {
       "asDropdown": false,
@@ -92,14 +92,14 @@
       "includeVars": false,
       "keepTime": true,
       "tags": [
-        "replicator",
+        "parom",
         "dr",
         "hms"
       ],
       "targetBlank": false,
-      "title": "🛡️ Replicator HMS & DR",
+      "title": "🛡️ Parom HMS & DR",
       "type": "link",
-      "url": "/d/hadoop-replicator-hms-dr"
+      "url": "/d/parom-hms-dr"
     }
   ],
   "liveNow": false,
@@ -917,7 +917,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(replicator_bytes_total[$interval]))",
+          "expr": "sum(rate(parom_bytes_total[$interval]))",
           "legendFormat": "Скорость",
           "range": true,
           "refId": "A"
@@ -983,7 +983,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "replicator_active_workers",
+          "expr": "parom_active_workers",
           "legendFormat": "Воркеры",
           "range": true,
           "refId": "A"
@@ -1053,7 +1053,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(rate(replicator_throttling_delay_seconds_total[$interval]))",
+          "expr": "sum(rate(parom_throttling_delay_seconds_total[$interval]))",
           "legendFormat": "Задержка",
           "range": true,
           "refId": "A"
@@ -1115,7 +1115,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum(replicator_jobs_total{status=\"SCHEDULED\"})",
+          "expr": "sum(parom_jobs_total{status=\"SCHEDULED\"})",
           "legendFormat": "Запланировано",
           "range": true,
           "refId": "A"
@@ -1190,7 +1190,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (rate(replicator_bytes_total[$interval]))",
+          "expr": "sum by (status) (rate(parom_bytes_total[$interval]))",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"
@@ -1256,7 +1256,7 @@
             "uid": "${DS_PROMETHEUS}"
           },
           "editorMode": "code",
-          "expr": "sum by (status) (replicator_jobs_total{mode=\"\"})",
+          "expr": "sum by (status) (parom_jobs_total{mode=\"\"})",
           "legendFormat": "{{status}}",
           "range": true,
           "refId": "A"

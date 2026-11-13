@@ -231,7 +231,7 @@ public class HmsClusterApiController {
 
         if (location != null && location.startsWith("hdfs://")) {
             // В Оркестраторе нет клиента HDFS (Оркестратор - чистый Control Plane).
-            // Доступ к файлам и их репликация выполняются исключительно через Replicator Agent.
+            // Доступ к файлам и их репликация выполняются исключительно через Parom Agent.
             return ResponseEntity.ok(new TableDataStatusResponse(true, location, 1, 1024L, List.of("hdfs_sample.parquet (1024B)")));
         }
 

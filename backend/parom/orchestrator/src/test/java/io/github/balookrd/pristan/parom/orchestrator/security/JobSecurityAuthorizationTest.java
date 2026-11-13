@@ -198,7 +198,7 @@ class JobSecurityAuthorizationTest {
     void testAgentCanUpdateJobProgress() {
         UserSession agentSession = new UserSession(
                 "system_agent", "Agent Daemon", "agent@cluster.local",
-                List.of("replicator-agents"), "SECRET", true, Role.ADMIN
+                List.of("parom-agents"), "SECRET", true, Role.ADMIN
         );
         CommonAuthenticationToken agentAuth = new CommonAuthenticationToken(agentSession);
 

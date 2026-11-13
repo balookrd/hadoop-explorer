@@ -235,7 +235,7 @@ def generate_presentation(output_pptx_path):
              "🏢 Что куда устанавливается?",
              [
                  "Control Plane (Orchestrator): Stateless Active-Active кластер (VM / K8s). Порты 8005 (REST/UI) и 50050 (gRPC).",
-                 "Data Plane (Replicator Agents): устанавливаются в каждом ЦОД на узлы DataNode или Edge/Gateway на Virtual Threads.",
+                 "Data Plane (Parom Agents): устанавливаются в каждом ЦОД на узлы DataNode или Edge/Gateway на Virtual Threads.",
                  "Hadoop узлы: NameNode, DataNodes, HMS работают в штатном режиме без плагинов."
              ], ACCENT_INDIGO)
 
@@ -279,7 +279,7 @@ def generate_presentation(output_pptx_path):
              "1. Control Plane Host (Orchestrator)",
              [
                  "Где работает: Active-Active кластер на VM или Kubernetes Pods.",
-                 "Процесс: replicator-orchestrator (Java 21 LTS / Spring Boot 3).",
+                 "Процесс: parom-orchestrator (Java 21 LTS / Spring Boot 3).",
                  "Порты: 8005 (REST API, SSE, UI Svelte 5) и 50050 (gRPC Control Plane).",
                  "База данных: PostgreSQL с таблицами agent_registry, bandwidth_limits, cluster_lock.",
                  "⚠️ Роль: Координация, HMAC аттестация и Fencing Tokens. Файлы через него НЕ идут!"
@@ -289,7 +289,7 @@ def generate_presentation(output_pptx_path):
              "2. ЦОД-1 Узлы (Primary — Москва)",
              [
                  "Где работает: Узлы DataNode кластера или выделенные Edge Gateway узлы.",
-                 "Процесс: replicator-agent-dc1 (Java 21 Virtual Threads / Netty gRPC демон).",
+                 "Процесс: parom-agent-dc1 (Java 21 Virtual Threads / Netty gRPC демон).",
                  "Порт: 50051 (gRPC Server, Full-Duplex режим).",
                  "Безопасность: Chroot Sandbox путей, неизменяемый krb5.conf, keytab hdfs-cluster-1.",
                  "Роль: Анализ Diff, Directory Cache, чтение pod UGI doAs, опрос NOTIFICATION_LOG, стриминг в WAN."
@@ -299,7 +299,7 @@ def generate_presentation(output_pptx_path):
              "3. ЦОД-2 Узлы (Standby / DR — Санкт-Петербург)",
              [
                  "Где работает: Узлы DataNode кластера или Edge Gateway узлы DC2.",
-                 "Процесс: replicator-agent-dc2 (Java 21 Virtual Threads / Netty gRPC демон).",
+                 "Процесс: parom-agent-dc2 (Java 21 Virtual Threads / Netty gRPC демон).",
                  "Порт: 50051 (gRPC Server, Full-Duplex режим).",
                  "Безопасность: Chroot Sandbox путей, неизменяемый krb5.conf, keytab hdfs-cluster-2.",
                  "Роль: Прием 4 МБ чанков, tarUnpackExecutor, проверка isFileClosed, атомарный rename, DDL в HMS DC2."
@@ -520,7 +520,7 @@ def generate_presentation(output_pptx_path):
     add_card(slide9, Inches(8.5), Inches(1.85), Inches(4.0), Inches(4.8),
              "⚡ Физика шейпинга в Data Plane",
              [
-                 "Где работает: Внутри процесса каждого Replicator Agent перед отправкой 4 МБ чанка.",
+                 "Где работает: Внутри процесса каждого Parom Agent перед отправкой 4 МБ чанка.",
                  "Как работает: Вычисление задержки по формуле max(global, dc_dc, hdfs_hdfs).",
                  "Реакция на мутацию: Оператор нажимает «Сохранить» в UI ➔ Оркестратор пушит лимит в кэш ➔ воркеры применяют за < 1 сек.",
                  "Защита WAN: Ни при каких обстоятельствах суммарный трафик репликации не превысит установленный потолок."
@@ -609,7 +609,7 @@ def generate_presentation(output_pptx_path):
              ], ACCENT_INDIGO)
 
     add_card(slide14, Inches(4.8), Inches(1.85), Inches(3.7), Inches(4.8),
-             "⚡ Сайзинг Replicator Agents",
+             "⚡ Сайзинг Parom Agents",
              [
                  "HDFS/HMS Colocated: 4 vCPU, 8 GB Heap (DataNode, Short-Circuit read).",
                  "HDFS/HMS Dedicated: 8–16 vCPU, 16–32 GB RAM (Edge Gateway 25G/40G/100G+).",

@@ -28,7 +28,7 @@ public class RoleResolver {
         "etl-developers",
         "artel-operators",
         "operators",
-        "replicator-operators",
+        "parom-operators",
         "dev-leads"
     );
 

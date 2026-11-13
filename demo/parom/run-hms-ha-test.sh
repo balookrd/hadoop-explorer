@@ -31,8 +31,8 @@ FAILED=0
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 fail() { log "ОШИБКА: $*"; exit 1; }
 check() { if [ "$2" = "$3" ]; then log "   OK   $1 ($2)"; else log "   FAIL $1: ожидалось $3, получено $2"; FAILED=1; fi; }
-src_tool() { docker exec replicator-agent-dc1 "${TOOL[@]}" "$@" 2>/dev/null; }
-dst_tool() { docker exec replicator-agent-dc2 "${TOOL[@]}" "$@" 2>/dev/null; }
+src_tool() { docker exec parom-agent-dc1 "${TOOL[@]}" "$@" 2>/dev/null; }
+dst_tool() { docker exec parom-agent-dc2 "${TOOL[@]}" "$@" 2>/dev/null; }
 
 token() {
   curl -s -X POST "$1/api/v1/auth/login" -H "Content-Type: application/json" \
@@ -42,10 +42,10 @@ api() { local node="$1"; shift; curl -s -H "Authorization: Bearer $(token "$node
 wait_health() { for _ in $(seq 1 90); do curl -sf "$1/health" > /dev/null && return 0; sleep 3; done; return 1; }
 online_agents() { api "$1" "$1/api/v1/agents" | grep -o '"agent_id":"agent-dc[12]"[^}]*"status":"online"' | wc -l | tr -d ' '; }
 job_field() { api "$1" "$1/api/v1/hms/jobs/${JOB}" | grep -o "\"$2\":[^,}]*" | head -1 | cut -d: -f2- | tr -d '"'; }
-bootstrap_starts() { docker logs replicator-agent-dc1 2>&1 | grep -c "Запуск Bootstrap для задачи ${JOB}" || true; }
+bootstrap_starts() { docker logs parom-agent-dc1 2>&1 | grep -c "Запуск Bootstrap для задачи ${JOB}" || true; }
 
 log "Перевожу оркестратор на PostgreSQL и добавляю второй узел"
-"${COMPOSE[@]}" up -d --build replicator-db orchestrator orchestrator-2 agent-dc1 agent-dc2
+"${COMPOSE[@]}" up -d --build parom-db orchestrator orchestrator-2 agent-dc1 agent-dc2
 wait_health "$NODE1" || fail "узел 1 не поднялся"
 wait_health "$NODE2" || fail "узел 2 не поднялся"
 for _ in $(seq 1 40); do [ "$(online_agents "$NODE1")" = "2" ] && [ "$(online_agents "$NODE2")" = "2" ] && break; sleep 3; done
@@ -81,7 +81,7 @@ wait_progress() {  # узел, доля партиций (проценты)
 wait_progress "$NODE1" 20 || fail "bootstrap не дошел до 20%"
 BEFORE=$(job_field "$NODE2" replicated_partitions)
 log "2. Останавливаю узел 1 на ${BEFORE} партициях"
-docker stop replicator-orchestrator > /dev/null
+docker stop parom-orchestrator > /dev/null
 sleep 60
 AFTER=$(job_field "$NODE2" replicated_partitions)
 log "   через 60 с без узла 1: ${AFTER} партиций (узел 2)"
@@ -89,7 +89,7 @@ check "перенос продолжается через узел 2" "$([ "${AF
 check "статус задачи без узла 1" "$(job_field "$NODE2" status)" "BOOTSTRAPPING"
 
 log "3. Возвращаю узел 1"
-docker start replicator-orchestrator > /dev/null
+docker start parom-orchestrator > /dev/null
 wait_health "$NODE1" || fail "узел 1 не вернулся"
 sleep 10
 check "рестарт узла не сбросил bootstrap" "$(job_field "$NODE1" status)" "BOOTSTRAPPING"
@@ -97,7 +97,7 @@ check "bootstrap запускался один раз" "$(bootstrap_starts)" "1"
 
 wait_progress "$NODE1" 55 || fail "bootstrap не дошел до 55%"
 log "4. Перезапускаю агента-источника на $(job_field "$NODE1" replicated_partitions) партициях"
-docker restart replicator-agent-dc1 > /dev/null
+docker restart parom-agent-dc1 > /dev/null
 
 STATUS=""
 for _ in $(seq 1 400); do
@@ -107,14 +107,14 @@ for _ in $(seq 1 400); do
 done
 check "bootstrap завершен" "$STATUS" "ACTIVE"
 check "продолжение по чекпоинту после перезапуска агента" \
-  "$(docker logs replicator-agent-dc1 2>&1 | grep -c "продолжение bootstrap с позиции" || true)" "1"
+  "$(docker logs parom-agent-dc1 2>&1 | grep -c "продолжение bootstrap с позиции" || true)" "1"
 
 log "5. Сверка приемника"
 COUNT=$(dst_tool count-partitions "$DB" events | tail -1)
 check "партиций на приемнике" "$(echo "$COUNT" | grep -o '"total":[0-9]*' | cut -d: -f2)" "$PARTITIONS"
 check "формат Parquet" "$(echo "$COUNT" | grep -o '"parquet":[0-9]*' | cut -d: -f2)" "$PARTITIONS"
 check "ошибок оркестраторов (StaleState, lock)" \
-  "$( (docker logs replicator-orchestrator 2>&1; docker logs replicator-orchestrator-2 2>&1) | grep -cE 'StaleStateException|OptimisticLock' || true)" "0"
+  "$( (docker logs parom-orchestrator 2>&1; docker logs parom-orchestrator-2 2>&1) | grep -cE 'StaleStateException|OptimisticLock' || true)" "0"
 
 [ "$FAILED" = "0" ] || fail "проверка отказов не пройдена"
 log "Отказы узла оркестратора и агента посреди bootstrap переживаются"

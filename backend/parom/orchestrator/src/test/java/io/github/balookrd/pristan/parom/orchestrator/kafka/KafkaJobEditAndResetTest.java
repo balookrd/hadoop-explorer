@@ -156,11 +156,11 @@ class KafkaJobEditAndResetTest {
 
         Map<String, Integer> result = service.resetOffsets("job-paused", "latest").orElseThrow();
 
-        assertEquals(Map.of("kafka-replicator-dc1-job-paused", 2), result);
-        verify(admin).removeMembersFromConsumerGroup(eq("kafka-replicator-dc1-job-paused"), any());
+        assertEquals(Map.of("parom-kafka-dc1-job-paused", 2), result);
+        verify(admin).removeMembersFromConsumerGroup(eq("parom-kafka-dc1-job-paused"), any());
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<TopicPartition, OffsetAndMetadata>> captor = ArgumentCaptor.forClass(Map.class);
-        verify(admin).alterConsumerGroupOffsets(eq("kafka-replicator-dc1-job-paused"), captor.capture());
+        verify(admin).alterConsumerGroupOffsets(eq("parom-kafka-dc1-job-paused"), captor.capture());
         assertEquals(120L, captor.getValue().get(new TopicPartition("orders", 0)).offset());
         assertEquals(340L, captor.getValue().get(new TopicPartition("orders", 1)).offset());
         verify(admin).close();

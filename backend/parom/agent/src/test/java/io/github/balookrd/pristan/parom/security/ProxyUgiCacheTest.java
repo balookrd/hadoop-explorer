@@ -22,7 +22,7 @@ class ProxyUgiCacheTest {
     @DisplayName("Повторная имперсонация того же пользователя переиспользует UGI")
     void testSameUserReusesProxyUgi() {
         KerberosUgiProvider provider = new KerberosUgiProvider();
-        UserGroupInformation base = UserGroupInformation.createRemoteUser("replicator-svc");
+        UserGroupInformation base = UserGroupInformation.createRemoteUser("parom-svc");
 
         UserGroupInformation first = provider.proxyUserFor("alice", base);
         UserGroupInformation second = provider.proxyUserFor("alice", base);
@@ -36,7 +36,7 @@ class ProxyUgiCacheTest {
     @DisplayName("Разные пользователи получают разные UGI")
     void testDifferentUsersGetDistinctUgi() {
         KerberosUgiProvider provider = new KerberosUgiProvider();
-        UserGroupInformation base = UserGroupInformation.createRemoteUser("replicator-svc");
+        UserGroupInformation base = UserGroupInformation.createRemoteUser("parom-svc");
 
         UserGroupInformation alice = provider.proxyUserFor("alice", base);
         UserGroupInformation bob = provider.proxyUserFor("bob", base);
@@ -49,8 +49,8 @@ class ProxyUgiCacheTest {
     @DisplayName("Смена системной техучетки инвалидирует кэш")
     void testBaseUgiChangeInvalidatesCache() {
         KerberosUgiProvider provider = new KerberosUgiProvider();
-        UserGroupInformation base = UserGroupInformation.createRemoteUser("replicator-svc");
-        UserGroupInformation rotatedBase = UserGroupInformation.createRemoteUser("replicator-svc-2");
+        UserGroupInformation base = UserGroupInformation.createRemoteUser("parom-svc");
+        UserGroupInformation rotatedBase = UserGroupInformation.createRemoteUser("parom-svc-2");
 
         UserGroupInformation underFirst = provider.proxyUserFor("alice", base);
         UserGroupInformation underRotated = provider.proxyUserFor("alice", rotatedBase);

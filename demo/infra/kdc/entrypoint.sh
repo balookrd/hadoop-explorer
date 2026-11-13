@@ -178,7 +178,7 @@ add_principal "HTTP/schema-registry-1@${REALM}" ""
 add_principal "HTTP/schema-registry-1.demo-platform-net@${REALM}" ""
 add_principal "HTTP/schema-registry-2@${REALM}" ""
 add_principal "HTTP/schema-registry-2.demo-platform-net@${REALM}" ""
-add_principal "kafka-replicator@${REALM}" "password123"
+add_principal "parom-kafka@${REALM}" "password123"
 
 # 6. Пользователи
 add_principal "admin@${REALM}" "password123"
@@ -207,7 +207,7 @@ add_to_keytab "$KEYTAB_DIR/kafka-cluster-1.keytab" kafka/kafka-cluster-1@${REALM
 add_to_keytab "$KEYTAB_DIR/kafka-cluster-2.keytab" kafka/kafka-cluster-2@${REALM} kafka/kafka-cluster-2.demo-platform-net@${REALM} kafka/localhost@${REALM}
 add_to_keytab "$KEYTAB_DIR/schema-registry-1.keytab" HTTP/schema-registry-1@${REALM} HTTP/schema-registry-1.demo-platform-net@${REALM} HTTP/localhost@${REALM}
 add_to_keytab "$KEYTAB_DIR/schema-registry-2.keytab" HTTP/schema-registry-2@${REALM} HTTP/schema-registry-2.demo-platform-net@${REALM} HTTP/localhost@${REALM}
-add_to_keytab "$KEYTAB_DIR/kafka-replicator.keytab" kafka-replicator@${REALM}
+add_to_keytab "$KEYTAB_DIR/parom-kafka.keytab" parom-kafka@${REALM}
 
 # Sklad & Clusters
 add_to_keytab "$KEYTAB_DIR/sklad.keytab" sklad/sklad@${REALM} sklad@${REALM} HTTP/sklad@${REALM} HTTP/localhost@${REALM}

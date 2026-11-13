@@ -69,10 +69,10 @@ log "Генерирую ${PARTITIONS} партиций в ${DB}.${TABLE} (мет
 # Повторяем, пока база не появится (или уже есть после прошлого прогона).
 DB_READY=""
 for _ in $(seq 1 30); do
-  if docker exec replicator-agent-dc1 "${TOOL[@]}" get-databases 2>/dev/null | grep -q "\"${DB}\""; then
+  if docker exec parom-agent-dc1 "${TOOL[@]}" get-databases 2>/dev/null | grep -q "\"${DB}\""; then
     DB_READY=1; break
   fi
-  if docker exec replicator-agent-dc1 "${TOOL[@]}" create-database "$DB" > /dev/null 2>&1; then
+  if docker exec parom-agent-dc1 "${TOOL[@]}" create-database "$DB" > /dev/null 2>&1; then
     DB_READY=1; break
   fi
   log "HDFS еще не готов, повтор создания базы через 10 с..."
@@ -80,7 +80,7 @@ for _ in $(seq 1 30); do
 done
 [ -n "$DB_READY" ] || fail "база ${DB} не создана: метастор не может создать ее каталог в HDFS"
 GEN_START=$(date +%s)
-docker exec replicator-agent-dc1 "${TOOL[@]}" generate-partitions "$DB" "$TABLE" "$SRC_LOCATION" "$PARTITIONS" 1000
+docker exec parom-agent-dc1 "${TOOL[@]}" generate-partitions "$DB" "$TABLE" "$SRC_LOCATION" "$PARTITIONS" 1000
 log "Генерация заняла $(( $(date +%s) - GEN_START )) с"
 
 # Старые задачи по той же базе мешают: удаляем только их — чужие задачи (например, роя
@@ -101,7 +101,7 @@ log "Задача: $JOB_ID"
 
 STATS_FILE="$(mktemp)"
 ( while true; do
-    docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' replicator-agent-dc1 replicator-agent-dc2 replicator-orchestrator >> "$STATS_FILE" 2>/dev/null || true
+    docker stats --no-stream --format '{{.Name}} {{.MemUsage}}' parom-agent-dc1 parom-agent-dc2 parom-orchestrator >> "$STATS_FILE" 2>/dev/null || true
     sleep 10
   done ) &
 STATS_PID=$!
@@ -129,16 +129,16 @@ log "Пиковая память контейнеров (docker stats):"
 sort -k1,1 -k2,2h "$STATS_FILE" | awk '{peak[$1]=$2} END {for (n in peak) print "   " n " " peak[n]}'
 
 log "Сверка приемника (метастор dc2)..."
-COUNT=$(docker exec replicator-agent-dc2 "${TOOL[@]}" count-partitions "$DB" "$TABLE" | tail -1)
+COUNT=$(docker exec parom-agent-dc2 "${TOOL[@]}" count-partitions "$DB" "$TABLE" | tail -1)
 log "Приемник: $COUNT"
 TARGET_TOTAL=$(echo "$COUNT" | grep -o '"total":[0-9]*' | cut -d: -f2)
 TARGET_PARQUET=$(echo "$COUNT" | grep -o '"parquet":[0-9]*' | cut -d: -f2)
 
 log "Перезапуски агентов из-за OOM:"
-docker inspect -f '{{.Name}} restarts={{.RestartCount}} oom={{.State.OOMKilled}}' replicator-agent-dc1 replicator-agent-dc2
+docker inspect -f '{{.Name}} restarts={{.RestartCount}} oom={{.State.OOMKilled}}' parom-agent-dc1 parom-agent-dc2
 
 log "Ошибки Kerberos в логах агентов (после истечения 5-минутного TGT):"
-docker logs replicator-agent-dc1 2>&1 | grep -ciE "GSSException|Failed to find any Kerberos tgt|Clock skew|Ticket expired" || true
+docker logs parom-agent-dc1 2>&1 | grep -ciE "GSSException|Failed to find any Kerberos tgt|Clock skew|Ticket expired" || true
 
 log "Жизненный цикл задачи через API"
 lifecycle() {

@@ -63,9 +63,9 @@ public class AgentSecretAuthenticationFilter extends OncePerRequestFilter {
                 if (SecurityContextHolder.getContext().getAuthentication() == null) {
                     UserSession agentSession = new UserSession(
                             "system_agent",
-                            "Replicator Agent Daemon",
+                            "Parom Agent Daemon",
                             "agent@cluster.local",
-                            List.of("replicator-agents"),
+                            List.of("parom-agents"),
                             "agent-secret",
                             false,
                             Role.WRITER

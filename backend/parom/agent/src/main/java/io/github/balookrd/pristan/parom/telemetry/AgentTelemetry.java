@@ -62,7 +62,7 @@ public final class AgentTelemetry implements Closeable {
             Resource resource = Resource.getDefault().merge(Resource.create(Attributes.builder()
                     .put("service.name", serviceName)
                     .put("service.instance.id", agentId != null ? agentId : "unknown")
-                    .put("replicator.dc_id", dcId != null ? dcId : "unknown")
+                    .put("parom.dc_id", dcId != null ? dcId : "unknown")
                     .build()));
 
             OpenTelemetrySdk sdk = OpenTelemetrySdk.builder()

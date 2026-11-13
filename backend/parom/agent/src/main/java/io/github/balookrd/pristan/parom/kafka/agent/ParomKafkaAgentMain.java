@@ -33,7 +33,7 @@ import java.util.function.Consumer;
 import java.util.function.Supplier;
 
 /**
- * Точка входа отдельного демона kafka-replicator-agent.
+ * Точка входа отдельного демона parom-kafka-agent.
  * <p>
  * Изолирован от HDFS-воркеров, запускается в зоне Kafka-брокеров и обслуживает gRPC Data Plane
  * для двунаправленной репликации и трансляции оффсетов.
@@ -177,7 +177,7 @@ public class ParomKafkaAgentMain {
         }
 
         if (groupId == null || groupId.isBlank()) {
-            groupId = "kafka-replicator-" + dcId;
+            groupId = "parom-kafka-" + dcId;
         }
         if (agentId == null || agentId.isBlank()) {
             agentId = "kafka-agent-" + dcId.toLowerCase() + "-" + port;
@@ -187,13 +187,13 @@ public class ParomKafkaAgentMain {
         }
 
         String targetsDesc = !targetEndpoints.isBlank() ? targetEndpoints : (targetHost + ":" + targetPort);
-        log.info("Запуск kafka-replicator-agent [AgentId={}, Role={}, DC={}, Port={}, Targets={}, Threads={}, BatchSize={}, Kerberos={}, TLS={}, Orchestrator={}]",
+        log.info("Запуск parom-kafka-agent [AgentId={}, Role={}, DC={}, Port={}, Targets={}, Threads={}, BatchSize={}, Kerberos={}, TLS={}, Orchestrator={}]",
                 agentId, role, dcId, port, targetsDesc, consumerThreads, batchSize, krbConfig.isEnabled(), tlsEnabled, orchestratorGrpc);
 
         // Трассировка поднимается до первых вызовов, иначе первые батчи и регистрация
         // в оркестраторе в трассу не попадут
         final var telemetry = io.github.balookrd.pristan.parom.telemetry.AgentTelemetry
-                .startIfConfigured("kafka-replicator-agent", agentId, dcId);
+                .startIfConfigured("parom-kafka-agent", agentId, dcId);
 
         AutoCloseable cliOffsetSync = null;
         Server server = null;
@@ -221,7 +221,7 @@ public class ParomKafkaAgentMain {
             adminClient = AdminClient.create(adminProps);
 
             Properties resolverProps = io.github.balookrd.pristan.parom.kafka.config.KafkaClientSettings
-                    .utilityConsumerProps(bootstrapServers, "kafka-replicator-time-resolver-" + dcId);
+                    .utilityConsumerProps(bootstrapServers, "parom-kafka-time-resolver-" + dcId);
             io.github.balookrd.pristan.parom.kafka.security.KafkaSecurityConfigBuilder.applyKerberos(resolverProps, krbConfig);
             resolverConsumer = new KafkaConsumer<>(resolverProps);
 
@@ -267,7 +267,7 @@ public class ParomKafkaAgentMain {
             health.serving();
             health.serving("parom.kafka.KafkaDataTransferService");
 
-            log.info("gRPC сервер kafka-replicator-agent успешно запущен на порту {}", port);
+            log.info("gRPC сервер parom-kafka-agent успешно запущен на порту {}", port);
         }
 
         // 2. Инициализация отправителя (Sender / Dual)
@@ -446,7 +446,7 @@ public class ParomKafkaAgentMain {
         final AutoCloseable finalCliOffsetSync = cliOffsetSync;
 
         Runtime.getRuntime().addShutdownHook(new Thread(() -> {
-            log.info("Остановка kafka-replicator-agent...");
+            log.info("Остановка parom-kafka-agent...");
             try {
                 if (finalJobSyncExecutor != null) {
                     finalJobSyncExecutor.shutdownNow();

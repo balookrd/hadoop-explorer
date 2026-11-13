@@ -32,7 +32,7 @@ import static org.mockito.Mockito.*;
 @DisplayName("Kafka: keytab из топологии не мешает создавать задачи не-администраторам")
 class KafkaJobKeytabPolicyTest {
 
-    private static final String KEYTAB = "/etc/security/keytabs/replicator-dc1.keytab";
+    private static final String KEYTAB = "/etc/security/keytabs/parom-dc1.keytab";
     private KafkaReplicationOrchestratorService service;
     private KafkaReplicationController controller;
 
@@ -40,7 +40,7 @@ class KafkaJobKeytabPolicyTest {
     void setUp() {
         ParomProperties.ClusterConfig dc1 = new ParomProperties.ClusterConfig("dc1", "dc1", "dc1", null, "h", 1);
         dc1.setKerberosEnabled(true);
-        dc1.setPrincipal("replicator@PROD.LOCAL");
+        dc1.setPrincipal("parom@PROD.LOCAL");
         dc1.setKeytabPath(KEYTAB);
         dc1.setKafkaSecurityProtocol("SASL_SSL");
         dc1.setKafkaServiceName("kafka-prod");

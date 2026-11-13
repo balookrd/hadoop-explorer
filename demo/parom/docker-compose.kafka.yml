@@ -1,4 +1,4 @@
-name: hadoop-replicator-kafka-demo
+name: parom-kafka-demo
 
 services:
   # ==============================================================================
@@ -154,13 +154,13 @@ services:
           - schema-registry-2.demo-platform-net
 
   # ==============================================================================
-  # 5. Replicator Orchestrator (Control Plane & REST API)
+  # 5. Parom Orchestrator (Control Plane & REST API)
   # ==============================================================================
   orchestrator:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.parom-orchestrator
-    container_name: replicator-orchestrator
+    container_name: parom-orchestrator
     hostname: orchestrator
     restart: unless-stopped
     ports:
@@ -196,13 +196,13 @@ services:
           - orchestrator
 
   # ==============================================================================
-  # 6. Kafka Replicator Agent (DC1 Worker Daemon)
+  # 6. Parom Kafka Agent (DC1 Worker Daemon)
   # ==============================================================================
   kafka-agent-dc1:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.parom-agent
-    container_name: kafka-replicator-agent-dc1
+    container_name: parom-kafka-agent-dc1
     hostname: kafka-agent-dc1
     restart: unless-stopped
     depends_on:
@@ -242,9 +242,9 @@ services:
       - "kafka-cluster-1.demo-platform-net:9092"
       - "--kerberos-enabled"
       - "--principal"
-      - "kafka-replicator@COMPANY.LOCAL"
+      - "parom-kafka@COMPANY.LOCAL"
       - "--keytab"
-      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "/etc/security/keytabs/parom-kafka.keytab"
       - "--security-protocol"
       - "SASL_PLAINTEXT"
       - "--service-name"
@@ -261,13 +261,13 @@ services:
           - kafka-agent-dc1.demo-platform-net
 
   # ==============================================================================
-  # 7. Kafka Replicator Agent (DC2 Worker Daemon)
+  # 7. Parom Kafka Agent (DC2 Worker Daemon)
   # ==============================================================================
   kafka-agent-dc2:
     build:
       context: ../..
       dockerfile: docker/Dockerfile.parom-agent
-    container_name: kafka-replicator-agent-dc2
+    container_name: parom-kafka-agent-dc2
     hostname: kafka-agent-dc2
     restart: unless-stopped
     depends_on:
@@ -307,9 +307,9 @@ services:
       - "kafka-cluster-2.demo-platform-net:9092"
       - "--kerberos-enabled"
       - "--principal"
-      - "kafka-replicator@COMPANY.LOCAL"
+      - "parom-kafka@COMPANY.LOCAL"
       - "--keytab"
-      - "/etc/security/keytabs/kafka-replicator.keytab"
+      - "/etc/security/keytabs/parom-kafka.keytab"
       - "--security-protocol"
       - "SASL_PLAINTEXT"
       - "--service-name"

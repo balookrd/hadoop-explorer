@@ -211,10 +211,10 @@ class ConsumerGroupOffsetScannerTest {
     @DisplayName("Исключение служебных/инфраструктурных консьюмер-групп из сканирования (Blacklist)")
     void shouldSkipBlacklistedConsumerGroups() {
         List<String> blacklistedGroups = List.of(
-                "kafka-replicator-dc1",
-                "kafka-replicator-time-resolver-dc1",
-                "replicator-agent-01",
-                "hadoop-replicator-job-99",
+                "parom-kafka-dc1",
+                "parom-kafka-time-resolver-dc1",
+                "parom-agent-01",
+                "parom-job-99",
                 "__consumer_offsets",
                 "schema-registry-dc1",
                 "connect-cluster-01",
@@ -247,7 +247,7 @@ class ConsumerGroupOffsetScannerTest {
         when(mockAdminClient.listConsumerGroupOffsets("allowed-orders-group")).thenReturn(listGroupResult);
 
         List<OffsetSyncRequest> requests = scanner.scanOffsetsForGroups(
-                List.of("kafka-replicator-dc1", "allowed-orders-group", "__consumer_offsets", "schema-registry-dc2"),
+                List.of("parom-kafka-dc1", "allowed-orders-group", "__consumer_offsets", "schema-registry-dc2"),
                 Set.of(TOPIC),
                 Map.of(TP0, 1000L),
                 Map.of(TP0, 500L),

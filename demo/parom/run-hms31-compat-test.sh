@@ -28,8 +28,8 @@ FAILED=0
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 fail() { log "ОШИБКА: $*"; exit 1; }
 check() { if [ "$2" = "$3" ]; then log "   OK   $1 ($2)"; else log "   FAIL $1: ожидалось $3, получено $2"; FAILED=1; fi; }
-src_tool() { docker exec replicator-agent-dc1 "${TOOL[@]}" "$@" 2>/dev/null; }
-dst_tool() { docker exec replicator-agent-dc2 "${TOOL[@]}" "$@" 2>/dev/null; }
+src_tool() { docker exec parom-agent-dc1 "${TOOL[@]}" "$@" 2>/dev/null; }
+dst_tool() { docker exec parom-agent-dc2 "${TOOL[@]}" "$@" 2>/dev/null; }
 dst_count() { dst_tool count-partitions "$DB" "$1" | tail -1 | grep -o '"total":[0-9]*' | cut -d: -f2; }
 
 hdfs_ready() {
@@ -115,7 +115,7 @@ src_tool drop-table "$DB" cdc_table > /dev/null
 check "CDC DROP_TABLE" "$(wait_for 0 has_table)" "0"
 
 log "Ошибки протокола в логах агентов (Invalid method name / TApplicationException):"
-for a in replicator-agent-dc1 replicator-agent-dc2; do
+for a in parom-agent-dc1 parom-agent-dc2; do
   n=$(docker logs "$a" 2>&1 | grep -ciE "Invalid method name|TApplicationException" || true)
   check "$a без ошибок протокола" "$n" "0"
 done

@@ -20,7 +20,7 @@ import java.io.IOException;
 import java.util.*;
 
 /**
- * YARN Client для развертывания Replicator Agent в кластере Apache Hadoop YARN.
+ * YARN Client для развертывания Parom Agent в кластере Apache Hadoop YARN.
  *
  * <p>Упаковывает и отправляет ApplicationMaster в ResourceManager YARN,
  * который в свою очередь выделяет контейнеры на NodeManager'ах и запускает в них репликационные агенты.
@@ -40,7 +40,7 @@ public class ParomYarnClient {
 
     public static void main(String[] args) {
         Options options = new Options();
-        options.addOption("j", "jar", true, "Путь к JAR-файлу Replicator Agent (обязательно)");
+        options.addOption("j", "jar", true, "Путь к JAR-файлу Parom Agent (обязательно)");
         options.addOption("n", "num_containers", true, "Количество контейнеров агентов (default: 1)");
         options.addOption("m", "memory", true, "Память контейнера в МБ (default: 1024)");
         options.addOption("v", "vcores", true, "Количество vCores (default: 1)");
@@ -70,7 +70,7 @@ public class ParomYarnClient {
             client.run(jarPath, numContainers, memoryMb, vcores, queue, orchestratorUrl, clusterId);
 
         } catch (Exception e) {
-            logger.error("Ошибка сабмита Replicator Agent в YARN: {}", e.getMessage(), e);
+            logger.error("Ошибка сабмита Parom Agent в YARN: {}", e.getMessage(), e);
             System.exit(1);
         }
     }
@@ -86,12 +86,12 @@ public class ParomYarnClient {
         ApplicationSubmissionContext appContext = app.getApplicationSubmissionContext();
         ApplicationId appId = appContext.getApplicationId();
 
-        appContext.setApplicationName("Hadoop-Replicator-Agent-" + clusterId);
+        appContext.setApplicationName("Parom-Agent-" + clusterId);
         appContext.setQueue(queue);
 
         // 1. Копирование JAR в HDFS staging директорию YARN
         FileSystem fs = FileSystem.get(yarnConf);
-        Path stagingDir = new Path(fs.getHomeDirectory(), ".replicator-staging/" + appId.toString());
+        Path stagingDir = new Path(fs.getHomeDirectory(), ".parom-staging/" + appId.toString());
         fs.mkdirs(stagingDir);
 
         Path srcJar = new Path(appJarPath);
@@ -166,7 +166,7 @@ public class ParomYarnClient {
         yarnClient.submitApplication(appContext);
 
         logger.info("======================================================================");
-        logger.info("Replicator Agent успешно запущен в YARN! ApplicationId: {}", appId);
+        logger.info("Parom Agent успешно запущен в YARN! ApplicationId: {}", appId);
         logger.info("Для мониторинга используйте: yarn application -status {}", appId);
         logger.info("======================================================================");
     }

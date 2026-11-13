@@ -151,7 +151,7 @@ zastava:
     writer-groups:
       - "data-engineers"
       - "etl-developers"
-      - "replicator-operators"
+      - "parom-operators"
       - "operators"
   jwt:
     # Обязателен: при пустом значении сервис откажется стартовать

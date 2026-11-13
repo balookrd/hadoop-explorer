@@ -22,7 +22,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
- * ApplicationMaster сервиса Replicator Agent в Apache Hadoop YARN.
+ * ApplicationMaster сервиса Parom Agent в Apache Hadoop YARN.
  *
  * <p>Управляет пулом контейнеров агентов репликации на узлах кластера (NodeManager),
  * динамически запрашивая ресурсы у ResourceManager и запуская экземпляры {@link ParomAgentMain}.
@@ -69,13 +69,13 @@ public class ParomApplicationMaster implements AMRMClientAsync.CallbackHandler, 
 
             am.run();
         } catch (Exception e) {
-            logger.error("Критическая ошибка работы Replicator ApplicationMaster: {}", e.getMessage(), e);
+            logger.error("Критическая ошибка работы Parom ApplicationMaster: {}", e.getMessage(), e);
             System.exit(1);
         }
     }
 
     public void run() throws Exception {
-        logger.info("Старт Replicator ApplicationMaster (numContainers={}, memory={}MB, vcores={}, clusterId={})...",
+        logger.info("Старт Parom ApplicationMaster (numContainers={}, memory={}MB, vcores={}, clusterId={})...",
                 numContainers, containerMemory, containerVcores, clusterId);
 
         // 1. Инициализация клиентов YARN
@@ -128,7 +128,7 @@ public class ParomApplicationMaster implements AMRMClientAsync.CallbackHandler, 
             }
 
             if (amRMClient != null) {
-                amRMClient.unregisterApplicationMaster(FinalApplicationStatus.SUCCEEDED, "Replicator AM остановлен", null);
+                amRMClient.unregisterApplicationMaster(FinalApplicationStatus.SUCCEEDED, "Parom AM остановлен", null);
                 amRMClient.stop();
             }
             if (nmClientAsync != null) {
@@ -162,8 +162,8 @@ public class ParomApplicationMaster implements AMRMClientAsync.CallbackHandler, 
                 vargs.add(clusterId);
                 vargs.add("--orchestrator");
                 vargs.add(orchestratorUrl);
-                vargs.add("1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/replicator.stdout");
-                vargs.add("2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/replicator.stderr");
+                vargs.add("1>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/parom.stdout");
+                vargs.add("2>" + ApplicationConstants.LOG_DIR_EXPANSION_VAR + "/parom.stderr");
 
                 StringBuilder command = new StringBuilder();
                 for (CharSequence str : vargs) {
@@ -179,7 +179,7 @@ public class ParomApplicationMaster implements AMRMClientAsync.CallbackHandler, 
                 env.put("AGENT_CLUSTER_ID", clusterId);
                 ctx.setEnvironment(env);
 
-                logger.info("Запуск Replicator Agent в контейнере {} на узле {}",
+                logger.info("Запуск Parom Agent в контейнере {} на узле {}",
                         container.getId(), container.getNodeId());
                 nmClientAsync.startContainerAsync(container, ctx);
 

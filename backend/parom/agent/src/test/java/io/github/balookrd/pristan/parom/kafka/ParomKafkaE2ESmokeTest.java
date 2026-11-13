@@ -61,7 +61,7 @@ import static org.mockito.Mockito.*;
  * 6. Защита от бесконечных циклов (Loop Prevention Filter);
  * 7. Безопасная синхронизация смещений Consumer Groups с защитным гейтом.
  */
-@DisplayName("E2E Data Plane Smoke Test: Kafka gRPC Replicator с Kerberos SASL и SPNEGO SR")
+@DisplayName("E2E Data Plane Smoke Test: Parom Kafka с Kerberos SASL и SPNEGO SR")
 class ParomKafkaE2ESmokeTest {
 
     private static HttpServer kerberizedSrServer;
@@ -231,7 +231,7 @@ class ParomKafkaE2ESmokeTest {
         // ==============================================================================
         // 1. Проверка конфигуратора Kerberos SASL GSSAPI
         // ==============================================================================
-        KafkaKerberosConfig krbConfig = new KafkaKerberosConfig(true, "kafka-replicator@DC1.CORP", "/etc/security/keytabs/kafka.keytab");
+        KafkaKerberosConfig krbConfig = new KafkaKerberosConfig(true, "parom-kafka@DC1.CORP", "/etc/security/keytabs/kafka.keytab");
         krbConfig.setServiceName("kafka");
         Properties kafkaProps = new Properties();
         KafkaSecurityConfigBuilder.applyKerberos(kafkaProps, krbConfig);

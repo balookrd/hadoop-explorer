@@ -14,7 +14,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Централизованный сервис сбора и учета метрик Micrometer в Replicator Agent:
+ * Централизованный сервис сбора и учета метрик Micrometer в Parom Agent:
  * - Эффективность сжатия (compression_ratio, raw/compressed bytes)
  * - Гистограмма задержек передачи чанков gRPC (transfer_latency_histogram)
  * - Очередь и объем активных staging-файлов (staging_queue_size, staging_active_bytes)
@@ -65,22 +65,22 @@ public class AgentMetrics {
         this.registry = registry != null ? registry : new SimpleMeterRegistry();
 
         // Регистрация метрик сжатия в Micrometer
-        this.rawBytesCounter = Counter.builder("replicator.compression.raw.bytes")
+        this.rawBytesCounter = Counter.builder("parom.compression.raw.bytes")
                 .description("Суммарный объем данных до сжатия в байтах")
                 .baseUnit("bytes")
                 .register(this.registry);
 
-        this.compressedBytesCounter = Counter.builder("replicator.compression.compressed.bytes")
+        this.compressedBytesCounter = Counter.builder("parom.compression.compressed.bytes")
                 .description("Суммарный объем сжатых данных в канале (сетевой трафик)")
                 .baseUnit("bytes")
                 .register(this.registry);
 
-        Gauge.builder("replicator.compression.ratio", this, AgentMetrics::getCompressionRatio)
+        Gauge.builder("parom.compression.ratio", this, AgentMetrics::getCompressionRatio)
                 .description("Эффективный коэффициент сжатия (raw_bytes / compressed_bytes)")
                 .register(this.registry);
 
         // Регистрация таймера сжатия/передачи чанков с SLA-бакетами и перцентилями
-        this.chunkTransferTimer = Timer.builder("replicator.grpc.chunk.transfer.latency")
+        this.chunkTransferTimer = Timer.builder("parom.grpc.chunk.transfer.latency")
                 .description("Гистограмма задержки передачи чанка данных через gRPC канал")
                 .publishPercentiles(0.5, 0.75, 0.9, 0.95, 0.99)
                 .publishPercentileHistogram()
@@ -100,20 +100,20 @@ public class AgentMetrics {
                 .register(this.registry);
 
         // Регистрация очереди staging в Micrometer
-        Gauge.builder("replicator.staging.queue.size", activeStagingFiles, AtomicInteger::doubleValue)
+        Gauge.builder("parom.staging.queue.size", activeStagingFiles, AtomicInteger::doubleValue)
                 .description("Количество активных файлов в процессе staging на целевом кластере")
                 .register(this.registry);
 
-        Gauge.builder("replicator.staging.active.bytes", activeStagingBytes, AtomicLong::doubleValue)
+        Gauge.builder("parom.staging.active.bytes", activeStagingBytes, AtomicLong::doubleValue)
                 .description("Текущий совокупный объем файлов в staging-буфере в байтах")
                 .baseUnit("bytes")
                 .register(this.registry);
 
-        this.orphansCleanedCounter = Counter.builder("replicator.staging.orphans.cleaned")
+        this.orphansCleanedCounter = Counter.builder("parom.staging.orphans.cleaned")
                 .description("Количество удаленных осиротевших staging-файлов сборщиком мусора")
                 .register(this.registry);
 
-        this.cancelledTransfersCounter = Counter.builder("replicator.grpc.transfers.cancelled")
+        this.cancelledTransfersCounter = Counter.builder("parom.grpc.transfers.cancelled")
                 .description("Количество отмененных клиентом или прерванных gRPC передач данных")
                 .register(this.registry);
     }

@@ -13,7 +13,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
- * Контракт тела POST /replicator/kafka/jobs с интерфейсом.
+ * Контракт тела POST /parom/kafka/jobs с интерфейсом.
  *
  * <p>Оркестратор читает JSON в snake_case ({@code spring.jackson.property-naming-strategy}), а
  * интерфейс слал camelCase. Незнакомые поля Jackson молча отбрасывал, и задача создавалась с
@@ -40,9 +40,9 @@ class CreateKafkaJobRequestJsonTest {
                   "topics": [{"topic": "orders", "payload_mode": "PASSTHROUGH"}],
                   "consumer_groups": ["billing"],
                   "source_kerberos_enabled": true,
-                  "source_principal": "replicator@PROD.LOCAL",
+                  "source_principal": "parom@PROD.LOCAL",
                   "target_kerberos_enabled": true,
-                  "target_principal": "replicator@DR.LOCAL",
+                  "target_principal": "parom@DR.LOCAL",
                   "bandwidth_limit_mb": 800.0,
                   "consumer_threads": 4,
                   "batch_size": 5000,
@@ -58,9 +58,9 @@ class CreateKafkaJobRequestJsonTest {
         assertEquals("PASSTHROUGH", request.getTopics().get(0).getPayloadMode());
         assertEquals(List.of("billing"), request.getConsumerGroups());
         assertTrue(request.isSourceKerberosEnabled());
-        assertEquals("replicator@PROD.LOCAL", request.getSourcePrincipal());
+        assertEquals("parom@PROD.LOCAL", request.getSourcePrincipal());
         assertTrue(request.isTargetKerberosEnabled());
-        assertEquals("replicator@DR.LOCAL", request.getTargetPrincipal());
+        assertEquals("parom@DR.LOCAL", request.getTargetPrincipal());
         assertEquals(800.0, request.getBandwidthLimitMb());
         assertEquals(4, request.getConsumerThreads());
         assertEquals(5000, request.getBatchSize());

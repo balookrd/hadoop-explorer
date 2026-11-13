@@ -36,11 +36,11 @@
       "icon": "sync",
       "includeVars": false,
       "keepTime": true,
-      "tags": ["replicator"],
+      "tags": ["parom"],
       "targetBlank": false,
-      "title": "gRPC Replicator",
+      "title": "Parom",
       "type": "link",
-      "url": "/d/hadoop-replicator-overview"
+      "url": "/d/parom-overview"
     },
     {
       "asDropdown": false,

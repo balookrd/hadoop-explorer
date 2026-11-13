@@ -62,7 +62,7 @@ flowchart TD
     subgraph DC1["Дата-Центр 1 (Москва / Primary)"]
         HDFS1[("HDFS Primary\n(demo-cluster)")]
         Worker["gRPC Replicator Worker\n(daemon)"]
-        Krb1["Kerberos KDC / Keytab\n(hdfs-replicator@REALM)"]
+        Krb1["Kerberos KDC / Keytab\n(parom@REALM)"]
     end
 
     subgraph DC_MGMT["Контур управления"]
@@ -229,7 +229,7 @@ topology:
 Задача, запущенная от сервисной учетной записи, не прерывается, когда у пользователя истекает билет Kerberos или он закрывает браузер.
 
 При создании задачи доступна опция **«Запускать от сервисной учетной записи»** (`run_as_service_account=True`):
-1. Принципал по умолчанию — `hdfs-replicator@REALM.LOCAL`, задается переменной `PAROM_SERVICE_PRINCIPAL`.
+1. Принципал по умолчанию — `parom@REALM.LOCAL`, задается переменной `PAROM_SERVICE_PRINCIPAL`.
 2. Вход по keytab и имперсонация (`KerberosUgiProvider` агента):
    - при старте агент один раз выполняет `UserGroupInformation.loginUserFromKeytab(<principal>, <keytab>)`; путь к keytab берется из `PAROM_KEYTAB_PATH`, если она не задана — из `KRB5_KEYTAB`;
    - с `run_as_service_account=True` операции HDFS выполняются в `doAs` от UGI сервисной учетной записи;
@@ -287,8 +287,8 @@ topology:
 
 Основной режим не требует включения снэпшотов в HDFS и прав суперпользователя NameNode:
 1. Изоляция ЦОД (DC1 ↔ DC2):
-   - Оркестратор (`replicator-orchestrator`) не подключается к HDFS и не пропускает данные через себя. Он работает только как Control Plane: шейпер квот Token Bucket, реестр агентов, планировщик.
-   - С HDFS и локальной ФС работают агенты (`replicator-agent`) внутри своего ЦОД. Межкластерный обмен идет только между агентами по gRPC-каналу (`:50051`).
+   - Оркестратор (`parom-orchestrator`) не подключается к HDFS и не пропускает данные через себя. Он работает только как Control Plane: шейпер квот Token Bucket, реестр агентов, планировщик.
+   - С HDFS и локальной ФС работают агенты (`parom-agent`) внутри своего ЦОД. Межкластерный обмен идет только между агентами по gRPC-каналу (`:50051`).
 2. Пакетный манифест целевого каталога (Batch Manifest RPC `GetDirectoryManifest`):
    - Агент-источник (Sender) делает один gRPC-вызов `GetDirectoryManifest` к агенту-приемнику (Receiver) вместо пофайловых запросов через WAN.
    - Агент-приемник опрашивает свой целевой HDFS или ФС и возвращает плоский манифест всех файлов целевого каталога (`relativePath`, `size`, `modificationTime`).
@@ -713,7 +713,7 @@ topology:
      - в окне отката есть выпадающий список кластеров, изолированный кластер помечен `[ПОДАВЛЕН]`;
      - на панели подавленного кластера и в тревожном баннере есть кнопка **«Снять»**;
      - защита от Split-Brain: окно предупреждает, что старые задачи нельзя запускать, если во время аварии данные писались в DC2. Опции возобновления прямых задач по умолчанию выключены. Подтверждение снимает сетевое ограждение (канал снова 100 МБ/с для управления и приема дельты), а старые задачи остаются остановленными;
-     - порядок действий описан в [руководстве по Disaster Recovery](replicator-disaster-recovery-guide.md).
+     - порядок действий описан в [руководстве по Disaster Recovery](parom-disaster-recovery-guide.md).
 
 <div align="center">
   <img src="images/parom/11_rollback_unfence_modal.png" alt="Модальное окно безопасного снятия изоляции Unfence" width="850" />
@@ -757,12 +757,12 @@ topology:
 4. Топики без Schema Registry (Passthrough / Auto-detect):
    - Топики без реестра схем (JSON, Plain Text, Protobuf без реестра, raw bytes) передаются байт в байт без обращения к реестрам.
    - Tombstone-сообщения (`null payload`) в `compact`-топиках передаются как есть.
-5. Отдельный демон `kafka-replicator-agent`:
+5. Отдельный демон `parom-kafka-agent`:
    - Запускается отдельным процессом или контейнером, чтобы streaming-нагрузка Kafka не конкурировала с пакетной репликацией HDFS.
 6. Керберизованная Kafka (Kerberos SASL GSSAPI):
    - Аутентификация через `SASL_PLAINTEXT` и `SASL_SSL` с обновлением билетов Kerberos по keytab.
    - JAAS-контекст задается свойством `sasl.jaas.config` на базе `com.sun.security.auth.module.Krb5LoginModule`; глобальный файл `jaas.conf` не нужен.
-   - Можно задать свой Principal (`kafka-replicator@REALM`) и Kerberos Service Name (`kafka`).
+   - Можно задать свой Principal (`parom-kafka@REALM`) и Kerberos Service Name (`kafka`).
 7. Керберизованный Schema Registry (Kerberos SPNEGO / HTTP Negotiate):
    - REST-клиенты обращаются к Schema Registry (Confluent и Hortonworks / Cloudera) по RFC 4559 Negotiate.
    - GSS-API-токены генерируются для Service Principal вида `HTTP/<registry-host>@REALM`, где `<registry-host>` — хост реестра; сессия обновляется по keytab.
@@ -775,7 +775,7 @@ topology:
    - `KafkaBatchConsumerPool` запускает $N$ параллельных потоков (`consumerThreads`, по умолчанию 8, до 64) с общим `group.id`.
    - Координатор Consumer Group брокера Kafka распределяет партиции между потоками (например, 128 партиций — по 8–16 на поток), и чтение не упирается в одно ядро CPU.
    - Размер пакета (`batchSize`) настраивается в диапазоне 500–10 000 сообщений (по умолчанию 2 000).
-10. Роли демона и сайзинг для 1M msg/s (`kafka-replicator-agent`):
+10. Роли демона и сайзинг для 1M msg/s (`parom-kafka-agent`):
    - Роль демона задается в CLI: `--role=receiver` (gRPC-сервер приема и продюсер), `--role=sender` (пул консьюмеров и потоковый gRPC-клиент), `--role=dual` (двунаправленный узел).
    - Для очередей от 128 партиций и до 1 000 000 msg/s рекомендуется запускать 4–8 инстансов демона с пулом 8–16 потоков консьюмеров на инстанс и выделять полосу WAN 2,5–5 Гбит/с.
 11. Распределение трафика по нескольким агентам и автоматическое обнаружение пула (Auto Multi-Agent Ingress/Egress):
@@ -833,43 +833,43 @@ topology:
 
 | Метрика | Тип | Описание |
 |---|---|---|
-| `replicator_bytes_total{status}` | Counter | Общий объем переданных байт данных (`COMPLETED`, `IN_PROGRESS`, `FAILED`) |
-| `replicator_jobs_total{status, mode}` | Gauge | Количество задач репликации по статусам и типу запуска (`manual`, `scheduled`) |
-| `replicator_tasks_total{status}` | Gauge | Распределенный пул пофайловых задач (`QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`) |
-| `replicator_active_workers` | Gauge | Количество зарегистрированных воркеров в пуле |
-| `replicator_active_agents{status}` | Gauge | Число доступных gRPC-агентов (`online`, `total`) |
-| `replicator_file_size_bytes` | Histogram | Распределение размеров реплицируемых файлов |
-| `replicator_throttling_delay_seconds_total` | Counter | Суммарная задержка воркеров из-за иерархического Token Bucket шейпера |
-| `replicator_throttling_delay_seconds` | Gauge | Текущее накопленное время ожидания токенов шейпера полосы пропускания |
-| `replicator_throttling_global_limit_bytes_per_sec` | Gauge | Глобальный лимит пропускной способности WAN-канала в байтах/сек |
-| `replicator_hms_jobs_total{status}` | Gauge | Задачи репликации Hive Metastore (`QUEUED`, `BOOTSTRAPPING`, `ACTIVE`, `PAUSED`, `ERROR`, `WAITING_FOR_AGENTS`, `STOPPED`, `FAILED`) |
-| `replicator_hms_tables_total{type}` | Gauge | Количество таблиц HMS (`total`, `replicated`) |
-| `replicator_hms_partitions_total{type}` | Gauge | Количество партиций таблиц HMS (`total`, `replicated`) |
-| `replicator_hms_speed_bytes_per_second` | Gauge | Текущая скорость передачи данных HMS-репликации (байт/сек) |
-| `replicator_dr_cluster_fenced{cluster_id}` | Gauge | Статус изоляции кластера (Fencing / Kill-Switch: `0` = Active, `1` = Fenced/RO) |
-| `replicator_dr_reverse_jobs_total{status}` | Gauge | Количество задач обратной синхронизации (Reverse Sync / Failback) |
-| `replicator_agent_status{agent_id, cluster_id, mode, status}` | Gauge | Доступность узла агента (`1` при совпадении статуса, `0` иначе) |
-| `replicator_agent_active_transfers{agent_id, cluster_id, mode}` | Gauge | Число активных параллельных потоков передачи файлов на агенте |
-| `replicator_agent_transferred_bytes_total{agent_id, cluster_id}` | Counter | Объем байт данных, фактически переданных агентом |
-| `replicator_agent_errors_total{agent_id, cluster_id}` | Counter | Количество ошибок передачи файлов на стороне агента |
-| `replicator_agent_heartbeat_age_seconds{agent_id, cluster_id}` | Gauge | Задержка в секундах с момента последнего keepalive от агента |
-| `replicator_agent_max_bandwidth_mb_s{agent_id, cluster_id}` | Gauge | Локальный лимит полосы пропускания HTB агента (МБ/с) |
+| `parom_bytes_total{status}` | Counter | Общий объем переданных байт данных (`COMPLETED`, `IN_PROGRESS`, `FAILED`) |
+| `parom_jobs_total{status, mode}` | Gauge | Количество задач репликации по статусам и типу запуска (`manual`, `scheduled`) |
+| `parom_tasks_total{status}` | Gauge | Распределенный пул пофайловых задач (`QUEUED`, `RUNNING`, `COMPLETED`, `FAILED`) |
+| `parom_active_workers` | Gauge | Количество зарегистрированных воркеров в пуле |
+| `parom_active_agents{status}` | Gauge | Число доступных gRPC-агентов (`online`, `total`) |
+| `parom_file_size_bytes` | Histogram | Распределение размеров реплицируемых файлов |
+| `parom_throttling_delay_seconds_total` | Counter | Суммарная задержка воркеров из-за иерархического Token Bucket шейпера |
+| `parom_throttling_delay_seconds` | Gauge | Текущее накопленное время ожидания токенов шейпера полосы пропускания |
+| `parom_throttling_global_limit_bytes_per_sec` | Gauge | Глобальный лимит пропускной способности WAN-канала в байтах/сек |
+| `parom_hms_jobs_total{status}` | Gauge | Задачи репликации Hive Metastore (`QUEUED`, `BOOTSTRAPPING`, `ACTIVE`, `PAUSED`, `ERROR`, `WAITING_FOR_AGENTS`, `STOPPED`, `FAILED`) |
+| `parom_hms_tables_total{type}` | Gauge | Количество таблиц HMS (`total`, `replicated`) |
+| `parom_hms_partitions_total{type}` | Gauge | Количество партиций таблиц HMS (`total`, `replicated`) |
+| `parom_hms_speed_bytes_per_second` | Gauge | Текущая скорость передачи данных HMS-репликации (байт/сек) |
+| `parom_dr_cluster_fenced{cluster_id}` | Gauge | Статус изоляции кластера (Fencing / Kill-Switch: `0` = Active, `1` = Fenced/RO) |
+| `parom_dr_reverse_jobs_total{status}` | Gauge | Количество задач обратной синхронизации (Reverse Sync / Failback) |
+| `parom_agent_status{agent_id, cluster_id, mode, status}` | Gauge | Доступность узла агента (`1` при совпадении статуса, `0` иначе) |
+| `parom_agent_active_transfers{agent_id, cluster_id, mode}` | Gauge | Число активных параллельных потоков передачи файлов на агенте |
+| `parom_agent_transferred_bytes_total{agent_id, cluster_id}` | Counter | Объем байт данных, фактически переданных агентом |
+| `parom_agent_errors_total{agent_id, cluster_id}` | Counter | Количество ошибок передачи файлов на стороне агента |
+| `parom_agent_heartbeat_age_seconds{agent_id, cluster_id}` | Gauge | Задержка в секундах с момента последнего keepalive от агента |
+| `parom_agent_max_bandwidth_mb_s{agent_id, cluster_id}` | Gauge | Локальный лимит полосы пропускания HTB агента (МБ/с) |
 
 ### 9.1 Дашборды Grafana
 
 В репозитории есть три дашборда:
-1. [Parom — Overview](../monitoring/grafana/dashboards/hadoop_replicator_overview.json):
+1. [Parom — Overview](../monitoring/grafana/dashboards/parom_overview.json):
    - общая сводка и Golden Signals межкластерного обмена;
    - текущая и средняя скорость WAN, накопленный объем трафика;
    - очереди пофайловых задач HDFS и статусы репликации HMS;
    - задержки иерархического шейпера Token Bucket Throttler;
    - индикаторы сетевого ограждения Disaster Recovery.
-2. [Parom — Agents Fleet](../monitoring/grafana/dashboards/hadoop_replicator_agents.json):
+2. [Parom — Agents Fleet](../monitoring/grafana/dashboards/parom_agents.json):
    - статус каждого gRPC-агента в ЦОД (Online/Offline);
    - распределение параллельных потоков передачи файлов (`active_threads`);
    - скорость и объемы в разрезе агентов;
    - задержки heartbeat и динамика сетевых ошибок передачи.
-3. [Parom — HMS Replication & Disaster Recovery](../monitoring/grafana/dashboards/hadoop_replicator_hms_dr.json):
+3. [Parom — HMS Replication & Disaster Recovery](../monitoring/grafana/dashboards/parom_hms_dr.json):
    - фоновая и потоковая репликация метаданных Hive Metastore (CDC);
    - статус Kill-Switch и сетевого ограждения (Fencing) при инцидентах;
    - жизненный цикл схем и таблиц;
@@ -882,12 +882,12 @@ topology:
 ### Задача зависла в статусе QUEUED
 
 - Причина: не запущен воркер репликации (`worker daemon`) или заняты все слоты передачи.
-- Решение: проверьте логи контейнеров агентов. На демо-стенде `demo/parom/docker-compose.yml`: `docker logs replicator-agent-dc1` и `docker logs replicator-agent-dc2`.
+- Решение: проверьте логи контейнеров агентов. На демо-стенде `demo/parom/docker-compose.yml`: `docker logs parom-agent-dc1` и `docker logs parom-agent-dc2`.
 
 ### Скорость репликации ниже ожидаемой
 
 - Причина: срабатывает одно из звеньев иерархического шейпера (лимит DC-DC, лимит HDFS-HDFS или глобальный пул).
-- Решение: проверьте счетчик `replicator_throttling_delay_seconds_total` в `/metrics` и при необходимости увеличьте лимит на вкладке **«Топология ЦОД и Полоса»**.
+- Решение: проверьте счетчик `parom_throttling_delay_seconds_total` в `/metrics` и при необходимости увеличьте лимит на вкладке **«Топология ЦОД и Полоса»**.
 
 ### Ошибка аутентификации Kerberos (GSSException)
 

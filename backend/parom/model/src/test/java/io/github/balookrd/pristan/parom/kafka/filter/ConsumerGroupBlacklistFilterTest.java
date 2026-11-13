@@ -16,13 +16,20 @@ class ConsumerGroupBlacklistFilterTest {
     @Test
     @DisplayName("Исключение собственных групп репликатора")
     void shouldExcludeParomOwnGroups() {
-        assertTrue(filter.isExcluded("kafka-replicator-dc1"));
-        assertTrue(filter.isExcluded("kafka-replicator-time-resolver-dc1"));
-        assertTrue(filter.isExcluded("kafka-replicator-agent-dc2"));
-        assertTrue(filter.isExcluded("replicator-worker-01"));
-        assertTrue(filter.isExcluded("hadoop-replicator-job-42"));
+        assertTrue(filter.isExcluded("parom-kafka-dc1"));
+        assertTrue(filter.isExcluded("parom-kafka-time-resolver-dc1"));
+        assertTrue(filter.isExcluded("parom-kafka-agent-dc2"));
+        assertTrue(filter.isExcluded("parom-worker-01"));
+        assertTrue(filter.isExcluded("parom-job-42"));
 
-        assertFalse(filter.isAllowed("kafka-replicator-dc1"));
+        assertFalse(filter.isAllowed("parom-kafka-dc1"));
+    }
+
+    @Test
+    @DisplayName("Исключение служебных групп Parom и сохранение прежних имен")
+    void excludesParomServiceGroups() {
+        assertTrue(filter.isExcluded("parom-kafka-dc1-42"));
+        assertTrue(filter.isExcluded("parom-kafka-dc1-42"));
     }
 
     @Test
@@ -69,7 +76,7 @@ class ConsumerGroupBlacklistFilterTest {
     void shouldFilterCollectionsProperly() {
         List<String> rawGroups = List.of(
                 "billing-service",
-                "kafka-replicator-dc1",
+                "parom-kafka-dc1",
                 "orders-group",
                 "console-consumer-12345",
                 "__consumer_offsets",
@@ -81,7 +88,7 @@ class ConsumerGroupBlacklistFilterTest {
         assertEquals(List.of("billing-service", "orders-group", "analytics-stream"), allowed);
 
         Set<String> excluded = filter.filterExcluded(rawGroups);
-        assertEquals(Set.of("kafka-replicator-dc1", "console-consumer-12345", "__consumer_offsets", "schema-registry-test"), excluded);
+        assertEquals(Set.of("parom-kafka-dc1", "console-consumer-12345", "__consumer_offsets", "schema-registry-test"), excluded);
     }
 
     @Test
@@ -91,7 +98,7 @@ class ConsumerGroupBlacklistFilterTest {
 
         assertTrue(customFilter.isExcluded("custom-agent-worker"));
         assertTrue(customFilter.isExcluded("test-temp-group"));
-        assertTrue(customFilter.isAllowed("kafka-replicator-dc1")); // В кастомном не исключается
+        assertTrue(customFilter.isAllowed("parom-kafka-dc1")); // В кастомном не исключается
         assertTrue(customFilter.isAllowed("orders-service"));
     }
 }

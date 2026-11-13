@@ -29,7 +29,7 @@ class PathSchemeSandboxBypassTest {
 
     @BeforeEach
     void setUp() throws IOException {
-        Path sandbox = Files.createTempDirectory("replicator-scheme-bypass");
+        Path sandbox = Files.createTempDirectory("parom-scheme-bypass");
         sandboxRoot = sandbox.toFile().getCanonicalPath();
     }
 
@@ -97,7 +97,7 @@ class PathSchemeSandboxBypassTest {
                 "Путь без схемы при HDFS по умолчанию остается путем HDFS");
         assertDoesNotThrow(() -> fsManager.validateSandboxAccess("file://" + sandboxRoot + "/staging/part-0"),
                 "Локальный путь внутри песочницы разрешен");
-        assertDoesNotThrow(() -> HadoopFsManager.validatePathSafety("file:///tmp/replicator/staging"),
+        assertDoesNotThrow(() -> HadoopFsManager.validatePathSafety("file:///tmp/parom/staging"),
                 "Обычный временный путь не является системным");
     }
 }

@@ -35,15 +35,15 @@ class AgentMetricsTest {
         assertEquals(4.0, metrics.getCompressionRatio(), 1e-6);
 
         // Проверяем Micrometer MeterRegistry
-        Counter rawCounter = metrics.getRegistry().find("replicator.compression.raw.bytes").counter();
+        Counter rawCounter = metrics.getRegistry().find("parom.compression.raw.bytes").counter();
         assertNotNull(rawCounter);
         assertEquals(102400.0, rawCounter.count(), 1e-6);
 
-        Counter compCounter = metrics.getRegistry().find("replicator.compression.compressed.bytes").counter();
+        Counter compCounter = metrics.getRegistry().find("parom.compression.compressed.bytes").counter();
         assertNotNull(compCounter);
         assertEquals(25600.0, compCounter.count(), 1e-6);
 
-        Gauge ratioGauge = metrics.getRegistry().find("replicator.compression.ratio").gauge();
+        Gauge ratioGauge = metrics.getRegistry().find("parom.compression.ratio").gauge();
         assertNotNull(ratioGauge);
         assertEquals(4.0, ratioGauge.value(), 1e-6);
 
@@ -72,7 +72,7 @@ class AgentMetricsTest {
         assertEquals(30.0, metrics.getChunkLatencyMaxMs(), 1e-6);
 
         // Проверяем Micrometer Timer
-        Timer timer = metrics.getRegistry().find("replicator.grpc.chunk.transfer.latency").timer();
+        Timer timer = metrics.getRegistry().find("parom.grpc.chunk.transfer.latency").timer();
         assertNotNull(timer);
         assertEquals(2, timer.count());
         assertEquals(40.0, timer.totalTime(TimeUnit.MILLISECONDS), 1e-6);
@@ -98,11 +98,11 @@ class AgentMetricsTest {
         assertEquals(3145728L, metrics.getActiveStagingBytes());
 
         // Проверяем Micrometer Gauges
-        Gauge queueGauge = metrics.getRegistry().find("replicator.staging.queue.size").gauge();
+        Gauge queueGauge = metrics.getRegistry().find("parom.staging.queue.size").gauge();
         assertNotNull(queueGauge);
         assertEquals(2.0, queueGauge.value(), 1e-6);
 
-        Gauge bytesGauge = metrics.getRegistry().find("replicator.staging.active.bytes").gauge();
+        Gauge bytesGauge = metrics.getRegistry().find("parom.staging.active.bytes").gauge();
         assertNotNull(bytesGauge);
         assertEquals(3145728.0, bytesGauge.value(), 1e-6);
 
@@ -117,7 +117,7 @@ class AgentMetricsTest {
         metrics.recordStagingOrphansCleaned(7);
         assertEquals(7L, metrics.getTotalOrphansCleaned());
 
-        Counter orphansCounter = metrics.getRegistry().find("replicator.staging.orphans.cleaned").counter();
+        Counter orphansCounter = metrics.getRegistry().find("parom.staging.orphans.cleaned").counter();
         assertNotNull(orphansCounter);
         assertEquals(7.0, orphansCounter.count(), 1e-6);
 
@@ -137,7 +137,7 @@ class AgentMetricsTest {
 
         assertEquals(2L, metrics.getTotalCancelledTransfers());
 
-        Counter cancelledCounter = metrics.getRegistry().find("replicator.grpc.transfers.cancelled").counter();
+        Counter cancelledCounter = metrics.getRegistry().find("parom.grpc.transfers.cancelled").counter();
         assertNotNull(cancelledCounter);
         assertEquals(2.0, cancelledCounter.count(), 1e-6);
 

@@ -45,6 +45,11 @@ class SchemaMigrationIntegrityTest {
             "create\\s+table\\s+(?:if\\s+not\\s+exists\\s+)?\"?([a-z0-9_]+)\"?",
             Pattern.CASE_INSENSITIVE);
 
+    /** ALTER TABLE ... RENAME TO in a migration: the table keeps existing under the new name. */
+    private static final Pattern RENAME_TABLE = Pattern.compile(
+            "alter\\s+table\\s+\"?([a-z0-9_]+)\"?\\s+rename\\s+to\\s+\"?([a-z0-9_]+)\"?",
+            Pattern.CASE_INSENSITIVE);
+
     private List<Class<?>> entityClasses() throws ClassNotFoundException {
         var scanner = new ClassPathScanningCandidateComponentProvider(false);
         scanner.addIncludeFilter(new AnnotationTypeFilter(Entity.class));
@@ -80,11 +85,21 @@ class SchemaMigrationIntegrityTest {
 
     private Set<String> migrationTables() throws IOException {
         Set<String> tables = new TreeSet<>();
+        List<String[]> renames = new ArrayList<>();
         for (Resource migration : migrations()) {
             String sql = new String(migration.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
             Matcher matcher = CREATE_TABLE.matcher(sql);
             while (matcher.find()) {
                 tables.add(matcher.group(1).toLowerCase());
+            }
+            Matcher rename = RENAME_TABLE.matcher(sql);
+            while (rename.find()) {
+                renames.add(new String[] {rename.group(1).toLowerCase(), rename.group(2).toLowerCase()});
+            }
+        }
+        for (String[] rename : renames) {
+            if (tables.remove(rename[0])) {
+                tables.add(rename[1]);
             }
         }
         return tables;
@@ -142,5 +157,26 @@ class SchemaMigrationIntegrityTest {
         assertTrue(indexedColumns.stream().anyMatch(c -> c.contains("source_cluster_id")),
                 "Нет индекса по кластеру-источнику: опрос заданий ЦОД агентами сканирует таблицу"
                         + " целиком, найдено: " + indexedColumns);
+    }
+
+    @Test
+    @DisplayName("Таблицы DR-снимков и аренды стримера названы с префиксом parom_")
+    void drAndStreamingTablesUseParomPrefix() throws Exception {
+        String url = "jdbc:h2:mem:parom_tables_" + System.nanoTime() + ";DB_CLOSE_DELAY=-1;MODE=PostgreSQL";
+        org.flywaydb.core.Flyway.configure()
+                .dataSource(url, "sa", "")
+                .locations("classpath:db/migration/common", "classpath:db/migration/h2")
+                .load()
+                .migrate();
+        try (var conn = java.sql.DriverManager.getConnection(url, "sa", "");
+             var rs = conn.getMetaData().getTables(null, null, "%", new String[] {"TABLE"})) {
+            var names = new TreeSet<String>();
+            while (rs.next()) {
+                names.add(rs.getString("TABLE_NAME").toLowerCase(java.util.Locale.ROOT));
+            }
+            org.assertj.core.api.Assertions.assertThat(names)
+                    .contains("parom_dr_snapshots", "parom_streaming_leases")
+                    .doesNotContain("replicator_dr_snapshots", "replicator_streaming_leases");
+        }
     }
 }

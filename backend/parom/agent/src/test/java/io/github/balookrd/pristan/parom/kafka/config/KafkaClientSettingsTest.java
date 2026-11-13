@@ -26,7 +26,7 @@ class KafkaClientSettingsTest {
     @Test
     @DisplayName("Консьюмер получает явные пределы poll-цикла")
     void testConsumerPollLimitsAreExplicit() {
-        Properties props = KafkaClientSettings.consumerProps(BOOTSTRAP, "replicator-dc1", 2000);
+        Properties props = KafkaClientSettings.consumerProps(BOOTSTRAP, "parom-dc1", 2000);
 
         assertEquals(2000, props.get(ConsumerConfig.MAX_POLL_RECORDS_CONFIG),
                 "max.poll.records обязан соответствовать размеру батча репликации, "
@@ -43,19 +43,19 @@ class KafkaClientSettingsTest {
     @Test
     @DisplayName("Автокоммит выключен, чтение с начала топика")
     void testConsumerKeepsManualCommitSemantics() {
-        Properties props = KafkaClientSettings.consumerProps(BOOTSTRAP, "replicator-dc1", 2000);
+        Properties props = KafkaClientSettings.consumerProps(BOOTSTRAP, "parom-dc1", 2000);
 
         assertEquals("false", props.get(ConsumerConfig.ENABLE_AUTO_COMMIT_CONFIG),
                 "Оффсеты коммитятся только после подтверждения доставки приемником");
         assertEquals("earliest", props.get(ConsumerConfig.AUTO_OFFSET_RESET_CONFIG));
         assertEquals(BOOTSTRAP, props.get(ConsumerConfig.BOOTSTRAP_SERVERS_CONFIG));
-        assertEquals("replicator-dc1", props.get(ConsumerConfig.GROUP_ID_CONFIG));
+        assertEquals("parom-dc1", props.get(ConsumerConfig.GROUP_ID_CONFIG));
     }
 
     @Test
     @DisplayName("heartbeat.interval.ms меньше session.timeout.ms")
     void testHeartbeatIntervalFitsSessionTimeout() {
-        Properties props = KafkaClientSettings.consumerProps(BOOTSTRAP, "replicator-dc1", 2000);
+        Properties props = KafkaClientSettings.consumerProps(BOOTSTRAP, "parom-dc1", 2000);
 
         int sessionTimeout = (int) props.get(ConsumerConfig.SESSION_TIMEOUT_MS_CONFIG);
         int heartbeat = (int) props.get(ConsumerConfig.HEARTBEAT_INTERVAL_MS_CONFIG);

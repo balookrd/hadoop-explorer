@@ -31,7 +31,7 @@ function mockJsonResponse(data: any, status = 200) {
   });
 }
 
-describe('Replicator Tabs Navigation Order', () => {
+describe('Parom Tabs Navigation Order', () => {
   beforeEach(() => {
     localStorage.clear();
     window.location.hash = '';

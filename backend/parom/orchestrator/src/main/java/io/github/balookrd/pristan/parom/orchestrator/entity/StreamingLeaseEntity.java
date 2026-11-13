@@ -13,7 +13,7 @@ import java.time.Instant;
  * и автоматический failover со сменой эпох (Epoch Fencing).
  */
 @Entity
-@Table(name = "replicator_streaming_leases")
+@Table(name = "parom_streaming_leases")
 public class StreamingLeaseEntity {
 
     @Id
