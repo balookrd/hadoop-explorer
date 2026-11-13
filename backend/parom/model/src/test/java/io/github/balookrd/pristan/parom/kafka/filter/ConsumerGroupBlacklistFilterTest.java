@@ -26,10 +26,25 @@ class ConsumerGroupBlacklistFilterTest {
     }
 
     @Test
-    @DisplayName("Исключение служебных групп Parom и сохранение прежних имен")
+    @DisplayName("Исключение служебных групп Parom")
     void excludesParomServiceGroups() {
         assertTrue(filter.isExcluded("parom-kafka-dc1-42"));
-        assertTrue(filter.isExcluded("parom-kafka-dc1-42"));
+    }
+
+    @Test
+    @DisplayName("Сохранение исключения служебных групп прежних версий")
+    void keepsExcludingServiceGroupsOfPreviousVersions() {
+        // Groups created by releases before the rename still exist on clusters and must stay excluded.
+        assertTrue(filter.isExcluded("kafka-replicator-dc1-42"));
+        assertTrue(filter.isExcluded("replicator-worker-01"));
+        assertTrue(filter.isExcluded("hadoop-replicator-job-42"));
+    }
+
+    @Test
+    @DisplayName("Префикс привязан к началу имени: похожие бизнес-группы не исключаются")
+    void doesNotExcludeBusinessGroupsWithLookAlikeNames() {
+        assertTrue(filter.isAllowed("orders-consumer"));
+        assertTrue(filter.isAllowed("my-parom-app"));
     }
 
     @Test
