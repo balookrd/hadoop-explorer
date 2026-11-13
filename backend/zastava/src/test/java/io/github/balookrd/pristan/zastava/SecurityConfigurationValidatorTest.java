@@ -32,7 +32,7 @@ class SecurityConfigurationValidatorTest {
 
     private static ZastavaProperties bind(Map<String, String> props) {
         Binder binder = new Binder(new MapConfigurationPropertySource(props));
-        return binder.bind("zastava",ZastavaProperties.class).orElseGet(ZastavaProperties::new);
+        return binder.bind("zastava", ZastavaProperties.class).orElseGet(ZastavaProperties::new);
     }
 
     @Test
