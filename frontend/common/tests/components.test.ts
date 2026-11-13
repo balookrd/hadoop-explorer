@@ -80,6 +80,9 @@ describe('Common UI Components Suite', () => {
         props: { title: 'YARN Queue Explorer', app: 'tolmach', isModal: false, onLogin: vi.fn() }
       });
       expect(container.querySelector('[data-testid="login-modal"]')?.getAttribute('data-app')).toBe('tolmach');
+      // the list follows the app id, not the YARN word in the title
+      expect(screen.getByText('Иван Датаинженеров')).toBeInTheDocument();
+      expect(screen.queryByText('Владимир Инженеров')).not.toBeInTheDocument();
     });
 
     it('accepts every service id', () => {
@@ -94,11 +97,66 @@ describe('Common UI Components Suite', () => {
 
     it('switches the demo user set through the tabs without changing the app', async () => {
       const { container } = render(LoginModal, {
-        props: { app: 'sklad', isModal: false, onLogin: vi.fn() }
+        props: { app: 'tolmach', isModal: false, onLogin: vi.fn() }
       });
+      // tolmach-only user is visible, universal-only user is not
+      expect(screen.getByText('Иван Датаинженеров')).toBeInTheDocument();
+      expect(screen.queryByText('Владимир Инженеров')).not.toBeInTheDocument();
+
       await fireEvent.click(screen.getByRole('button', { name: 'Универсальные' }));
-      expect(screen.getByText('Александр Админов')).toBeInTheDocument();
-      expect(container.querySelector('[data-testid="login-modal"]')?.getAttribute('data-app')).toBe('sklad');
+
+      expect(screen.queryByText('Иван Датаинженеров')).not.toBeInTheDocument();
+      expect(screen.getByText('Владимир Инженеров')).toBeInTheDocument();
+      expect(container.querySelector('[data-testid="login-modal"]')?.getAttribute('data-app')).toBe('tolmach');
+    });
+
+    // Display names are shared between sets, so the lists are told apart by the
+    // per-app description, which is unique to each of the six sets.
+    const APP_CASES = [
+      { app: 'artel', tab: 'YARN', description: 'Администратор YARN, управление очередями и Capacity Scheduler (ADM)' },
+      { app: 'sklad', tab: 'HDFS', description: 'Администратор HDFS, полный доступ к неймспейсу (ADM)' },
+      { app: 'parom', tab: 'Репликация', description: 'Администратор репликации, полный доступ (ADM)' },
+      { app: 'tolmach', tab: 'SQL', description: 'Администратор хранилища данных, управление каталогами (ADM)' },
+      { app: 'iskra', tab: 'Spark', description: 'Администратор Spark платформы, управление ресурсами (ADM)' },
+    ] as const;
+
+    for (const c of APP_CASES) {
+      it(`shows the ${c.app} demo users and marks the ${c.tab} tab active`, () => {
+        render(LoginModal, { props: { app: c.app, isModal: false, onLogin: vi.fn() } });
+        expect(screen.getByText(c.description)).toBeInTheDocument();
+        for (const other of APP_CASES) {
+          if (other.app !== c.app) {
+            expect(screen.queryByText(other.description)).not.toBeInTheDocument();
+          }
+        }
+        expect(screen.getByRole('button', { name: c.tab }).className).toContain('bg-sky-600');
+        expect(screen.getByRole('button', { name: 'Универсальные' }).className).not.toContain('bg-sky-600');
+      });
+    }
+
+    it('shows data-engineer and analyst users for tolmach and iskra only', () => {
+      for (const app of ['tolmach', 'iskra'] as const) {
+        const { unmount } = render(LoginModal, { props: { app, isModal: false, onLogin: vi.fn() } });
+        expect(screen.getByText('Иван Датаинженеров')).toBeInTheDocument();
+        expect(screen.getByText('Анна Аналитикова')).toBeInTheDocument();
+        unmount();
+      }
+      for (const app of ['artel', 'sklad', 'parom'] as const) {
+        const { unmount } = render(LoginModal, { props: { app, isModal: false, onLogin: vi.fn() } });
+        expect(screen.getByText('Владимир Инженеров')).toBeInTheDocument();
+        expect(screen.getByText('Екатерина Наблюдателева')).toBeInTheDocument();
+        expect(screen.queryByText('Иван Датаинженеров')).not.toBeInTheDocument();
+        expect(screen.queryByText('Анна Аналитикова')).not.toBeInTheDocument();
+        unmount();
+      }
+    });
+
+    it('falls back to the universal users for an unknown app id', () => {
+      expect(() =>
+        render(LoginModal, { props: { app: 'bogus' as never, isModal: false, onLogin: vi.fn() } })
+      ).not.toThrow();
+      expect(screen.getByText('Администратор платформы, полный доступ (ADM)')).toBeInTheDocument();
+      expect(screen.getByText('Владимир Инженеров')).toBeInTheDocument();
     });
   });
 

@@ -199,7 +199,8 @@
   let activeUsers = $derived(
     mockUsers && mockUsers.length > 0
       ? mockUsers
-      : APP_MOCK_USERS[currentApp]
+      // unknown app id from an untyped caller falls back to the universal set
+      : (APP_MOCK_USERS[currentApp] ?? DEFAULT_MOCK_USERS)
   );
 
   let username = $state('');
