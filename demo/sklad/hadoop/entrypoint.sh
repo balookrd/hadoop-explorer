@@ -97,11 +97,11 @@ cat <<EOF > "${HADOOP_CONF_DIR}/core-site.xml"
         <value>*</value>
     </property>
     <property>
-        <name>hadoop.proxyuser.svc_sql_explorer.hosts</name>
+        <name>hadoop.proxyuser.svc_tolmach.hosts</name>
         <value>*</value>
     </property>
     <property>
-        <name>hadoop.proxyuser.svc_sql_explorer.groups</name>
+        <name>hadoop.proxyuser.svc_tolmach.groups</name>
         <value>*</value>
     </property>
     <property>

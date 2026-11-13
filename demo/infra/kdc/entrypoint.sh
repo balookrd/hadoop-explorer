@@ -45,7 +45,7 @@ cat <<EOF > /etc/krb5.conf
     example.com = ${REALM}
     kdc = ${REALM}
     sklad = ${REALM}
-    sql-explorer = ${REALM}
+    tolmach = ${REALM}
     artel = ${REALM}
     spark-explorer = ${REALM}
     hdfs-cluster-1 = ${REALM}
@@ -67,7 +67,7 @@ EOF
 cp /etc/krb5.conf "$CONF_DIR/krb5.conf"
 cp /etc/krb5.conf "$KEYTAB_DIR/krb5.conf"
 # Variant without host name canonicalization for JDK clients that reach services by short names
-# (sql-explorer -> trino-coordinator, hive-server-2): Docker reverse DNS turns them into
+# (tolmach -> trino-coordinator, hive-server-2): Docker reverse DNS turns them into
 # <name>.demo-platform-net, and the KDC has only trino/trino-coordinator, hive/hive-server-2
 sed 's/^\[libdefaults\]$/[libdefaults]\n    dns_canonicalize_hostname = false/' /etc/krb5.conf > "$KEYTAB_DIR/krb5-nocanon.conf"
 chmod 644 "$CONF_DIR/krb5.conf" "$KEYTAB_DIR/krb5.conf" "$KEYTAB_DIR/krb5-nocanon.conf"
@@ -113,11 +113,11 @@ echo "[kdc] Создание учетных записей и принципал
 
 # 1. Сервисные принципалы платформы
 add_principal "admin/admin@${REALM}" "adminpass"
-add_principal "svc_sql_explorer@${REALM}" "password123"
+add_principal "svc_tolmach@${REALM}" "password123"
 add_principal "sklad@${REALM}" "password123"
 add_principal "sklad/sklad@${REALM}" ""
 add_principal "HTTP/sklad@${REALM}" ""
-add_principal "HTTP/sql-explorer@${REALM}" ""
+add_principal "HTTP/tolmach@${REALM}" ""
 add_principal "HTTP/artel@${REALM}" ""
 add_principal "HTTP/artel.yarn-demo-net@${REALM}" ""
 add_principal "HTTP/localhost@${REALM}" ""
@@ -214,8 +214,8 @@ add_to_keytab "$KEYTAB_DIR/sklad.keytab" sklad/sklad@${REALM} sklad@${REALM} HTT
 add_to_keytab "$KEYTAB_DIR/hdfs-cluster-1.keytab" nn/hdfs-cluster-1@${REALM} nn/hdfs-cluster-1.demo-platform-net@${REALM} dn/hdfs-cluster-1@${REALM} dn/hdfs-cluster-1.demo-platform-net@${REALM} HTTP/hdfs-cluster-1@${REALM} HTTP/hdfs-cluster-1.demo-platform-net@${REALM} hdfs/hdfs-cluster-1@${REALM}
 add_to_keytab "$KEYTAB_DIR/hdfs-cluster-2.keytab" nn/hdfs-cluster-2@${REALM} nn/hdfs-cluster-2.demo-platform-net@${REALM} dn/hdfs-cluster-2@${REALM} dn/hdfs-cluster-2.demo-platform-net@${REALM} HTTP/hdfs-cluster-2@${REALM} HTTP/hdfs-cluster-2.demo-platform-net@${REALM} hdfs/hdfs-cluster-2@${REALM}
 
-# SQL Explorer & Engines
-add_to_keytab "$KEYTAB_DIR/sql-explorer.keytab" svc_sql_explorer@${REALM} HTTP/sql-explorer@${REALM} HTTP/localhost@${REALM}
+# Tolmach & Engines
+add_to_keytab "$KEYTAB_DIR/tolmach.keytab" svc_tolmach@${REALM} HTTP/tolmach@${REALM} HTTP/localhost@${REALM}
 add_to_keytab "$KEYTAB_DIR/hive.keytab" hive/hive-server@${REALM} hive/hive-server.demo-platform-net@${REALM} hive/hive-server-1@${REALM} hive/hive-server-1.demo-platform-net@${REALM} hive/hive-server-2@${REALM} hive/hive-server-2.demo-platform-net@${REALM} hive/hive-metastore@${REALM} hive/hive-metastore.demo-platform-net@${REALM} hive/hive-metastore-1@${REALM} hive/hive-metastore-1.demo-platform-net@${REALM} hive/hive-metastore-2@${REALM} hive/hive-metastore-2.demo-platform-net@${REALM} hive/localhost@${REALM}
 add_to_keytab "$KEYTAB_DIR/trino.keytab" trino/trino-coordinator@${REALM} trino/localhost@${REALM}
 

@@ -39,7 +39,7 @@ export default defineConfig({
       timeout: 120000,
     },
     {
-      command: 'npm run dev:sql -- --port 5175 --host',
+      command: 'npm run dev:tolmach -- --port 5175 --host',
       port: 5175,
       reuseExistingServer: !process.env.CI,
       timeout: 120000,

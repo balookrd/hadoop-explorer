@@ -4,7 +4,7 @@
 - Общий стартер безопасности (`backend/zastava` — Java 21 / Spring Boot 3, SPNEGO, LDAP/Active Directory, JWT, L1/L2 сессии, Circuit Breaker, Rate Limiter, CSRF Guard).
 - Artel (`backend/artel` — Java 21 LTS / Spring Boot 3, YARN RM HA, Capacity Scheduler, партиции, Change Requests, Four-Eyes Principle, генерация XML, Ansible AWX).
 - Sklad (`backend/sklad` — Java 21 LTS / Spring Boot 3, подключение к HDFS Client, HA NameNode, Kerberos, doAs имперсонация, квоты, превью Parquet/ORC, Circuit Breaker).
-- SQL Explorer (`backend/sql` — Java 21 LTS / Spring Boot 3, Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
+- Tolmach (`backend/tolmach` — Java 21 LTS / Spring Boot 3, Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
 - Spark Explorer (`backend/spark` — Java 21 LTS / Spring Boot 3, Apache Livy, PySpark, Scala, DAG Pipelines, Metastore, Circuit Breaker).
 - Hadoop gRPC Replicator (`backend/replicator` — Java 21 / Spring Boot 3 Orchestrator, нативный Java gRPC Worker Daemon, топология ЦОД, Hierarchical Token Bucket, Kerberos, Snapshot Diff, Cron Scheduler).
 
@@ -25,7 +25,7 @@
    - [Ролевая модель и Change Requests](#32-ролевая-модель-и-change-requests)
    - [Интеграция с Ansible AWX (доставка и применение конфигурации)](#33-интеграция-с-ansible-awx-доставка-и-применение-конфигурации)
 4. [Настройка Sklad](#4-настройка-sklad)
-5. [Настройка SQL Explorer (Trino & Hive)](#5-настройка-sql-explorer-trino--hive)
+5. [Настройка Tolmach (Trino и Hive)](#5-настройка-tolmach-trino--hive)
    - [Аналитические кластеры](#51-аналитические-кластеры)
    - [Параметры выполнения запросов и сохранение воркспейса](#52-параметры-выполнения-запросов-и-сохранение-воркспейса)
    - [ИИ-ассистент (On-Premise LLM / Ollama / vLLM)](#53-ии-ассистент-on-premise-llm--ollama--vllm)
@@ -436,9 +436,9 @@ hadoop:
 
 ---
 
-## 5. Настройка SQL Explorer (Trino & Hive)
+## 5. Настройка Tolmach (Trino и Hive)
 
-Параметры читает `SqlProperties` (`@ConfigurationProperties(prefix = "sql")`). Базовые значения — в `backend/sql/src/main/resources/application.yml`; переопределяйте их внешним `application.yml` (`SPRING_CONFIG_ADDITIONAL_LOCATION`) или переменными окружения.
+Параметры читает `SqlProperties` (`@ConfigurationProperties(prefix = "sql")`). Базовые значения — в `backend/tolmach/src/main/resources/application.yml`; переопределяйте их внешним `application.yml` (`SPRING_CONFIG_ADDITIONAL_LOCATION`) или переменными окружения.
 
 **Внимание.** При `mock-storage: false` кластер обслуживает реальный движок: `type: trino` — `TrinoSqlEngine` (`io.trino:trino-jdbc` 484), `type: hive` — `HiveSqlEngine` (`org.apache.kyuubi:kyuubi-hive-jdbc-shaded` 1.12.0, протокол HiveServer2). При `mock-storage: true` или другом `type` кластер обслуживает `MockSqlEngine` с демо-каталогами `tpch` и `analytics`.
 
@@ -517,7 +517,7 @@ sql:
 
 Подключение к HiveServer2 (SASL-рукопожатие, Kerberos, `OpenSession`) выполняется до запуска запроса, поэтому отмена и `jdbc.query-timeout-seconds` на этом этапе не действуют. `jdbc.connect-timeout-seconds` ограничивает TCP-подключение, `jdbc.socket-timeout-seconds` — каждое ожидание ответа: HiveServer2, который принял соединение и не отвечает, дает ошибку `java.net.SocketTimeoutException: Read timed out` через `jdbc.socket-timeout-seconds`. Длинные запросы этот предел не обрывают: драйвер запускает запрос асинхронно и опрашивает статус, а HiveServer2 отвечает на опрос не позже `hive.server2.long.polling.timeout` (по умолчанию 5 с). Предел срабатывает на одном долгом ответе, например на `FetchResults`, если HiveServer2 вычисляет строки при выборке.
 
-Отмена (`POST /api/v1/queries/{queryId}/cancel`) вызывает `Statement.cancel()`; драйвер Trino отменяет запрос на координаторе. Предел строк `sql.max-rows-per-query` передается в `Statement.setMaxRows`; при превышении результат усекается, сообщение запроса содержит «Результат усечен до N строк».
+Отмена (`POST /api/v1/queries/{queryId}/cancel`) вызывает `Statement.cancel()`; драйвер Trino отменяет запрос на координаторе. Предел строк `tolmach.max-rows-per-query` передается в `Statement.setMaxRows`; при превышении результат усекается, сообщение запроса содержит «Результат усечен до N строк».
 
 ### 5.2 Параметры выполнения запросов и сохранение воркспейса
 
@@ -532,7 +532,7 @@ sql:
 `QueryManagerService` хранит результаты запросов в памяти процесса (`resultCache`). Раз в час (`@Scheduled(fixedRate = 3600000)`) удаляются результаты старше `results-ttl-hours`. После перезапуска сервиса результаты теряются.
 
 #### Персистентность рабочих пространств (User Workspace)
-SQL Explorer сохраняет в БД (`spring.datasource`) открытые вкладки редактора, введенный SQL-код, выбранные кластеры и каталоги и последние результаты (модель `SqlUserWorkspace`, эндпоинт `/api/v1/workspace`). Рабочее пространство у каждого аутентифицированного пользователя свое: после смены пользователя в браузере загружается его контекст, чужая история не показывается. Упакованный `application.yml` использует H2 в памяти (`jdbc:h2:mem:sqlexplorer`): без внешней БД рабочие пространства теряются при перезапуске.
+Tolmach сохраняет в БД (`spring.datasource`) открытые вкладки редактора, введенный SQL-код, выбранные кластеры и каталоги и последние результаты (модель `SqlUserWorkspace`, эндпоинт `/api/v1/workspace`). Рабочее пространство у каждого аутентифицированного пользователя свое: после смены пользователя в браузере загружается его контекст, чужая история не показывается. Упакованный `application.yml` использует H2 в памяти (`jdbc:h2:mem:tolmach`): без внешней БД рабочие пространства теряются при перезапуске.
 
 ### 5.3 ИИ-ассистент (On-Premise LLM / Ollama / vLLM)
 
@@ -562,7 +562,7 @@ sql:
 
 Упакованный `application.yml` задает `provider: "mock-builtin"`: без явной настройки сервис к LLM не обращается.
 
-При `provider: openai_compatible` сервис проверяет параметры при старте и останавливает запуск с `IllegalArgumentException` (`sql.ai.url ...`, `sql.ai.api-key ...`, `sql.ai.<параметр> должен быть больше 0`), если: URL без хоста, со схемой не `http`/`https`, с учетными данными (`http://user:password@host/...`), query или fragment; в `api-key` есть управляющий или не-ASCII символ; `timeout-seconds`, `status-timeout-seconds` или `max-concurrent-requests` ≤ 0. Пароль из URL, query и значение ключа в сообщение не попадают.
+При `provider: openai_compatible` сервис проверяет параметры при старте и останавливает запуск с `IllegalArgumentException` (`tolmach.ai.url ...`, `tolmach.ai.api-key ...`, `tolmach.ai.<параметр> должен быть больше 0`), если: URL без хоста, со схемой не `http`/`https`, с учетными данными (`http://user:password@host/...`), query или fragment; в `api-key` есть управляющий или не-ASCII символ; `timeout-seconds`, `status-timeout-seconds` или `max-concurrent-requests` ≤ 0. Пароль из URL, query и значение ключа в сообщение не попадают.
 
 Если модель не ответила за `timeout-seconds`, вернула HTTP-ошибку, ответ больше 1 МиБ или ответ без JSON-объекта с обязательным полем, все `max-concurrent-requests` вызовов заняты, сервис отвечает встроенными правилами: в ответе `provider: mock-builtin`, `model: builtin-rules`, у `check` и `generate` — `fallback_used: true`; в лог пишется `LLM недоступна для <операция>, ответ построен встроенными правилами: <причина>`. По истечении `timeout-seconds` HTTP-обмен с моделью отменяется, поток обработки запроса освобождается. `format` всегда выполняется правилами.
 
@@ -1175,7 +1175,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 |---|---|---|---|---|
 | Artel | `GET /actuator/prometheus` | `8000` | без аутентификации | Micrometer, `artel_change_requests_total` |
 | Sklad | `GET /actuator/prometheus` | `8000` | без аутентификации | Micrometer, `hdfs_*` |
-| SQL Explorer | `GET /actuator/prometheus` | `8003` | без аутентификации | Micrometer, `sql_query_duration_seconds` |
+| Tolmach | `GET /actuator/prometheus` | `8003` | без аутентификации | Micrometer, `tolmach_query_duration_seconds` |
 | Spark Explorer | `GET /actuator/prometheus` | `8004` | без аутентификации | Micrometer, `spark_*` |
 | Оркестратор Replicator | `GET /actuator/prometheus` | `8005` | без аутентификации | только Micrometer |
 | Оркестратор Replicator | `GET /metrics` | `8005` | пользователь платформы или HTTP Basic `prometheus:<scrape_token>` | Micrometer и `replicator_*`, `kafka_*` |
@@ -1219,7 +1219,7 @@ YARN, HDFS, SQL и Spark Explorer:
 | `sklad_operations_total` | Counter | `app`, `cluster`, `operation`, `status` | Вызовы клиента HDFS (`list_status`, `get_file_status`, `open`, `create`, `mkdirs`, `rename`, `delete`), `status`: `success`, `failed` |
 | `sklad_bytes_transferred_total` | Counter | `app`, `cluster`, `direction` | Байты, прочитанные из HDFS (`download`) и записанные в HDFS (`upload`) |
 | `artel_change_requests_total` | Counter | `app`, `cluster`, `status` | Переходы заявок Change Request: `SUBMITTED`, `APPROVED`, `REJECTED`, `CANCELLED` |
-| `sql_query_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `engine`, `status`, `le` | Время SQL-запроса до конечного статуса `FINISHED`, `CANCELLED`, `FAILED` |
+| `tolmach_query_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `engine`, `status`, `le` | Время SQL-запроса до конечного статуса `FINISHED`, `CANCELLED`, `FAILED` |
 | `spark_statement_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `language`, `status`, `le` | Время Spark-инструкции до конечного статуса |
 | `spark_sessions_active` | Gauge | `app`, `cluster`, `kind` | Сессии не в статусах `dead`/`killed`, обновление раз в 30 с. Значение берется из общей БД: при нескольких экземплярах каждый отдает полное число, поэтому агрегируйте через `max by (cluster, kind)`, а не `sum` |
 
@@ -1262,7 +1262,7 @@ scrape_configs:
       - targets:
           - 'artel:8000'
           - 'sklad:8000'
-          - 'sql-explorer:8003'
+          - 'tolmach:8003'
           - 'spark-explorer:8004'
 ```
 
@@ -1353,7 +1353,7 @@ spec:
 - [Руководство администратора платформы (admin-guide.md)](admin-guide.md)
 - [Руководство администратора Artel (yarn-admin-guide.md)](yarn-admin-guide.md)
 - [Руководство администратора Sklad (hdfs-admin-guide.md)](hdfs-admin-guide.md)
-- [Руководство администратора SQL Explorer (sql-admin-guide.md)](sql-admin-guide.md)
+- [Руководство администратора Tolmach (sql-admin-guide.md)](sql-admin-guide.md)
 - [Руководство администратора Spark Explorer (spark-admin-guide.md)](spark-admin-guide.md)
 - [Руководство администратора Hadoop gRPC Replicator (replicator-admin-guide.md)](replicator-admin-guide.md)
 

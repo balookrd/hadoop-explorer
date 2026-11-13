@@ -1,0 +1,12 @@
+package io.github.balookrd.pristan.tolmach.dto;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import jakarta.validation.constraints.NotBlank;
+import java.util.Map;
+
+public record OptimizeSqlRequest(
+        @NotBlank String sql,
+        String dialect,
+        @JsonProperty("cluster_id") String clusterId,
+        @JsonProperty("catalog_context") Map<String, Object> catalogContext
+) {}

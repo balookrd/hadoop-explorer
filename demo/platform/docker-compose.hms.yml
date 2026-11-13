@@ -26,11 +26,11 @@ services:
     ports:
       - "9083:9083"
     volumes:
-      - ../sql/hive/jaas-metastore-1.conf:/opt/hive/custom-conf/jaas.conf:ro
-      - ../sql/hive/hive-site.xml:/opt/hive/custom-conf/hive-site.xml:ro
-      - ../sql/hive/core-site.xml:/opt/hive/custom-conf/core-site.xml:ro
-      - ../sql/hive/hdfs-site.xml:/opt/hive/custom-conf/hdfs-site.xml:ro
-      - ../sql/hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
+      - ../tolmach/hive/jaas-metastore-1.conf:/opt/hive/custom-conf/jaas.conf:ro
+      - ../tolmach/hive/hive-site.xml:/opt/hive/custom-conf/hive-site.xml:ro
+      - ../tolmach/hive/core-site.xml:/opt/hive/custom-conf/core-site.xml:ro
+      - ../tolmach/hive/hdfs-site.xml:/opt/hive/custom-conf/hdfs-site.xml:ro
+      - ../tolmach/hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
       - sql-metastore-data:/opt/hive/data
@@ -59,11 +59,11 @@ services:
     ports:
       - "9084:9083"
     volumes:
-      - ../sql/hive/jaas-metastore-2.conf:/opt/hive/custom-conf/jaas.conf:ro
-      - ../sql/hive/hive-site-cluster2.xml:/opt/hive/custom-conf/hive-site.xml:ro
-      - ../sql/hive/core-site-cluster2.xml:/opt/hive/custom-conf/core-site.xml:ro
-      - ../sql/hive/hdfs-site-cluster2.xml:/opt/hive/custom-conf/hdfs-site.xml:ro
-      - ../sql/hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
+      - ../tolmach/hive/jaas-metastore-2.conf:/opt/hive/custom-conf/jaas.conf:ro
+      - ../tolmach/hive/hive-site-cluster2.xml:/opt/hive/custom-conf/hive-site.xml:ro
+      - ../tolmach/hive/core-site-cluster2.xml:/opt/hive/custom-conf/core-site.xml:ro
+      - ../tolmach/hive/hdfs-site-cluster2.xml:/opt/hive/custom-conf/hdfs-site.xml:ro
+      - ../tolmach/hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
       - sql-metastore-2-data:/opt/hive/data
@@ -93,11 +93,11 @@ services:
       - "10000:10000"
       - "10002:10002"
     volumes:
-      - ../sql/hive/jaas-server-1.conf:/opt/hive/custom-conf/jaas.conf:ro
-      - ../sql/hive/hive-site.xml:/opt/hive/custom-conf/hive-site.xml:ro
-      - ../sql/hive/core-site.xml:/opt/hive/custom-conf/core-site.xml:ro
-      - ../sql/hive/hdfs-site.xml:/opt/hive/custom-conf/hdfs-site.xml:ro
-      - ../sql/hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
+      - ../tolmach/hive/jaas-server-1.conf:/opt/hive/custom-conf/jaas.conf:ro
+      - ../tolmach/hive/hive-site.xml:/opt/hive/custom-conf/hive-site.xml:ro
+      - ../tolmach/hive/core-site.xml:/opt/hive/custom-conf/core-site.xml:ro
+      - ../tolmach/hive/hdfs-site.xml:/opt/hive/custom-conf/hdfs-site.xml:ro
+      - ../tolmach/hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
     depends_on:
@@ -127,11 +127,11 @@ services:
       - "10001:10001"
       - "10003:10002"
     volumes:
-      - ../sql/hive/jaas-server-2.conf:/opt/hive/custom-conf/jaas.conf:ro
-      - ../sql/hive/hive-site-cluster2.xml:/opt/hive/custom-conf/hive-site.xml:ro
-      - ../sql/hive/core-site-cluster2.xml:/opt/hive/custom-conf/core-site.xml:ro
-      - ../sql/hive/hdfs-site-cluster2.xml:/opt/hive/custom-conf/hdfs-site.xml:ro
-      - ../sql/hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
+      - ../tolmach/hive/jaas-server-2.conf:/opt/hive/custom-conf/jaas.conf:ro
+      - ../tolmach/hive/hive-site-cluster2.xml:/opt/hive/custom-conf/hive-site.xml:ro
+      - ../tolmach/hive/core-site-cluster2.xml:/opt/hive/custom-conf/core-site.xml:ro
+      - ../tolmach/hive/hdfs-site-cluster2.xml:/opt/hive/custom-conf/hdfs-site.xml:ro
+      - ../tolmach/hive/yarn-site.xml:/opt/hive/custom-conf/yarn-site.xml:ro
       - demo-shared-keytabs:/etc/security/keytabs:ro
       - demo-shared-krb5:/shared/conf:ro
     depends_on:

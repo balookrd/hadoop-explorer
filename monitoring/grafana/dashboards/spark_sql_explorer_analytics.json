@@ -64,7 +64,7 @@
       "collapsed": false,
       "gridPos": { "h": 1, "w": 24, "x": 0, "y": 9 },
       "id": 201,
-      "title": "SQL Explorer (Trino & Hive)",
+      "title": "Tolmach (Trino и Hive)",
       "type": "row"
     },
     {
@@ -81,7 +81,7 @@
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
         {
-          "expr": "sum(rate(sql_query_duration_seconds_count[5m])) by (engine, status)",
+          "expr": "sum(rate(tolmach_query_duration_seconds_count[5m])) by (engine, status)",
           "legendFormat": "{{engine}} - {{status}}",
           "refId": "A"
         }
@@ -103,7 +103,7 @@
       "options": { "legend": { "displayMode": "list", "placement": "bottom" } },
       "targets": [
         {
-          "expr": "histogram_quantile(0.95, sum(rate(sql_query_duration_seconds_bucket[5m])) by (le, engine))",
+          "expr": "histogram_quantile(0.95, sum(rate(tolmach_query_duration_seconds_bucket[5m])) by (le, engine))",
           "legendFormat": "p95 Latency ({{engine}})",
           "refId": "A"
         }
@@ -117,7 +117,7 @@
   "tags": ["hadoop", "spark", "trino", "hive", "sql"],
   "templating": { "list": [] },
   "time": { "from": "now-30m", "to": "now" },
-  "title": "Spark & SQL Explorer - Interactive Analytics",
+  "title": "Spark & Tolmach - Interactive Analytics",
   "uid": "spark_sql_explorer_analytics",
   "version": 1
 }

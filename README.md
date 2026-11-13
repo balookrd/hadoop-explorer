@@ -26,7 +26,7 @@
   - [Общее руководство администратора платформы (docs/admin-guide.md)](docs/admin-guide.md)
   - [Администрирование Artel (docs/yarn-admin-guide.md)](docs/yarn-admin-guide.md)
   - [Администрирование Sklad (docs/hdfs-admin-guide.md)](docs/hdfs-admin-guide.md)
-  - [Администрирование SQL Explorer (docs/sql-admin-guide.md)](docs/sql-admin-guide.md)
+  - [Администрирование Tolmach (docs/sql-admin-guide.md)](docs/sql-admin-guide.md)
   - [Администрирование Spark Explorer (docs/spark-admin-guide.md)](docs/spark-admin-guide.md)
   - [Администрирование Hadoop gRPC Replicator (docs/replicator-admin-guide.md)](docs/replicator-admin-guide.md)
   - [Регламент Disaster Recovery и защита от split-brain (docs/replicator-disaster-recovery-guide.md)](docs/replicator-disaster-recovery-guide.md)
@@ -36,7 +36,7 @@
   - [Руководство пользователя Artel (docs/yarn-user-guide.md)](docs/yarn-user-guide.md)
   - [Доставка и применение конфигурации очередей через Ansible AWX (docs/awx-yarn-deployment.md)](docs/awx-yarn-deployment.md)
   - [Руководство пользователя Sklad (docs/hdfs-user-guide.md)](docs/hdfs-user-guide.md)
-  - [Руководство пользователя SQL Explorer (docs/sql-user-guide.md)](docs/sql-user-guide.md)
+  - [Руководство пользователя Tolmach (docs/sql-user-guide.md)](docs/sql-user-guide.md)
   - [Руководство пользователя Spark Explorer (docs/spark-user-guide.md)](docs/spark-user-guide.md)
   - [Руководство пользователя Hadoop gRPC Replicator (docs/replicator-user-guide.md)](docs/replicator-user-guide.md)
   - [Работа Hive и Spark без кластера YARN (docs/hive-spark-without-yarn.md)](docs/hive-spark-without-yarn.md)
@@ -58,7 +58,7 @@ Pristan — монорепозиторий из пяти сервисов для
 
 1. Artel — консоль мониторинга кластеров и управления иерархией очередей Apache Hadoop YARN Capacity Scheduler: моделирование весов, версионирование конфигурации, заявки на изменение (Change Requests) с согласованием по принципу Four-Eyes, доставка и применение конфигурации (`yarn rmadmin -refreshQueues`) через Ansible AWX с автоматическим откатом.
 2. Sklad — файловый менеджер HDFS через WebHDFS и HttpFS с поддержкой NameNode HA и circuit breaker. Список файлов виртуализирован: в DOM отрисовываются только видимые строки, поэтому размер директории не влияет на скорость отрисовки. Поддерживает превью Parquet, ORC, CSV и JSON, ACL, квоты директорий и имперсонацию пользователей (`doAs`).
-3. SQL Explorer — веб-редактор запросов к Trino и Apache Hive (HiveServer2, Cloudera, Hortonworks) на базе Monaco Editor: автодополнение, TTL-кэш метаданных, история запросов, асинхронное выполнение, AI-помощник и сохранение рабочих пространств пользователей.
+3. Tolmach — веб-редактор запросов к Trino и Apache Hive (HiveServer2, Cloudera, Hortonworks) на базе Monaco Editor: автодополнение, TTL-кэш метаданных, история запросов, асинхронное выполнение, AI-помощник и сохранение рабочих пространств пользователей.
 4. Spark Explorer — веб-среда для Apache Spark (PySpark, Scala Spark, Spark SQL) через Apache Livy на кластерах YARN и Kubernetes, вызовы Livy защищены circuit breaker. Поддерживает интерактивные сессии, выбор версий Spark и Python, подключение каталогов Hive Metastore и Iceberg, визуальный конструктор DAG/ETL с проверкой графа на циклы.
 5. Hadoop gRPC Replicator — межкластерная репликация HDFS (DC1 → DC2): глобальное ограничение полосы пропускания (Hierarchical Token Bucket Throttler), бинарный gRPC-стриминг, атомарная запись через staging и rename, инкрементальная репликация по Snapshot Diff, Kerberos-изоляция (включая выполнение от системной технической учетной записи) и метрики Prometheus.
 
@@ -74,7 +74,7 @@ pristan/
 │   ├── zastava/ # Ядро безопасности: SPNEGO, LDAP, JWT, CSRF, RateLimit, L1/L2
 │   ├── yarn/                 # Сервис Artel (Capacity Scheduler, RM HA Failover)
 │   ├── hdfs/                 # Сервис Sklad (HA NameNode, Parquet/ORC Preview)
-│   ├── sql/                  # Сервис SQL Explorer (Trino, Hive, AI Assistant)
+│   ├── sql/                  # Сервис Tolmach (Trino, Hive, AI Assistant)
 │   ├── spark/                # Сервис Spark Explorer (Livy, PySpark, Scala, DAG Pipelines)
 │   └── replicator/           # Сервис Hadoop gRPC Replicator
 │       ├── orchestrator/     # Replicator Orchestrator API (Java 21 / Spring Boot 3)
@@ -90,7 +90,7 @@ pristan/
 │   ├── apps/
 │   │   ├── yarn/             # Frontend Artel (Svelte 5 + Tailwind 4)
 │   │   ├── hdfs/             # Frontend Sklad (Svelte 5 + Tailwind 4 + виртуализация)
-│   │   ├── sql/              # Frontend SQL Explorer (Svelte 5 + Tailwind 4 + Monaco Editor)
+│   │   ├── sql/              # Frontend Tolmach (Svelte 5 + Tailwind 4 + Monaco Editor)
 │   │   ├── spark/            # Frontend Spark Explorer (Svelte 5 + Tailwind 4 + Monaco + DAG)
 │   │   └── replicator/       # Frontend Replicator (Svelte 5 + Tailwind 4)
 │   └── package.json          # NPM Workspaces монорепозитория
@@ -103,7 +103,7 @@ pristan/
 ├── docker/                   # ─── Производственные Dockerfile на Java 21 ───
 │   ├── Dockerfile.artel
 │   ├── Dockerfile.sklad
-│   ├── Dockerfile.sql-java
+│   ├── Dockerfile.tolmach
 │   ├── Dockerfile.spark-java
 │   ├── Dockerfile.replicator-orchestrator
 │   └── Dockerfile.replicator-agent
@@ -166,7 +166,7 @@ Spring Boot 3 стартер безопасности на Java 21, подклю
 |---|---|---|---|---|
 | Artel | `http://localhost:8001` | `GET /healthz` | `GET /actuator/prometheus` | `pristan/yarn:latest` |
 | Sklad | `http://localhost:8002` | `GET /healthz` | `GET /actuator/prometheus` | `pristan/sklad:latest` |
-| SQL Explorer | `http://localhost:8003` | `GET /healthz` | `GET /actuator/prometheus` | `pristan/sql:latest` |
+| Tolmach | `http://localhost:8003` | `GET /healthz` | `GET /actuator/prometheus` | `pristan/tolmach:latest` |
 | Spark Explorer | `http://localhost:8004` | `GET /healthz` | `GET /actuator/prometheus` | `pristan/spark:latest` |
 | Hadoop gRPC Replicator | `http://localhost:8005` | `GET /health` | `GET /metrics` | `pristan/replicator-orchestrator:latest`, `pristan/replicator-agent:latest` |
 
@@ -182,7 +182,7 @@ YARN, HDFS, SQL и Spark Explorer отдают метрики на `GET /actuato
 - Ограничитель частоты (все четыре сервиса): `hadoop_rate_limit_blocks_total{app, tier}` — ответы 429, `tier`: `login` или `api`.
 - HDFS: `sklad_operations_total{cluster, operation, status}`, `sklad_bytes_transferred_total{cluster, direction}`.
 - YARN: `artel_change_requests_total{cluster, status}`.
-- SQL: `sql_query_duration_seconds_count|_bucket{cluster, engine, status}`.
+- SQL: `tolmach_query_duration_seconds_count|_bucket{cluster, engine, status}`.
 - Spark: `spark_statement_duration_seconds_count|_bucket{cluster, language, status}`, `spark_sessions_active{cluster, kind}`.
 
 Лейблы, бакеты и доступ описаны в [docs/CONFIGURATION.md, раздел 9](docs/CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
@@ -217,12 +217,12 @@ make demo-sklad
 # Остановка: make demo-sklad-stop
 ```
 
-### Демо-стенд SQL Explorer
-Включает: KDC, OpenLDAP, PostgreSQL, Hive Metastore, HiveServer2, Trino Coordinator и SQL Explorer:
+### Демо-стенд Tolmach
+Включает: KDC, OpenLDAP, PostgreSQL, Hive Metastore, HiveServer2, Trino Coordinator и Tolmach:
 ```bash
-make demo-sql
+make demo-tolmach
 # Веб-интерфейс: http://localhost:8003
-# Остановка: make demo-sql-stop
+# Остановка: make demo-tolmach-stop
 ```
 
 ### Демо-стенд Spark Explorer
@@ -298,18 +298,18 @@ make build
 # Либо по отдельности:
 ./scripts/build-containers.sh artel       # pristan/artel:latest
 ./scripts/build-containers.sh sklad       # pristan/sklad:latest
-./scripts/build-containers.sh sql         # pristan/sql:latest
+./scripts/build-containers.sh tolmach     # pristan/tolmach:latest
 ./scripts/build-containers.sh spark       # pristan/spark:latest
 ./scripts/build-containers.sh replicator  # pristan/replicator-orchestrator:latest и pristan/replicator-agent:latest
 ```
 
-Тег и префикс образа задаются переменными `TAG` (по умолчанию `latest`) и `REGISTRY` (по умолчанию `hadoop-explorer`). Цели `make build-artel`, `make build-sklad`, `make build-sql`, `make build-spark`, `make build-replicator` собирают фронтенд и JAR (`mvn clean package -DskipTests`), а не Docker-образ.
+Тег и префикс образа задаются переменными `TAG` (по умолчанию `latest`) и `REGISTRY` (по умолчанию `hadoop-explorer`). Цели `make build-artel`, `make build-sklad`, `make build-tolmach`, `make build-spark`, `make build-replicator` собирают фронтенд и JAR (`mvn clean package -DskipTests`), а не Docker-образ.
 
 Прямой запуск через Docker CLI:
 ```bash
 docker build -t pristan/yarn:latest -f docker/Dockerfile.artel .
 docker build -t pristan/sklad:latest -f docker/Dockerfile.sklad .
-docker build -t pristan/sql:latest -f docker/Dockerfile.sql-java .
+docker build -t pristan/tolmach:latest -f docker/Dockerfile.tolmach .
 docker build -t pristan/spark:latest -f docker/Dockerfile.spark-java .
 docker build -t pristan/replicator-orchestrator:latest -f docker/Dockerfile.replicator-orchestrator .
 docker build -t pristan/replicator-agent:latest -f docker/Dockerfile.replicator-agent .
@@ -323,7 +323,7 @@ docker build -t pristan/replicator-agent:latest -f docker/Dockerfile.replicator-
 - Frontend: 115 тестов Vitest (из них 28 в `frontend/common`) и `svelte-check` (проверка типов во всех 5 SPA; компонентные тесты модальных окон, тулбаров, метрик кластера, партиций, панелей diff, каталогов и файловых списков в HDFS, Spark, SQL, YARN, Replicator, тестирование общих компонентов `Header`, `LoginModal`, `StatusBadge`, `Modal`, `NotificationToast`, а также E2E-тесты Playwright, которые падают при ошибках в консоли браузера).
 - Artel: 49 тестов (34 Java 21 + 15 Frontend UI: валидация Capacity Scheduler, балансировка, Draft Diff, генерация XML, RM HA Failover, метрики кластера, Change Requests, принцип Four-Eyes, AWX-деплой, аудит, L1-кэш токенов, Healthz, Circuit Breaker).
 - Sklad: 45 тестов (17 Java 21 + 28 Frontend UI: NameNode HA Failover, localized exception mapping, API файловых операций, Healthz, Parquet/ORC Preview со schema footer reader, Cross-Cluster Copy, MockHdfsClient, Circuit Breaker, Rate Limiter, компонентные тесты тулбара, хлебных крошек, модальных окон и пакетных операций).
-- SQL Explorer: 19 тестов (7 Java 21 + 12 Frontend UI: Catalog API валидация и эндпоинты, Trino/Hive движки с отменой запросов и стримингом, TTL-кэширование метаданных, AI-сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
+- Tolmach: 19 тестов (7 Java 21 + 12 Frontend UI: Catalog API валидация и эндпоинты, Trino/Hive движки с отменой запросов и стримингом, TTL-кэширование метаданных, AI-сервис, токены, CSRF, ACL кластеров, Crash Recovery, Readiness / Healthz, SqlUserWorkspace).
 - Spark Explorer: 15 тестов (6 Java 21 + 9 Frontend UI: Livy-клиент полного цикла с отменой statement и логами, интерактивные сессии, автоостановка сессий при logout, MockSparkEngine, User Workspace, TTL-кэширование метаданных, Crash Recovery, Readiness / Healthz, Circuit Breaker).
 - Hadoop gRPC Replicator: 871 тест (848 Java 21 + 23 Frontend UI: Protobuf gRPC контракт, Hierarchical Token Bucket, адаптивный параллелизм вычитки Kafka до 100G/200G/400G+ с батчами до 50k, согласование полосы агентов без моделирования физики хостов, изоляция брокерного ISR-трафика, потоковый Receiver, KerberosContextManager изоляция KRB5CCNAME, парсер Snapshot Diff, метрики Prometheus, демон Cron Scheduler, полная история запусков `JobRun`, RBAC-изоляция задач).
 - Common Security Starter: 31 тест Java 21.
@@ -343,7 +343,7 @@ make test-java        # Все Java тесты платформы
 make test-zastava # Тесты стартера безопасности (zastava)
 make test-artel        # Тесты сервиса Artel (Java 21)
 make test-sklad        # Тесты сервиса Sklad (Java 21)
-make test-sql         # Тесты сервиса SQL Explorer (Java 21)
+make test-tolmach         # Тесты сервиса Tolmach (Java 21)
 make test-spark       # Тесты сервиса Spark Explorer (Java 21)
 make test-replicator  # Тесты сервиса Replicator (Java 21)
 ```
@@ -359,7 +359,7 @@ make test-replicator  # Тесты сервиса Replicator (Java 21)
 | `make test-zastava` | Запуск тестов стартера безопасности `zastava` |
 | `make test-artel` | Запуск тестов сервиса Artel (Java 21) |
 | `make test-sklad` | Запуск тестов сервиса Sklad (Java 21) |
-| `make test-sql` | Запуск тестов сервиса SQL Explorer (Java 21) |
+| `make test-tolmach` | Запуск тестов сервиса Tolmach (Java 21) |
 | `make test-spark` | Запуск тестов сервиса Spark Explorer (Java 21) |
 | `make test-replicator` | Запуск тестов сервиса Hadoop gRPC Replicator (Java 21) |
 | `make test-ui` | Запуск тестов фронтенда Vitest в Svelte 5 приложениях |
@@ -373,15 +373,15 @@ make test-replicator  # Тесты сервиса Replicator (Java 21)
 | `make build` | Сборка Docker-образов всех приложений платформы |
 | `make build-artel` | Сборка фронтенда и JAR-пакета Artel (`mvn clean package`) |
 | `make build-sklad` | Сборка фронтенда и JAR-пакета Sklad (`mvn clean package`) |
-| `make build-sql` | Сборка фронтенда и JAR-пакета SQL Explorer (`mvn clean package`) |
+| `make build-tolmach` | Сборка фронтенда и JAR-пакета Tolmach (`mvn clean package`) |
 | `make build-spark` | Сборка фронтенда и JAR-пакета Spark Explorer (`mvn clean package`) |
 | `make build-replicator` | Сборка фронтенда и JAR-пакета Hadoop gRPC Replicator (`mvn clean package`) |
 | `make demo-artel` | Запуск демо-стенда Artel (`:8001`) |
 | `make demo-artel-stop` | Остановка демо-стенда Artel |
 | `make demo-sklad` | Запуск демо-стенда Sklad (`:8002`) |
 | `make demo-sklad-stop` | Остановка демо-стенда Sklad |
-| `make demo-sql` | Запуск демо-стенда SQL Explorer (`:8003`) |
-| `make demo-sql-stop` | Остановка демо-стенда SQL Explorer |
+| `make demo-tolmach` | Запуск демо-стенда Tolmach (`:8003`) |
+| `make demo-tolmach-stop` | Остановка демо-стенда Tolmach |
 | `make demo-spark` | Запуск демо-стенда Spark Explorer (`:8004`) |
 | `make demo-spark-stop` | Остановка демо-стенда Spark Explorer |
 | `make demo-all` | Запуск объединенного демо-стенда платформы |

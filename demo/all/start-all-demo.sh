@@ -19,7 +19,7 @@ done
 
 echo ""
 echo "=== Инициализация демонстрационных таблиц Hive (Cluster 1 & Cluster 2) ==="
-"$ROOT_DIR/demo/sql/hive/init-demo-data.sh" || true
+"$ROOT_DIR/demo/tolmach/hive/init-demo-data.sh" || true
 
 echo ""
 echo "=== Инициализация демо-таблиц Spark через Livy в YARN (создает только отсутствующие) ==="
@@ -40,7 +40,7 @@ echo "   Pristan Демо Стенды успешно запущены!"
 echo "========================================================="
 echo "   🎛️ Artel:       http://localhost:8001"
 echo "   📁 Sklad:       http://localhost:8002"
-echo "   📊 SQL Explorer:        http://localhost:8003"
+echo "   📊 Tolmach:        http://localhost:8003"
 echo "   ⚡ Spark Explorer:      http://localhost:8004"
 echo "   🔄 Replicator Explorer: http://localhost:8005"
 echo "---------------------------------------------------------"

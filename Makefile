@@ -1,8 +1,8 @@
-.PHONY: help test test-artel test-sklad test-sql test-spark test-replicator \
+.PHONY: help test test-artel test-sklad test-tolmach test-spark test-replicator \
         test-zastava test-replicator-agent test-replicator-orchestrator test-java test-ui \
-        build build-java build-zastava build-artel build-sklad build-sql build-spark build-replicator \
-        frontend-build frontend-install demo-artel demo-sklad demo-sql demo-spark demo-all \
-        demo-artel-stop demo-sklad-stop demo-sql-stop demo-spark-stop demo-all-stop \
+        build build-java build-zastava build-artel build-sklad build-tolmach build-spark build-replicator \
+        frontend-build frontend-install demo-artel demo-sklad demo-tolmach demo-spark demo-all \
+        demo-artel-stop demo-sklad-stop demo-tolmach-stop demo-spark-stop demo-all-stop \
         skeleton skeleton-all skeleton-backend java-index java-query check-jdk21
 
 TAG ?= latest
@@ -47,7 +47,7 @@ help:
 	@echo "    make test             - Запуск всех модульных тестов платформы (Java + UI)"
 	@echo "    make test-artel       - Тесты сервиса Artel (Java 21)"
 	@echo "    make test-sklad        - Тесты сервиса Sklad (Java 21)"
-	@echo "    make test-sql         - Тесты сервиса SQL Explorer (Java 21)"
+	@echo "    make test-tolmach         - Тесты сервиса Tolmach (Java 21)"
 	@echo "    make test-spark       - Тесты сервиса Spark Explorer (Java 21)"
 	@echo "    make test-replicator  - Тесты сервиса Replicator (Java 21)"
 	@echo "    make test-zastava - Тесты Java 21 zastava"
@@ -61,7 +61,7 @@ help:
 	@echo "    make build            - Сборка всех Docker-образов (yarn, hdfs, sql, spark, replicator)"
 	@echo "    make build-artel      - Сборка образа Artel"
 	@echo "    make build-sklad       - Сборка образа Sklad"
-	@echo "    make build-sql        - Сборка образа SQL Explorer"
+	@echo "    make build-tolmach        - Сборка образа Tolmach"
 	@echo "    make build-spark      - Сборка образа Spark Explorer"
 	@echo "    make build-replicator - Сборка образа Replicator Orchestrator"
 	@echo ""
@@ -74,8 +74,8 @@ help:
 	@echo "    make demo-artel-stop  - Остановка стенда YARN"
 	@echo "    make demo-sklad        - Запуск стенда HDFS (WebHDFS, Kerberos, OpenLDAP) -> :8002"
 	@echo "    make demo-sklad-stop   - Остановка стенда HDFS"
-	@echo "    make demo-sql         - Запуск стенда SQL (Trino, Hive, Postgres, LDAP) -> :8003"
-	@echo "    make demo-sql-stop    - Остановка стенда SQL"
+	@echo "    make demo-tolmach         - Запуск стенда SQL (Trino, Hive, Postgres, LDAP) -> :8003"
+	@echo "    make demo-tolmach-stop    - Остановка стенда SQL"
 	@echo "    make demo-spark       - Запуск стенда Spark (Livy, PySpark, Scala, Metastore) -> :8004"
 	@echo "    make demo-spark-stop  - Остановка стенда Spark"
 	@echo "    make demo-monitoring  - Запуск стека мониторинга (Prometheus :9090 + Grafana :3000)"
@@ -97,8 +97,8 @@ test-artel: check-jdk21
 test-sklad: check-jdk21
 	$(JAVA21) mvn test -f backend/sklad/pom.xml
 
-test-sql: check-jdk21
-	$(JAVA21) mvn test -f backend/sql/pom.xml
+test-tolmach: check-jdk21
+	$(JAVA21) mvn test -f backend/tolmach/pom.xml
 
 test-spark: check-jdk21
 	$(JAVA21) mvn test -f backend/spark/pom.xml
@@ -121,10 +121,10 @@ test-zastava: check-jdk21
 
 test-sklad-java: test-sklad
 test-artel-java: test-artel
-test-sql-java: test-sql
+test-tolmach-java: test-tolmach
 test-spark-java: test-spark
 
-test-java: test-zastava test-replicator test-sklad test-artel test-sql test-spark
+test-java: test-zastava test-replicator test-sklad test-artel test-tolmach test-spark
 
 test-ui:
 	./scripts/run-tests.sh frontend
@@ -144,8 +144,8 @@ build-artel: frontend-build-artel
 build-sklad: frontend-build-sklad
 	$(JAVA21) mvn clean package -DskipTests -f backend/sklad/pom.xml
 
-build-sql: frontend-build-sql
-	$(JAVA21) mvn clean package -DskipTests -f backend/sql/pom.xml
+build-tolmach: frontend-build-tolmach
+	$(JAVA21) mvn clean package -DskipTests -f backend/tolmach/pom.xml
 
 build-spark: frontend-build-spark
 	$(JAVA21) mvn clean package -DskipTests -f backend/spark/pom.xml
@@ -165,7 +165,7 @@ build-replicator-java: build-replicator
 
 build-sklad-java: build-sklad
 build-artel-java: build-artel
-build-sql-java: build-sql
+build-tolmach-java: build-tolmach
 build-spark-java: build-spark
 
 frontend-install:
@@ -215,11 +215,11 @@ demo-sklad:
 demo-sklad-stop:
 	cd demo/sklad && ./stop-demo.sh
 
-demo-sql:
-	cd demo/sql && ./start-demo.sh
+demo-tolmach:
+	cd demo/tolmach && ./start-demo.sh
 
-demo-sql-stop:
-	cd demo/sql && ./stop-demo.sh
+demo-tolmach-stop:
+	cd demo/tolmach && ./stop-demo.sh
 
 demo-spark:
 	cd demo/spark && ./start-demo.sh

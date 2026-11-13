@@ -54,7 +54,7 @@ Livy запускает каждую сессию через `spark-submit --mas
 
 - `demo/artel/cluster-1/core-site.xml`, `demo/artel/cluster-2/core-site.xml`: `hadoop.proxyuser.hive.*`. Livy входит в KDC как `hive/hive-server` (`hive/hive-server-2.demo-platform-net` для кластера 2), и RM без этого отклоняет отправку от имени пользователя.
 - `demo/artel/cluster-1/hdfs-site.xml`, `demo/artel/cluster-2/hdfs-site.xml` (подключены в `demo/platform/docker-compose.yarn.yml`): principal NameNode. RM продлевает токен HDFS приложения при отправке и без principal отклоняет приложение с `Failed to specify server's Kerberos principal name`.
-- `hadoop.proxyuser.hive.*` в HDFS (`demo/sklad/hadoop/entrypoint.sh`) и в Hive Metastore (`demo/sql/hive/core-site*.xml`) уже были.
+- `hadoop.proxyuser.hive.*` в HDFS (`demo/sklad/hadoop/entrypoint.sh`) и в Hive Metastore (`demo/tolmach/hive/core-site*.xml`) уже были.
 
 Принципалы и keytab'ы `demo/infra` не менялись. NodeManager входит под principal RM своего кластера (`yarn/yarn-rm-N.yarn-demo-net` из `yarn-cluster-N.keytab`).
 

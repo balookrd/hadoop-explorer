@@ -41,8 +41,8 @@ case "$TARGET" in
   sklad)
     build_app sklad
     ;;
-  sql)
-    build_app sql
+  tolmach)
+    build_app tolmach
     ;;
   spark)
     build_app spark
@@ -54,7 +54,7 @@ case "$TARGET" in
   all)
     build_app artel
     build_app sklad
-    build_app sql
+    build_app tolmach
     build_app spark
     build_app replicator-orchestrator
     build_app replicator-agent
@@ -63,7 +63,7 @@ case "$TARGET" in
     echo "=========================================="
     ;;
   *)
-    echo "Использование: $0 [all|artel|sklad|sql|spark|replicator]"
+    echo "Использование: $0 [all|artel|sklad|tolmach|spark|replicator]"
     exit 1
     ;;
 esac

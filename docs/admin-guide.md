@@ -12,7 +12,7 @@
 |---|---|---|---|
 | Artel | `8001` (или `8000`) | Управление очередями Capacity Scheduler, мониторинг YARN RM HA, Change Requests, доставка и применение через Ansible AWX | [docs/yarn-admin-guide.md](yarn-admin-guide.md) |
 | Sklad | `8002` (или `8000`) | Менеджер файлов Data Lake, WebHDFS NameNode HA, превью Parquet/ORC, квоты каталогов, Cross-Cluster Copy | [docs/hdfs-admin-guide.md](hdfs-admin-guide.md) |
-| SQL Explorer | `8003` (или `8000`) | Веб-консоль Trino и Apache Hive, потоковая выдача результатов, отмена запросов, ИИ-ассистент SQL | [docs/sql-admin-guide.md](sql-admin-guide.md) |
+| Tolmach | `8003` (или `8000`) | Веб-консоль Trino и Apache Hive, потоковая выдача результатов, отмена запросов, ИИ-ассистент SQL | [docs/sql-admin-guide.md](sql-admin-guide.md) |
 | Spark Explorer | `8004` (или `8000`) | Управление интерактивными сессиями Livy (PySpark / Scala), интеграция с YARN и Spark History Server | [docs/spark-admin-guide.md](spark-admin-guide.md) |
 | Hadoop gRPC Replicator | `8005` (API/UI)<br>`50051` (gRPC) | Межкластерная репликация HDFS (Orchestrator и двунаправленные агенты), ограничение полосы WAN, cron-планировщик | [docs/replicator-admin-guide.md](replicator-admin-guide.md) |
 
@@ -80,7 +80,7 @@ Replicator Agent, кроме трех режимов выше, запускае�
 |---|---|---|---|
 | Artel | `8000` | `8001` | `https://yarn.company.local` |
 | Sklad | `8000` | `8002` | `https://hdfs.company.local` |
-| SQL Explorer | `8003` | `8003` | `https://sql.company.local` |
+| Tolmach | `8003` | `8003` | `https://sql.company.local` |
 | Spark Explorer | `8004` | `8004` | `https://spark.company.local` |
 | Replicator Orchestrator | `8005` | `8005` | `https://replicator.company.local` |
 | Replicator Agent (gRPC) | `50051` | `50051` | `grpc://replicator-dc2.company.local:50051` |

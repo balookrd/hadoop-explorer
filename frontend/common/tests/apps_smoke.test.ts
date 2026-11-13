@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, waitFor } from '@testing-library/svelte';
 import HdfsApp from '../../apps/sklad/src/App.svelte';
 import SparkApp from '../../apps/spark/src/App.svelte';
-import SqlApp from '../../apps/sql/src/App.svelte';
+import SqlApp from '../../apps/tolmach/src/App.svelte';
 import YarnApp from '../../apps/artel/src/App.svelte';
 
 // Глобальный мок для fetch API во всех SPA приложениях
@@ -77,7 +77,7 @@ describe('All 4 SPA Applications Smoke Mounting Tests', () => {
     });
   });
 
-  it('mounts SQL Explorer App without runtime exceptions', async () => {
+  it('mounts Tolmach App without runtime exceptions', async () => {
     const { container } = render(SqlApp);
     expect(container).toBeInTheDocument();
     await waitFor(() => {

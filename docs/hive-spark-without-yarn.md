@@ -90,7 +90,7 @@ HiveServer2 принимает SQL-запросы по протоколу JDBC/O
 ```mermaid
 flowchart TD
     subgraph Clients["Клиенты и Web UI"]
-        UI_SQL["SQL Explorer\n(:8003)"]
+        UI_SQL["Tolmach\n(:8003)"]
         UI_SPARK["Spark Explorer\n(:8004)"]
         Beeline["Beeline / JDBC Client"]
     end

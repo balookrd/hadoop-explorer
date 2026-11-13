@@ -20,11 +20,11 @@ run_sklad() {
   mvn test -f "$ROOT_DIR/backend/sklad/pom.xml"
 }
 
-run_sql() {
+run_tolmach() {
   echo "=========================================="
-  echo "🧪 Запуск тестов: SQL Explorer (Java 21 / Spring Boot 3)"
+  echo "🧪 Запуск тестов: Tolmach (Java 21 / Spring Boot 3)"
   echo "=========================================="
-  mvn test -f "$ROOT_DIR/backend/sql/pom.xml"
+  mvn test -f "$ROOT_DIR/backend/tolmach/pom.xml"
 }
 
 run_spark() {
@@ -58,8 +58,8 @@ case "$APP" in
   sklad)
     run_sklad
     ;;
-  sql)
-    run_sql
+  tolmach)
+    run_tolmach
     ;;
   spark)
     run_spark
@@ -71,7 +71,7 @@ case "$APP" in
     run_frontend
     run_artel
     run_sklad
-    run_sql
+    run_tolmach
     run_spark
     run_replicator
     echo ""
@@ -80,7 +80,7 @@ case "$APP" in
     echo "========================================================"
     ;;
   *)
-    echo "Использование: $0 [all|frontend|sklad|spark|sql|artel|replicator]"
+    echo "Использование: $0 [all|frontend|sklad|spark|tolmach|artel|replicator]"
     exit 1
     ;;
 esac

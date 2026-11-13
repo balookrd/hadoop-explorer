@@ -11,7 +11,7 @@ ACTION="${1:-help}"
 SERVICE="${2:-all}"
 
 usage() {
-    echo "Использование: $0 [start|stop|restart|status|logs] [all|artel|sklad|sql|spark|monitoring]"
+    echo "Использование: $0 [start|stop|restart|status|logs] [all|artel|sklad|tolmach|spark|monitoring]"
     echo ""
     echo "Команды:"
     echo "  start [service]    Запустить демонстрационный стенд"
@@ -20,7 +20,7 @@ usage() {
     echo "  status [service]   Показать статус контейнеров"
     echo "  logs [service]     Просмотр логов стенда"
     echo ""
-    echo "Сервисы: all (по умолчанию), artel, sklad, sql, spark, monitoring"
+    echo "Сервисы: all (по умолчанию), artel, sklad, tolmach, spark, monitoring"
     exit 1
 }
 
@@ -35,8 +35,8 @@ get_compose_file() {
         sklad)
             echo "$ROOT_DIR/demo/sklad/docker-compose.yml"
             ;;
-        sql)
-            echo "$ROOT_DIR/demo/sql/docker-compose.yml"
+        tolmach)
+            echo "$ROOT_DIR/demo/tolmach/docker-compose.yaml"
             ;;
         spark)
             echo "$ROOT_DIR/demo/spark/docker-compose.yml"

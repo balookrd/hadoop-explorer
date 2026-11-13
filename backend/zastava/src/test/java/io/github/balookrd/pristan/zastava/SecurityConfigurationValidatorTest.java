@@ -82,7 +82,7 @@ class SecurityConfigurationValidatorTest {
     @Test
     @DisplayName("Демо-стенды (debug=true) запускаются со своими опубликованными секретами")
     void publishedSecretsAreAllowedInDebug() {
-        // demo/sql/application-demo.yml: hybrid mode with debug: true
+        // demo/tolmach/application-demo.yml: hybrid mode with debug: true
         assertDoesNotThrow(() -> SecurityConfigurationValidator.validate(bind(Map.of(
                 "zastava.auth.mode", "hybrid",
                 "zastava.debug", "true",

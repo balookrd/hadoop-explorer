@@ -1,6 +1,6 @@
-# Руководство администратора SQL Explorer
+# Руководство администратора Tolmach
 
-Руководство для инженеров DevOps, SRE и системных администраторов: установка, настройка и эксплуатация сервиса SQL Explorer в двух режимах:
+Руководство для инженеров DevOps, SRE и системных администраторов: установка, настройка и эксплуатация сервиса Tolmach в двух режимах:
 1. Standalone — сервер или ВМ под управлением systemd.
 2. Docker и Docker Compose.
 
@@ -9,12 +9,12 @@
 ## 1. Архитектура и требования
 
 ### 1.1 Функции сервиса
-SQL Explorer выполняет SQL-запросы и показывает каталоги метаданных Data Lake:
+Tolmach выполняет SQL-запросы и показывает каталоги метаданных Data Lake:
 - Распределенные аналитические запросы через Trino DB API, с отменой долгих запросов и стримингом результатов.
 - Подключение к Apache Hive через HiveServer2 и прямой опрос Hive Metastore.
 - Каталог баз данных, схем и таблиц с TTL-кэшированием метаданных.
 - Рабочее пространство аналитика (`SqlUserWorkspace`), хранимое на сервере: вкладки редактора, сохраненные запросы, история выполнений с метриками.
-- ИИ-ассистент для проверки, объяснения, оптимизации, исправления и генерации SQL: OpenAI-совместимая LLM (`sql.ai.provider: openai_compatible`) с откатом на встроенные правила либо только правила (`mock-builtin`, по умолчанию). Что при этом уходит в модель — [CONFIGURATION.md, раздел 5.3](CONFIGURATION.md#53-ии-ассистент-on-premise-llm--ollama--vllm).
+- ИИ-ассистент для проверки, объяснения, оптимизации, исправления и генерации SQL: OpenAI-совместимая LLM (`tolmach.ai.provider: openai_compatible`) с откатом на встроенные правила либо только правила (`mock-builtin`, по умолчанию). Что при этом уходит в модель — [CONFIGURATION.md, раздел 5.3](CONFIGURATION.md#53-ии-ассистент-on-premise-llm--ollama--vllm).
 - Проверка идентификаторов каталогов, схем и таблиц перед подстановкой в запрос (`CatalogController.validateIdentifier`) — защита от SQL-инъекций.
 
 ### 1.2 Сетевые порты и эндпоинты
@@ -50,10 +50,10 @@ SQL Explorer выполняет SQL-запросы и показывает ка�
 
 ### 1.4 Дистрибутивы
 - GitHub Releases (`v${VERSION}`):
-  - `sql-explorer-java-${VERSION}.jar` (~50 МБ) — Spring Boot 3 fat JAR, в который включены веб-интерфейс (Svelte 5 SPA, Monaco Editor), коннекторы Trino и Hive, ИИ-ассистент и драйверы БД;
+  - `tolmach-${VERSION}.jar` (~50 МБ) — Spring Boot 3 fat JAR, в который включены веб-интерфейс (Svelte 5 SPA, Monaco Editor), коннекторы Trino и Hive, ИИ-ассистент и драйверы БД;
   - `SHA256SUMS.txt` — контрольные суммы SHA-256 для проверки загруженных файлов.
 - GitHub Container Registry (GHCR):
-  - `ghcr.io/company/pristan/sql:${VERSION}`
+  - `ghcr.io/company/pristan/tolmach:${VERSION}`
 
 ---
 
@@ -114,14 +114,14 @@ BIN_DIR="/opt/pristan/sql/bin"
 mkdir -p "${RELEASE_DIR}" "${BIN_DIR}" && cd "${RELEASE_DIR}"
 
 # 1. Загрузка через curl по прямой ссылке (или через `gh release download`):
-curl -fsSL -O "https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/sql-explorer-java-${VERSION}.jar"
+curl -fsSL -O "https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/tolmach-${VERSION}.jar"
 curl -fsSL -O "https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}/SHA256SUMS.txt"
 
 # 2. Проверка контрольной суммы:
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
 # 3. Создание стабильной символической ссылки:
-ln -sfn "${RELEASE_DIR}/sql-explorer-java-${VERSION}.jar" "${BIN_DIR}/sql-explorer.jar"
+ln -sfn "${RELEASE_DIR}/tolmach-${VERSION}.jar" "${BIN_DIR}/tolmach.jar"
 ```
 
 #### Вариант Б: сборка из исходников
@@ -131,22 +131,22 @@ cd /tmp
 git clone https://github.com/company/hadoop-explorer.git
 cd hadoop-explorer
 
-# Сборка фронтенда SQL Explorer (Monaco Editor)
+# Сборка фронтенда Tolmach (Monaco Editor)
 cd frontend
-npm ci --workspace=apps/sql --include-workspace-root
-# Бандл собирается сразу в backend/sql/src/main/resources/static и попадает в JAR
-npm run build --workspace=apps/sql
+npm ci --workspace=apps/tolmach --include-workspace-root
+# Бандл собирается сразу в backend/tolmach/src/main/resources/static и попадает в JAR
+npm run build --workspace=apps/tolmach
 cd ..
 
 # Сборка Java 21 бэкенда (Spring Boot Fat JAR)
-mvn clean package -pl backend/zastava,backend/sql -am -DskipTests
+mvn clean package -pl backend/zastava,backend/tolmach -am -DskipTests
 
 # Копирование собранного JAR в рабочий каталог
-cp backend/sql/target/sql-explorer-java-*.jar /opt/pristan/sql/bin/sql-explorer.jar
+cp backend/tolmach/target/tolmach-*.jar /opt/pristan/sql/bin/tolmach.jar
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
-Создайте файл `/etc/pristan/sql/application.yml`. Юнит systemd на шаге 5 подключает его через `SPRING_CONFIG_ADDITIONAL_LOCATION` поверх `application.yml` из JAR, поэтому указывайте только ключи, которые меняете. Ключи берутся из `backend/sql/src/main/resources/application.yml`, `SqlProperties` (префикс `sql`) и `ZastavaProperties` (префикс `hadoop.security`).
+Создайте файл `/etc/pristan/sql/application.yml`. Юнит systemd на шаге 5 подключает его через `SPRING_CONFIG_ADDITIONAL_LOCATION` поверх `application.yml` из JAR, поэтому указывайте только ключи, которые меняете. Ключи берутся из `backend/tolmach/src/main/resources/application.yml`, `SqlProperties` (префикс `sql`) и `ZastavaProperties` (префикс `hadoop.security`).
 ```yaml
 server:
   port: 8003
@@ -154,7 +154,7 @@ server:
 spring:
   datasource:
     # Встроенная H2 в файле. Для PostgreSQL: jdbc:postgresql://<host>:5432/<database> (драйвер есть в JAR).
-    url: jdbc:h2:file:/var/lib/pristan/sql/data/sql_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    url: jdbc:h2:file:/var/lib/pristan/sql/data/tolmach;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
 
 hadoop:
   security:
@@ -183,7 +183,7 @@ hadoop:
     kerberos:
       # Входящий SPNEGO (SSO в браузере)
       enabled: true
-      keytab: "/etc/security/keytabs/sql-explorer.keytab"
+      keytab: "/etc/security/keytabs/tolmach.keytab"
       service-principal: "HTTP/sql.company.local@COMPANY.LOCAL"
 
 sql:
@@ -229,10 +229,10 @@ sudo chown appuser:appuser /etc/pristan/sql/application.yml
 ```
 
 ### Шаг 5: Создание systemd-сервиса
-Создайте файл `/etc/systemd/system/sql-explorer.service`:
+Создайте файл `/etc/systemd/system/tolmach.service`:
 ```ini
 [Unit]
-Description=Hadoop SQL Explorer Web Service
+Description=Hadoop Tolmach Web Service
 After=network.target network-online.target
 Wants=network-online.target
 
@@ -245,7 +245,7 @@ Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/pristan/sql/application
 Environment="KRB5_CONFIG=/etc/krb5.conf"
 
 ExecStart=/usr/bin/java -Xms512m -Xmx2048m \
-    -jar /opt/pristan/sql/bin/sql-explorer.jar \
+    -jar /opt/pristan/sql/bin/tolmach.jar \
     --server.port=8003
 
 Restart=always
@@ -261,10 +261,10 @@ WantedBy=multi-user.target
 ### Шаг 6: Запуск и проверка
 ```bash
 sudo systemctl daemon-reload
-sudo systemctl enable sql-explorer
-sudo systemctl start sql-explorer
+sudo systemctl enable tolmach
+sudo systemctl start tolmach
 
-sudo systemctl status sql-explorer
+sudo systemctl status tolmach
 curl -I http://127.0.0.1:8003/healthz
 # HTTP/1.1 200 OK
 ```
@@ -278,15 +278,15 @@ NEW_VER="1.0.1"
 RELEASE_DIR="/opt/pristan/sql/releases/v${NEW_VER}"
 mkdir -p "${RELEASE_DIR}" && cd "${RELEASE_DIR}"
 
-curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/sql-explorer-java-${NEW_VER}.jar"
+curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/tolmach-${NEW_VER}.jar"
 curl -fsSL -O "https://github.com/company/pristan/releases/download/v${NEW_VER}/SHA256SUMS.txt"
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
 # Атомарное переключение симлинка:
-ln -sfn "${RELEASE_DIR}/sql-explorer-java-${NEW_VER}.jar" /opt/pristan/sql/bin/sql-explorer.jar
+ln -sfn "${RELEASE_DIR}/tolmach-${NEW_VER}.jar" /opt/pristan/sql/bin/tolmach.jar
 
 # Перезапуск сервиса (занимает 2–3 сек):
-sudo systemctl restart sql-explorer
+sudo systemctl restart tolmach
 ```
 
 ---
@@ -301,12 +301,12 @@ echo "${GITHUB_TOKEN}" | docker login ghcr.io -u <github-username> --password-st
 
 # Загрузка готового образа:
 VERSION="1.0.0"
-docker pull ghcr.io/company/pristan/sql:${VERSION}
+docker pull ghcr.io/company/pristan/tolmach:${VERSION}
 ```
 
 ### 3.2 Локальная сборка Docker-образа
 ```bash
-docker build -t ghcr.io/company/pristan/sql:latest -f docker/Dockerfile.sql-java .
+docker build -t ghcr.io/company/pristan/tolmach:latest -f docker/Dockerfile.tolmach .
 ```
 
 ### 3.3 Запуск одного контейнера (`docker run`)
@@ -314,18 +314,18 @@ docker build -t ghcr.io/company/pristan/sql:latest -f docker/Dockerfile.sql-java
 ```bash
 # <jwt_secret> - вывод `openssl rand -hex 32`; задайте тот же ключ на всех контейнерах сервиса
 docker run -d \
-  --name sql-explorer \
+  --name tolmach \
   --restart unless-stopped \
   -p 8003:8003 \
   -e SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml \
-  -e SPRING_DATASOURCE_URL="jdbc:h2:file:/app/data/sql_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL" \
+  -e SPRING_DATASOURCE_URL="jdbc:h2:file:/app/data/tolmach;DB_CLOSE_DELAY=-1;MODE=PostgreSQL" \
   -e JWT_SECRET_KEY="<jwt_secret>" \
   -e LDAP_MANAGER_PASSWORD="SecretLdapPassword" \
-  -v /opt/sql-explorer/application.yml:/app/config/application.yml:ro \
+  -v /opt/tolmach/application.yml:/app/config/application.yml:ro \
   -v /etc/krb5.conf:/etc/krb5.conf:ro \
   -v /etc/security/keytabs:/etc/security/keytabs:ro \
   -v sql-data:/app/data \
-  ghcr.io/company/pristan/sql:1.0.0
+  ghcr.io/company/pristan/tolmach:1.0.0
 ```
 
 ### 3.4 Запуск через `docker-compose.yml`
@@ -333,21 +333,21 @@ docker run -d \
 version: "3.8"
 
 services:
-  sql-explorer:
-    image: ghcr.io/company/pristan/sql:1.0.0
-    container_name: sql-explorer
+  tolmach:
+    image: ghcr.io/company/pristan/tolmach:1.0.0
+    container_name: tolmach
     restart: unless-stopped
     ports:
       - "8003:8003"
     environment:
       - SPRING_CONFIG_ADDITIONAL_LOCATION=file:/app/config/application.yml
-      - SPRING_DATASOURCE_URL=jdbc:h2:file:/app/data/sql_explorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+      - SPRING_DATASOURCE_URL=jdbc:h2:file:/app/data/tolmach;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
       - JWT_SECRET_KEY=${JWT_SECRET_KEY}
       - LDAP_MANAGER_PASSWORD=${LDAP_MANAGER_PASSWORD}
     volumes:
       - ./application.yml:/app/config/application.yml:ro
       - /etc/krb5.conf:/etc/krb5.conf:ro
-      - /etc/security/keytabs/sql-explorer.keytab:/etc/security/keytabs/sql-explorer.keytab:ro
+      - /etc/security/keytabs/tolmach.keytab:/etc/security/keytabs/tolmach.keytab:ro
       - sql-storage:/app/data
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8003/healthz"]
@@ -386,7 +386,7 @@ networks:
 |---|---|---|---|
 | `http_server_requests_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app="sql"`, `method`, `uri`, `status`, `outcome`, `exception`, `le` | Входящие HTTP-запросы; `uri` — шаблон маршрута Spring MVC; бакеты 50 мс – 30 с |
 | `http_server_requests_active_seconds` (`_count`, `_sum`, `_max`) | LongTaskTimer (в Prometheus — `summary`) | `app="sql"`, `method`; `uri`, `status`, `outcome`, `exception` фиксируются в начале запроса (`uri="UNKNOWN"`, `status="200"`) и смысла не несут | Запросы, которые выполняются в момент опроса: `_count` — их число (включая сам запрос к `/actuator/prometheus`), `_sum` и `_max` — сколько секунд они уже выполняются |
-| `sql_query_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `engine`, `status`, `le` | Время выполнения SQL-запроса от старта задачи до конечного статуса (без времени ожидания в очереди до старта задачи). `cluster` — `id` кластера; `engine` — `type` кластера (`trino`, `hive`) в нижнем регистре, в том числе для кластера с `mock-storage: true`. `status`: `FINISHED`, `CANCELLED`, `FAILED`. Бакеты 0,1 с – 5 мин |
+| `tolmach_query_duration_seconds` (`_count`, `_sum`, `_max`, `_bucket`) | Timer | `app`, `cluster`, `engine`, `status`, `le` | Время выполнения SQL-запроса от старта задачи до конечного статуса (без времени ожидания в очереди до старта задачи). `cluster` — `id` кластера; `engine` — `type` кластера (`trino`, `hive`) в нижнем регистре, в том числе для кластера с `mock-storage: true`. `status`: `FINISHED`, `CANCELLED`, `FAILED`. Бакеты 0,1 с – 5 мин |
 | `hadoop_rate_limit_blocks_total` | Counter | `app`, `tier` | Запросы, отклоненные ограничителем частоты ответом 429. `tier`: `login` или `api` |
 
 Тексты запросов и имена пользователей в лейблы не попадают. Кроме перечисленных публикуются стандартные метрики Spring Boot Actuator (`jvm_*`, `process_*`, `system_*` и др.).
@@ -394,10 +394,10 @@ networks:
 Проверка на демо-стенде:
 
 ```bash
-curl -s http://localhost:8003/actuator/prometheus | grep '^sql_query_duration_seconds_count'
+curl -s http://localhost:8003/actuator/prometheus | grep '^tolmach_query_duration_seconds_count'
 ```
 
-После выполнения запроса в выводе есть строка вида `sql_query_duration_seconds_count{app="sql",cluster="<cluster_id>",engine="<type>",status="FINISHED"} 1.0`, где `<cluster_id>` — идентификатор кластера из `sql.clusters`.
+После выполнения запроса в выводе есть строка вида `tolmach_query_duration_seconds_count{app="sql",cluster="<cluster_id>",engine="<type>",status="FINISHED"} 1.0`, где `<cluster_id>` — идентификатор кластера из `tolmach.clusters`.
 
 Сбор метрик Prometheus и дашборд `spark_sql_explorer_analytics.json` описаны в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 

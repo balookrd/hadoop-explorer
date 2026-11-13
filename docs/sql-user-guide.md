@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="../images/logo_white.png" alt="Pristan — SQL Explorer" width="380" />
+<img src="../images/logo_white.png" alt="Pristan — Tolmach" width="380" />
 
-# Руководство пользователя SQL Web Explorer
+# Руководство пользователя Tolmach (SQL)
 
 <p>Веб-интерфейс для выполнения аналитических запросов к Trino и Apache Hive с ИИ-ассистентом</p>
 
@@ -10,13 +10,13 @@
 
 ---
 
-Руководство для аналитиков данных и дата-инженеров, которые работают в SQL Web Explorer. Это веб-консоль для SQL-движков Trino (PrestoSQL) и Apache Hive (HiveServer2 / Cloudera / Hortonworks): навигация по метаданным (Hive Metastore / Iceberg / Delta Lake), редактор Monaco с несколькими вкладками, потоковая отдача результатов и ИИ-ассистент.
+Руководство для аналитиков данных и дата-инженеров, которые работают в Tolmach (SQL). Это веб-консоль для SQL-движков Trino (PrestoSQL) и Apache Hive (HiveServer2 / Cloudera / Hortonworks): навигация по метаданным (Hive Metastore / Iceberg / Delta Lake), редактор Monaco с несколькими вкладками, потоковая отдача результатов и ИИ-ассистент.
 
 ---
 
 ## Содержание
 
-1. [Функции SQL Web Explorer](#1-функции-sql-web-explorer)
+1. [Функции Tolmach (SQL)](#1-функции-sql-web-explorer)
 2. [Архитектура и потоки данных](#2-архитектура-и-потоки-данных)
 3. [Аутентификация и ролевая модель безопасности](#3-аутентификация-и-ролевая-модель-безопасности)
 4. [Главный экран](#4-главный-экран)
@@ -37,14 +37,14 @@
 
 ---
 
-## 1. Функции SQL Web Explorer
+## 1. Функции Tolmach (SQL)
 
-С консольными клиентами (`beeline`, `trino-cli`) аналитик сам следит за `LIMIT`, долго ждет загрузки схем и теряет историю сессий при смене устройства. SQL Web Explorer закрывает эти задачи в браузере:
+С консольными клиентами (`beeline`, `trino-cli`) аналитик сам следит за `LIMIT`, долго ждет загрузки схем и теряет историю сессий при смене устройства. Tolmach (SQL) закрывает эти задачи в браузере:
 
 ```mermaid
 graph TD
-    User(["Аналитик / Дата-инженер"]) -->|"HTTPS / SSO"| UI["SQL Web Explorer UI\nSvelte 5 + Monaco Editor"]
-    UI -->|"REST + SSE Streams"| Gateway["SQL Explorer API\nJava 21 + Spring Boot 3"]
+    User(["Аналитик / Дата-инженер"]) -->|"HTTPS / SSO"| UI["Tolmach (SQL) UI\nSvelte 5 + Monaco Editor"]
+    UI -->|"REST + SSE Streams"| Gateway["Tolmach API\nJava 21 + Spring Boot 3"]
     Gateway -->|"TrinoSqlEngine, JDBC + sessionUser"| Trino["Trino"]
     Gateway -->|"HiveSqlEngine, JDBC + hive.server2.proxy.user"| Hive["HiveServer2"]
     Gateway -->|"OpenAI-совместимый API"| AI["LLM\nоткат на встроенные правила"]
@@ -70,7 +70,7 @@ sequenceDiagram
     autonumber
     actor U as "Аналитик"
     participant UI as "Monaco Studio UI"
-    participant BE as "SQL Explorer API (Spring Boot 3)"
+    participant BE as "Tolmach API (Spring Boot 3)"
     participant DB as "Session & History DB"
     participant ENG as "Trino / Hive Cluster"
 
@@ -95,16 +95,16 @@ sequenceDiagram
 
 ## 3. Аутентификация и ролевая модель безопасности
 
-SQL Web Explorer проверяет пользователей через Active Directory / OpenLDAP и поддерживает Kerberos SPNEGO SSO.
+Tolmach (SQL) проверяет пользователей через Active Directory / OpenLDAP и поддерживает Kerberos SPNEGO SSO.
 
 <div align="center">
-  <img src="images/sql/01_login_screen.png" alt="Экран входа SQL Web Explorer" width="850" />
+  <img src="images/sql/01_login_screen.png" alt="Экран входа Tolmach (SQL)" width="850" />
   <p><em>Рисунок 1: Экран аутентификации LDAP & Kerberos SPNEGO SSO</em></p>
 </div>
 
 ### Ролевые группы и доступ к кластерам
 
-Доступ к кластерам задает администратор в секции `sql.clusters` файла `application.yml` (см. [руководство администратора](sql-admin-guide.md), раздел 2, шаг 4): у каждого кластера есть списки `allowed-users` и `allowed-groups`. Кластер доступен пользователю, если его имя или одна из его групп есть в этих списках, если оба списка пусты или если пользователь входит в группу администраторов (`zastava.auth.admin-groups`). Ограничения по типу операций (только SELECT, запрет DDL/DML) Explorer не проверяет: в таблице ниже это пример политик на стороне кластера.
+Доступ к кластерам задает администратор в секции `tolmach.clusters` файла `application.yml` (см. [руководство администратора](sql-admin-guide.md), раздел 2, шаг 4): у каждого кластера есть списки `allowed-users` и `allowed-groups`. Кластер доступен пользователю, если его имя или одна из его групп есть в этих списках, если оба списка пусты или если пользователь входит в группу администраторов (`zastava.auth.admin-groups`). Ограничения по типу операций (только SELECT, запрет DDL/DML) Explorer не проверяет: в таблице ниже это пример политик на стороне кластера.
 
 | Группа пользователей | Trino Analytics (Prod) | Hive HDP Cluster | Apache HiveServer2 | DDL/DML (DROP, ALTER) |
 | :--- | :---: | :---: | :---: | :---: |
@@ -119,8 +119,8 @@ SQL Web Explorer проверяет пользователей через Active
 ## 4. Главный экран
 
 <div align="center">
-  <img src="images/sql/02_main_workspace.png" alt="Главный экран SQL Web Explorer" width="850" />
-  <p><em>Рисунок 2: Главный экран рабочей студии SQL Web Explorer</em></p>
+  <img src="images/sql/02_main_workspace.png" alt="Главный экран Tolmach (SQL)" width="850" />
+  <p><em>Рисунок 2: Главный экран рабочей студии Tolmach (SQL)</em></p>
 </div>
 
 ### Элементы интерфейса
@@ -301,4 +301,4 @@ Trino выполняет запросы в памяти на worker-узлах. 
 
 ### Как подключить локальную LLM к ИИ-ассистенту?
 
-Подключение выполняет администратор: `sql.ai.provider: openai_compatible`, `sql.ai.url` (например, `http://llm-server:11434/v1` для Ollama) и `sql.ai.model` в `application.yml` (см. [CONFIGURATION.md, раздел 5.3](CONFIGURATION.md#53-ии-ассистент-on-premise-llm--ollama--vllm)). Статус подключения виден в окне ассистента: «LLM: <модель>» или «Mock-заглушка (без LLM)».
+Подключение выполняет администратор: `tolmach.ai.provider: openai_compatible`, `tolmach.ai.url` (например, `http://llm-server:11434/v1` для Ollama) и `tolmach.ai.model` в `application.yml` (см. [CONFIGURATION.md, раздел 5.3](CONFIGURATION.md#53-ии-ассистент-on-premise-llm--ollama--vllm)). Статус подключения виден в окне ассистента: «LLM: <модель>» или «Mock-заглушка (без LLM)».

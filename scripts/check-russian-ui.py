@@ -170,7 +170,7 @@ def main():
 
     # apps
     apps_dir = os.path.join(frontend_dir, "apps")
-    for app in ['yarn', 'sklad', 'sql', 'spark', 'replicator']:
+    for app in ['yarn', 'sklad', 'tolmach', 'spark', 'replicator']:
         app_src = os.path.join(apps_dir, app, "src")
         if not os.path.exists(app_src):
             continue

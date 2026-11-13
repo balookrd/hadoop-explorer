@@ -14,7 +14,7 @@ pristan/
 │   ├── zastava/ # Ядро платформы: Spring Boot 3 стартер безопасности (Java 21, SPNEGO, LDAP, JWT, L1/L2)
 │   ├── yarn/                 # Artel API (Java 21 / Spring Boot 3, Capacity Scheduler, RM HA)
 │   ├── hdfs/                 # Sklad API (Java 21 / Spring Boot 3, WebHDFS, Kerberos, Parquet/ORC Preview)
-│   ├── sql/                  # SQL Explorer API (Java 21 / Spring Boot 3, Trino, Hive Metastore, AI Assistant)
+│   ├── sql/                  # Tolmach API (Java 21 / Spring Boot 3, Trino, Hive Metastore, AI Assistant)
 │   ├── spark/                # Spark Explorer API (Java 21 / Spring Boot 3, Livy, PySpark, Scala, DAG Pipelines)
 │   └── replicator/           # Hadoop gRPC Replicator API & Daemons
 │       ├── proto/            # Общие wire-контракты: схемы .proto и сгенерированные gRPC-стабы
@@ -80,7 +80,7 @@ pristan/
   * Стартер безопасности: `make test-zastava` (сборка: `make build-zastava`)
   * Сервис YARN: `mvn test -f backend/artel/pom.xml` (или `make test-artel`)
   * Сервис HDFS: `mvn test -f backend/sklad/pom.xml` (или `make test-sklad`)
-  * Сервис SQL: `mvn test -f backend/sql/pom.xml` (или `make test-sql`)
+  * Сервис SQL: `mvn test -f backend/tolmach/pom.xml` (или `make test-tolmach`)
   * Сервис Spark: `mvn test -f backend/spark/pom.xml` (или `make test-spark`)
   * Сервис Replicator: `mvn test -f backend/replicator/pom.xml`
   * Отдельный модуль Replicator — только через реактор родителя, иначе общие

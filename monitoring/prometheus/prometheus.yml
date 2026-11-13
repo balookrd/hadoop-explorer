@@ -16,7 +16,7 @@ scrape_configs:
       - targets:
           - 'artel:8000'
           - 'sklad:8000'
-          - 'sql-explorer:8003'
+          - 'tolmach:8003'
           - 'spark-explorer:8004'
         labels:
           env: 'production'

@@ -1,6 +1,6 @@
 # Перевод YARN, HDFS, SQL и Spark Explorer на PostgreSQL и запуск нескольких экземпляров
 
-Документ описывает перевод сервисов Pristan (`artel`, `sklad`, `sql-explorer`, `spark-explorer`) на внешний PostgreSQL и настройки, без которых два и более экземпляра одного сервиса за балансировщиком работают некорректно. Документ предназначен для администратора, который разворачивает сервисы в production.
+Документ описывает перевод сервисов Pristan (`artel`, `sklad`, `tolmach`, `spark-explorer`) на внешний PostgreSQL и настройки, без которых два и более экземпляра одного сервиса за балансировщиком работают некорректно. Документ предназначен для администратора, который разворачивает сервисы в production.
 
 Упакованные `application.yml` сервисов используют H2:
 
@@ -8,7 +8,7 @@
 |---|---|---|
 | Artel | `${ARTEL_DB_URL:jdbc:h2:file:./data/artel;DB_CLOSE_DELAY=-1}` (файл) | Заявки на изменение конфигурации (`change_requests`) |
 | Sklad | `jdbc:h2:mem:hdfs;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | JPA-сущностей нет; только таблицы `SessionStore` при `session-store.type: jdbc` |
-| SQL Explorer | `jdbc:h2:mem:sqlexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | Воркспейсы, история и сохраненные запросы |
+| Tolmach | `jdbc:h2:mem:tolmach;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | Воркспейсы, история и сохраненные запросы |
 | Spark Explorer | `jdbc:h2:mem:sparkexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` (память) | Сессии Spark, история выполнения, воркспейсы |
 
 В Sklad в сборку входит драйвер SQLite (`org.xerial:sqlite-jdbc` в `backend/sklad/pom.xml`), но упакованная конфигурация его не использует.
@@ -32,7 +32,7 @@
 CREATE USER hadoop_explorer WITH PASSWORD 'your_strong_password';
 
 CREATE DATABASE sklad OWNER hadoop_explorer;
-CREATE DATABASE sql_explorer OWNER hadoop_explorer;
+CREATE DATABASE tolmach OWNER hadoop_explorer;
 CREATE DATABASE spark_explorer OWNER hadoop_explorer;
 CREATE DATABASE artel OWNER hadoop_explorer;
 ```
@@ -66,18 +66,18 @@ CREATE DATABASE artel OWNER hadoop_explorer;
 
 Если заданы и `SPRING_DATASOURCE_URL`, и `ARTEL_DB_URL`, действует `SPRING_DATASOURCE_URL`.
 
-Пример запуска контейнера SQL Explorer:
+Пример запуска контейнера Tolmach:
 
 ```bash
 # <jwt_secret> - вывод `openssl rand -hex 32`, одинаковый на всех экземплярах сервиса
 docker run -d \
-  -e SPRING_DATASOURCE_URL="jdbc:postgresql://postgres:5432/sql_explorer" \
+  -e SPRING_DATASOURCE_URL="jdbc:postgresql://postgres:5432/tolmach" \
   -e SPRING_DATASOURCE_USERNAME="hadoop_explorer" \
   -e SPRING_DATASOURCE_PASSWORD="secret" \
   -e ZASTAVA_SESSIONSTORE_TYPE="jdbc" \
   -e JWT_SECRET_KEY="<jwt_secret>" \
   -p 8003:8003 \
-  pristan/sql:latest
+  pristan/tolmach:latest
 ```
 
 ---
@@ -112,9 +112,9 @@ hadoop:
 
 | Сервис | Состояние в памяти | Что видит пользователь, если запрос попал на другой экземпляр |
 |---|---|---|
-| SQL Explorer | Строки результата (`resultCache` в `QueryManagerService`) | `GET /api/v1/queries/{queryId}/result` возвращает колонки и `total` из БД, но пустой список строк: результат выглядит пустым при `total > 0` |
-| SQL Explorer | Признаки отмены выполняющихся запросов (`activeQueries`) | `POST /api/v1/queries/{queryId}/cancel` ставит в БД статус `CANCELLED`, но запрос продолжает выполняться на исходном экземпляре; по завершении тот перезаписывает статус на `FINISHED` |
-| SQL Explorer | События запросов (`QueryEventHub`) и подписки на уведомления (`userEmitters`) | `GET /api/v1/queries/{queryId}/stream` на другом экземпляре не получает событий о ходе запроса; если запрос уже завершен, приходит только терминальное событие из `query_history`, без строк. `GET /api/v1/queries/notifications/stream` на другом экземпляре не получает уведомлений о завершении |
+| Tolmach | Строки результата (`resultCache` в `QueryManagerService`) | `GET /api/v1/queries/{queryId}/result` возвращает колонки и `total` из БД, но пустой список строк: результат выглядит пустым при `total > 0` |
+| Tolmach | Признаки отмены выполняющихся запросов (`activeQueries`) | `POST /api/v1/queries/{queryId}/cancel` ставит в БД статус `CANCELLED`, но запрос продолжает выполняться на исходном экземпляре; по завершении тот перезаписывает статус на `FINISHED` |
+| Tolmach | События запросов (`QueryEventHub`) и подписки на уведомления (`userEmitters`) | `GET /api/v1/queries/{queryId}/stream` на другом экземпляре не получает событий о ходе запроса; если запрос уже завершен, приходит только терминальное событие из `query_history`, без строк. `GET /api/v1/queries/notifications/stream` на другом экземпляре не получает уведомлений о завершении |
 | Spark Explorer | Строки результата (`resultCache` в `SparkSessionManager`) | `GET /api/v1/statements/{executionId}/result` возвращает статус, колонки и `total` из БД, но пустой список строк |
 | Spark Explorer | Признаки отмены (`activeExecutions`) | `POST /api/v1/statements/{executionId}/cancel` ставит в БД `CANCELLED`, но код продолжает выполняться; по завершении статус перезаписывается результатом выполнения |
 | Spark Explorer | SSE-подписки (`executionEmitters`) | `GET /api/v1/statements/{executionId}/stream` на другом экземпляре не получает событий |
@@ -133,10 +133,10 @@ hadoop:
 Пример для nginx с привязкой по cookie `access_token`. Стартер выставляет при входе cookie под всеми именами из `zastava.cookie.names`; `access_token` есть в списке по умолчанию и в упакованных `application.yml` SQL и Spark Explorer:
 
 ```nginx
-upstream sql_explorer {
+upstream tolmach {
     hash $cookie_access_token consistent;
-    server sql-explorer-1:8003;
-    server sql-explorer-2:8003;
+    server tolmach-1:8003;
+    server tolmach-2:8003;
 }
 ```
 
@@ -164,6 +164,6 @@ upstream sql_explorer {
 
 ### Предупреждения при одновременном первом старте на пустой базе
 
-Если несколько экземпляров одновременно стартуют на пустой базе, они параллельно создают таблицы: `DefaultSessionStore` (`CREATE TABLE IF NOT EXISTS`) и Hibernate (`ddl-auto: update`). В логе части экземпляров появляются WARN с текстом `duplicate key value violates unique constraint "pg_type_typname_nsp_index"` и/или `relation "..." already exists`. Старт не прерывается, схема создается полностью (проверено на SQL Explorer и PostgreSQL 16).
+Если несколько экземпляров одновременно стартуют на пустой базе, они параллельно создают таблицы: `DefaultSessionStore` (`CREATE TABLE IF NOT EXISTS`) и Hibernate (`ddl-auto: update`). В логе части экземпляров появляются WARN с текстом `duplicate key value violates unique constraint "pg_type_typname_nsp_index"` и/или `relation "..." already exists`. Старт не прерывается, схема создается полностью (проверено на Tolmach и PostgreSQL 16).
 
 Чтобы предупреждений не было, запустите первый экземпляр один и дождитесь, пока `/actuator/health/readiness` вернет 200, затем запустите остальные.
