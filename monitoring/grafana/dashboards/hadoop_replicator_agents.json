@@ -14,7 +14,7 @@
       }
     ]
   },
-  "description": "Мониторинг флота агентов и воркеров передачи данных Hadoop gRPC Replicator: доступность агентов, активные gRPC потоки, скорость передачи данных, локальные лимиты шейпинга HTB и ошибки",
+  "description": "Мониторинг флота агентов и воркеров передачи данных Parom: доступность агентов, активные gRPC потоки, скорость передачи данных, локальные лимиты шейпинга HTB и ошибки",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -1825,7 +1825,7 @@
     ]
   },
   "timezone": "browser",
-  "title": "Hadoop gRPC Replicator — Агенты и воркеры передачи данных (Fleet & Agents)",
+  "title": "Parom — Агенты и воркеры передачи данных (Fleet & Agents)",
   "uid": "hadoop-replicator-agents",
   "version": 1
 }

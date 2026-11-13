@@ -1,0 +1,49 @@
+package io.github.balookrd.pristan.parom.orchestrator.dto;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import io.github.balookrd.pristan.parom.model.ClusterDto;
+import io.github.balookrd.pristan.parom.orchestrator.config.ParomProperties;
+
+import java.util.List;
+
+public record TopologyResponse(
+    @JsonProperty("datacenters") List<ParomProperties.DatacenterConfig> datacenters,
+    @JsonProperty("clusters") List<ClusterDto> clusters,
+    @JsonProperty("global_limit_bytes_per_sec") double globalLimitBytesPerSec,
+    @JsonProperty("global_limit_mb_per_sec") double globalLimitMbPerSec,
+    @JsonProperty("dc_limits") List<DcLimitDto> dcLimits,
+    @JsonProperty("hdfs_limits") List<HdfsLimitDto> hdfsLimits,
+    @JsonProperty("streaming_enabled") boolean streamingEnabled
+) {
+
+    public TopologyResponse(
+        List<ParomProperties.DatacenterConfig> datacenters,
+        List<ClusterDto> clusters,
+        double globalLimitBytesPerSec,
+        double globalLimitMbPerSec,
+        List<DcLimitDto> dcLimits,
+        List<HdfsLimitDto> hdfsLimits
+    ) {
+        this(datacenters, clusters, globalLimitBytesPerSec, globalLimitMbPerSec, dcLimits, hdfsLimits, false);
+    }
+
+    public record DcLimitDto(
+        @JsonProperty("source_dc") String sourceDc,
+        @JsonProperty("target_dc") String targetDc,
+        @JsonProperty("limit_bytes_per_sec") long limitBytesPerSec,
+        @JsonProperty("limit_mb_per_sec") double limitMbPerSec,
+        /** Лимит задан явно; false — подставлено значение по умолчанию (100 МБ/с). */
+        @JsonProperty("configured") boolean configured
+    ) {
+        public DcLimitDto(String sourceDc, String targetDc, long limitBytesPerSec, double limitMbPerSec) {
+            this(sourceDc, targetDc, limitBytesPerSec, limitMbPerSec, true);
+        }
+    }
+
+    public record HdfsLimitDto(
+        @JsonProperty("source_cluster") String sourceCluster,
+        @JsonProperty("target_cluster") String targetCluster,
+        @JsonProperty("limit_bytes_per_sec") long limitBytesPerSec,
+        @JsonProperty("limit_mb_per_sec") double limitMbPerSec
+    ) {}
+}

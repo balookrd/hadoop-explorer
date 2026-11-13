@@ -7,5 +7,5 @@ include:
   - path: ../sklad/docker-compose.yml
   - path: ../tolmach/docker-compose.yaml
   - path: ../iskra/docker-compose.yaml
-  - path: ../replicator/docker-compose.yml
+  - path: ../parom/docker-compose.yml
   - path: ../monitoring/docker-compose.monitoring.yml

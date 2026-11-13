@@ -1111,7 +1111,7 @@
     ]
   },
   "timezone": "browser",
-  "title": "Hadoop gRPC Replicator — Потоковая репликация Kafka (Streaming & Lag)",
+  "title": "Parom — Потоковая репликация Kafka (Streaming & Lag)",
   "uid": "hadoop-replicator-kafka",
   "version": 1
 }

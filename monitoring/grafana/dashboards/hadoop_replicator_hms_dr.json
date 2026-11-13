@@ -1177,7 +1177,7 @@
     ]
   },
   "timezone": "browser",
-  "title": "Hadoop gRPC Replicator — Hive Metastore (HMS) & Disaster Recovery",
+  "title": "Parom — Hive Metastore (HMS) & Disaster Recovery",
   "uid": "hadoop-replicator-hms-dr",
   "version": 1
 }

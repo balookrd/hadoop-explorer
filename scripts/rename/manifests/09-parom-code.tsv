@@ -1,0 +1,95 @@
+# published default secret: must keep rejecting old configs
+keep	replicator-secure-agent-secret-key-12345
+# packages and paths
+sub	io.github.balookrd.pristan.replicator	io.github.balookrd.pristan.parom
+sub	io/github/balookrd/pristan/replicator	io/github/balookrd/pristan/parom
+sub	backend/replicator	backend/parom
+sub	frontend/apps/replicator	frontend/apps/parom
+sub	apps/replicator	apps/parom
+sub	demo/replicator	demo/parom
+sub	docs/images/replicator	docs/images/parom
+sub	../replicator/	../parom/
+sub	images/replicator/	images/parom/
+sub	"images", "replicator"	"images", "parom"	scripts/*
+sub	Dockerfile.replicator-	Dockerfile.parom-
+sub	<module>replicator/	<module>parom/
+# classes
+sub	KafkaReplicatorAgentMain	ParomKafkaAgentMain
+sub	KafkaReplicatorProto	ParomKafkaProto
+sub	KafkaReplicatorE2ESmokeTest	ParomKafkaE2ESmokeTest
+sub	KafkaReplicatorSpnegoClient	ParomKafkaSpnegoClient
+sub	ReplicatorOrchestratorApplication	ParomOrchestratorApplication
+sub	ReplicatorApplicationMaster	ParomApplicationMaster
+sub	ReplicatorMetricsController	ParomMetricsController
+sub	ReplicatorMetricsService	ParomMetricsService
+sub	ReplicatorAgentConfig	ParomAgentConfig
+sub	ReplicatorAgentMain	ParomAgentMain
+sub	ReplicatorYarnClient	ParomYarnClient
+sub	ReplicatorProperties	ParomProperties
+sub	ReplicatorAgent	ParomAgent
+sub	ReplicatorProto	ParomProto
+# test classes and camelCase identifiers (not in the brief: found by discovery)
+sub	ReplicatorChaosResilienceTest	ParomChaosResilienceTest
+sub	ReplicatorHighConcurrencyStressTest	ParomHighConcurrencyStressTest
+sub	ReplicatorFullInfrastructureSmokeTest	ParomFullInfrastructureSmokeTest
+sub	ReplicatorMetricsTest	ParomMetricsTest
+sub	renderReplicatorPrometheusMetrics	renderParomPrometheusMetrics
+sub	replicatorMetricsService	paromMetricsService
+sub	replicatorMetrics	paromMetrics
+sub	shouldExcludeReplicatorOwnGroups	shouldExcludeParomOwnGroups
+sub	replicatorSecurityFilterChain	paromSecurityFilterChain
+sub	ReplicatorApiClient	ParomApiClient
+sub	ReplicatorApp	ParomApp	frontend/apps/parom/tests/*
+sub	ReplicatorHikariPool	ParomHikariPool
+# protobuf
+sub	kafka_replicator.proto	parom_kafka.proto
+sub	replicator.proto	parom.proto
+re	^package replicator(\.kafka|\.control)?;	package parom\1;	backend/parom/proto/*
+sub	replicator.control.OrchestratorControlPlane	parom.control.OrchestratorControlPlane
+sub	replicator.kafka.KafkaDataTransferService	parom.kafka.KafkaDataTransferService
+sub	replicator.DataTransferService	parom.DataTransferService
+sub	replicator.HmsTransferService	parom.HmsTransferService
+re	(?<![.\w])replicator\.(HmsTransfer|DataTransfer|Heartbeat|Chunk|Task|Job|Token|Transfer|Cluster|Agent|File|Manifest|Bundle)	parom.\1	backend/parom/proto/*
+# maven artifacts
+sub	replicator-parent	parom-parent
+sub	replicator-proto	parom-proto
+sub	replicator-model	parom-model
+sub	<artifactId>replicator-agent</artifactId>	<artifactId>parom-agent</artifactId>
+sub	<artifactId>replicator-orchestrator</artifactId>	<artifactId>parom-orchestrator</artifactId>
+sub	replicator-agent-1.0.0	parom-agent-1.0.0
+sub	replicator-orchestrator-1.0.0	parom-orchestrator-1.0.0
+sub	replicator-agent.jar	parom-agent.jar
+sub	replicator-orchestrator.jar	parom-orchestrator.jar
+sub	replicator-agent.sh	parom-agent.sh
+sub	replicator-explorer-frontend	@pristan/parom
+# configuration
+sub	prefix = "hadoop.replicator"	prefix = "parom"
+re	(?<![.\w])hadoop\.replicator\.	parom.
+sub	replicator.hms.mock-cluster-api	parom.hms.mock-cluster-api
+sub	replicator.schemaregistry.block-loopback	parom.schemaregistry.block-loopback
+sub	hadoop-grpc-replicator-orchestrator	parom-orchestrator
+sub	HADOOP_REPLICATOR_	PAROM_
+re	(?<![A-Z_])REPLICATOR_	PAROM_
+sub	jdbc:h2:mem:replicator	jdbc:h2:mem:parom
+sub	/app/data/replicator	/app/data/parom
+# image names (build artifacts; container names stay until Task 10)
+sub	pristan/replicator-orchestrator	pristan/parom-orchestrator
+sub	pristan/replicator-agent	pristan/parom-agent
+sub	pristan/replicator:	pristan/parom:
+sub	APP_NAME="replicator-orchestrator"	APP_NAME="parom-orchestrator"	docker/*
+# make / npm / scripts / CI
+re	(?<![\w-])(test|build|demo)-replicator(?!-(agent-secret|metrics-token))	\1-parom	Makefile,scripts/*,.github/*,AGENTS.md,README.md,docs/*,demo/*,backend/parom/*
+re	(build|dev):replicator	\1:parom	frontend/*
+sub	frontend-build-replicator	frontend-build-parom
+sub	run_replicator	run_parom	scripts/*
+sub	capture_replicator	capture_parom
+sub	replicator/orchestrator	parom/orchestrator	.github/*,scripts/*,Makefile
+re	^(\s+)replicator-orchestrator\)	\1parom-orchestrator)	scripts/build-containers.sh
+re	^(\s+)replicator-agent\)	\1parom-agent)	scripts/build-containers.sh
+re	^(\s+)replicator\)	\1parom)	scripts/*
+sub	build_app replicator-	build_app parom-	scripts/*
+sub	|replicator]	|parom]	scripts/*
+sub	'iskra', 'replicator']	'iskra', 'parom']	scripts/check-russian-ui.py
+# titles
+sub	Hadoop gRPC Replicator :: Parent	Pristan :: Parom :: Parent
+sub	Hadoop gRPC Replicator	Parom

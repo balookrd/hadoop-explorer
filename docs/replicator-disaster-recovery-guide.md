@@ -6,7 +6,7 @@
 
 </div>
 
-Документ описывает, как в Hadoop gRPC Replicator при аварии основного ЦОД остановить репликацию из него (Kill-Switch), снять изоляцию после восстановления (Unfence), перенести накопленные изменения обратно (Reverse Replication) и вернуть нагрузку (Failback). Документ предназначен для дежурного администратора платформы: все управляющие действия в консоли Disaster Recovery и вызовы `POST /api/v1/dr/*` доступны только роли `ADMIN`.
+Документ описывает, как в Parom при аварии основного ЦОД остановить репликацию из него (Kill-Switch), снять изоляцию после восстановления (Unfence), перенести накопленные изменения обратно (Reverse Replication) и вернуть нагрузку (Failback). Документ предназначен для дежурного администратора платформы: все управляющие действия в консоли Disaster Recovery и вызовы `POST /api/v1/dr/*` доступны только роли `ADMIN`.
 
 ---
 
@@ -78,7 +78,7 @@ flowchart TD
 ## 3. Порядок действий при аварии (5 фаз)
 
 <div align="center">
-  <img src="images/replicator/08_disaster_recovery_dashboard.png" alt="Консоль Disaster Recovery & Failover Hub" width="850" />
+  <img src="images/parom/08_disaster_recovery_dashboard.png" alt="Консоль Disaster Recovery & Failover Hub" width="850" />
   <p><em>Рисунок 1: Консоль Disaster Recovery & Failover Hub в штатном режиме (активный WAN-канал DC1 ➔ DC2)</em></p>
 </div>
 
@@ -87,7 +87,7 @@ flowchart TD
 Когда сбой DC1 подтвержден, откройте раздел **Disaster Recovery** и нажмите **Kill-Switch (Стоп DC1)** или вызовите API (раздел 5).
 
 <div align="center">
-  <img src="images/replicator/09_emergency_kill_switch_modal.png" alt="Модальное окно экстренного останова Kill-Switch" width="850" />
+  <img src="images/parom/09_emergency_kill_switch_modal.png" alt="Модальное окно экстренного останова Kill-Switch" width="850" />
   <p><em>Рисунок 2: Модальное окно аварийного останова (Kill-Switch) с сетевым ограждением Fencing (0 МБ/с)</em></p>
 </div>
 
@@ -100,7 +100,7 @@ flowchart TD
 6. Индикацию: панель DC1 выделяется красной рамкой со статусом `ПОДАВЛЕН (FENCED)`, кнопка управления становится янтарной кнопкой **«Снять изоляцию / Откат»**.
 
 <div align="center">
-  <img src="images/replicator/10_disaster_recovery_fenced_state.png" alt="Индикация подавленного кластера при активном Kill-Switch" width="850" />
+  <img src="images/parom/10_disaster_recovery_fenced_state.png" alt="Индикация подавленного кластера при активном Kill-Switch" width="850" />
   <p><em>Рисунок 3: Сетевое ограждение и подавленное состояние кластера DC1 (Fenced) с тревожным баннером</em></p>
 </div>
 
@@ -131,7 +131,7 @@ flowchart TD
 3. Нажмите **«Снять ограничения»**.
 
 <div align="center">
-  <img src="images/replicator/11_rollback_unfence_modal.png" alt="Модальное окно безопасного снятия изоляции Unfence" width="850" />
+  <img src="images/parom/11_rollback_unfence_modal.png" alt="Модальное окно безопасного снятия изоляции Unfence" width="850" />
   <p><em>Рисунок 4: Модальное окно безопасного снятия изоляции (Unfence) с защитой от Split-Brain и перезаписи данных</em></p>
 </div>
 
@@ -151,7 +151,7 @@ flowchart TD
 2. Введите проверочное слово `REVERSE` и подтвердите операцию.
 
 <div align="center">
-  <img src="images/replicator/12_reverse_replication_modal.png" alt="Мастер запуска обратной репликации Reverse Replication" width="850" />
+  <img src="images/parom/12_reverse_replication_modal.png" alt="Мастер запуска обратной репликации Reverse Replication" width="850" />
   <p><em>Рисунок 5: Мастер запуска обратной репликации (Reverse Replication DC2 ➔ DC1)</em></p>
 </div>
 
@@ -203,10 +203,10 @@ flowchart TD
 
 ```bash
 # 0. Получение токена: <admin_user> — логин пользователя с ролью ADMIN,
-#    пароль подставляется из переменной окружения REPLICATOR_ADMIN_PASSWORD
+#    пароль подставляется из переменной окружения PAROM_ADMIN_PASSWORD
 TOKEN=$(curl -s -X POST "http://orchestrator:8005/api/v1/auth/login" \
   -H "Content-Type: application/json" \
-  -d "{\"username\": \"<admin_user>\", \"password\": \"$REPLICATOR_ADMIN_PASSWORD\"}" | jq -r .access_token)
+  -d "{\"username\": \"<admin_user>\", \"password\": \"$PAROM_ADMIN_PASSWORD\"}" | jq -r .access_token)
 
 # 1. Проверка текущего DR-статуса и лага непереданных данных
 curl -s -X GET "http://orchestrator:8005/api/v1/dr/status" \

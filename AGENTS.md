@@ -16,7 +16,7 @@ pristan/
 │   ├── hdfs/                 # Sklad API (Java 21 / Spring Boot 3, WebHDFS, Kerberos, Parquet/ORC Preview)
 │   ├── sql/                  # Tolmach API (Java 21 / Spring Boot 3, Trino, Hive Metastore, AI Assistant)
 │   ├── spark/                # Iskra API (Java 21 / Spring Boot 3, Livy, PySpark, Scala, DAG Pipelines)
-│   └── replicator/           # Hadoop gRPC Replicator API & Daemons
+│   └── replicator/           # Parom API & Daemons
 │       ├── proto/            # Общие wire-контракты: схемы .proto и сгенерированные gRPC-стабы
 │       ├── model/            # Общие DTO, HMS-модель, аттестация задач (без Hadoop / Hive / Kafka)
 │       ├── orchestrator/     # Replicator Orchestrator API (Java 21 / Spring Boot 3, Hierarchical Token Bucket)
@@ -82,10 +82,10 @@ pristan/
   * Сервис HDFS: `mvn test -f backend/sklad/pom.xml` (или `make test-sklad`)
   * Сервис SQL: `mvn test -f backend/tolmach/pom.xml` (или `make test-tolmach`)
   * Сервис Spark: `mvn test -f backend/iskra/pom.xml` (или `make test-iskra`)
-  * Сервис Replicator: `mvn test -f backend/replicator/pom.xml`
+  * Сервис Replicator: `mvn test -f backend/parom/pom.xml`
   * Отдельный модуль Replicator — только через реактор родителя, иначе общие
     `proto`/`model` берутся из локального репозитория устаревшими:
-    `mvn test -f backend/replicator/pom.xml -pl agent -am`
+    `mvn test -f backend/parom/pom.xml -pl agent -am`
 * **Фронтенд тесты (Svelte 5 / Vitest)**:
   * `make test-ui`
 * **Сборка Docker-контейнеров**:

@@ -56,7 +56,7 @@ groups:
         labels:
           severity: warning
         annotations:
-          summary: "Высокая задержка шейпера полосы в Hadoop gRPC Replicator"
+          summary: "Высокая задержка шейпера полосы в Parom"
           description: "Воркеры ожидают квоты более 5 секунд в секунду из-за достижения лимита полосы WAN или ЦОД."
 
       - alert: ReplicationJobsHighFailureRate

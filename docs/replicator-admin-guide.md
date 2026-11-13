@@ -1,6 +1,6 @@
-# Руководство администратора: Hadoop gRPC Replicator
+# Руководство администратора: Parom
 
-Руководство для инженеров DevOps, SRE и сетевых администраторов: установка, настройка, развертывание и эксплуатация системы межкластерной репликации Hadoop gRPC Replicator в трех режимах:
+Руководство для инженеров DevOps, SRE и сетевых администраторов: установка, настройка, развертывание и эксплуатация системы межкластерной репликации Parom в трех режимах:
 1. Standalone и узлы Hadoop (раздел 2) — bare-metal, VM, DataNode и edge-узлы под управлением systemd или `hadoop jar`, включая пул агентов в Apache Hadoop YARN (2.6).
 2. Docker и Docker Compose (раздел 3) — запуск компонентов в контейнерах.
 3. Kubernetes (раздел 4).
@@ -65,7 +65,7 @@
 ## 1. Архитектура, безопасность и справочник конфигурации
 
 ### 1.1 Архитектура и компоненты системы
-Hadoop gRPC Replicator построен на симметричных агентах Replicator Agent (`Full-Duplex`). Каждый узел в ЦОД1 и ЦОД2 запускает агент `backend.replicator.agent`, который одновременно принимает входящие gRPC-потоки (:50051) и передает исходящие задачи из очереди Оркестратора. Поэтому двунаправленная репликация (`DC1 ⇄ DC2`, DR failback) работает в одном сервисе.
+Parom построен на симметричных агентах Replicator Agent (`Full-Duplex`). Каждый узел в ЦОД1 и ЦОД2 запускает агент `backend.replicator.agent`, который одновременно принимает входящие gRPC-потоки (:50051) и передает исходящие задачи из очереди Оркестратора. Поэтому двунаправленная репликация (`DC1 ⇄ DC2`, DR failback) работает в одном сервисе.
 
 ```mermaid
 flowchart TD
@@ -133,7 +133,7 @@ flowchart TD
    - Оркестратор регистрирует этот адрес за целевым HDFS-кластером.
    - Если один кластер обслуживают несколько агентов (горизонтальное масштабирование), Оркестратор выполняет балансировку нагрузки, выбирая узел с наименьшим числом текущих задач (`active_transfers`).
 2. Статическая топология Оркестратора (`application.yml`):
-   - Значения по умолчанию из конфигурации Оркестратора (`hadoop.replicator.clusters`) используются как резерв, если живой агент еще не зарегистрировался.
+   - Значения по умолчанию из конфигурации Оркестратора (`parom.clusters`) используются как резерв, если живой агент еще не зарегистрировался.
 3. Локальное переопределение переменной окружения `AGENT_TARGET_<CLUSTER_ID>`:
    - Применяется в нестандартных изолированных сетях (NAT, Ingress-шлюзы, раздельные DMZ).
 4. Резервный адрес по умолчанию (fallback):
@@ -144,12 +144,12 @@ flowchart TD
 Регистрацию защищают три механизма:
 
 1. Аутентификация агентов через Agent Secret (PSK / token):
-   - На Оркестраторе и всех доверенных агентах задается общий секретный ключ `REPLICATOR_AGENT_SECRET` (минимум 32 символа).
+   - На Оркестраторе и всех доверенных агентах задается общий секретный ключ `PAROM_AGENT_SECRET` (минимум 32 символа).
    - Агент передает этот токен в HTTP-заголовке `X-Agent-Secret` (или `Authorization: Bearer <token>`) при вызовах `/api/v1/agents/register`, `/api/v1/agents/heartbeat`, `/api/v1/agents/unregister` и запросах сетевых квот `/api/v1/tokens/request`.
    - Запросы без валидного токена отбрасываются с кодом `401 Unauthorized`. В боевом режиме (`ENVIRONMENT=production`) отсутствие переменной блокирует старт сервиса.
 2. Белый список кластеров (cluster whitelisting):
-   - Свойство `hadoop.replicator.enforce-cluster-whitelist=true` (по умолчанию активно в боевом режиме).
-   - Агенту разрешено регистрироваться только для тех кластеров, которые явно объявлены администратором в `application.yml` (`hadoop.replicator.clusters`).
+   - Свойство `parom.enforce-cluster-whitelist=true` (по умолчанию активно в боевом режиме).
+   - Агенту разрешено регистрироваться только для тех кластеров, которые явно объявлены администратором в `application.yml` (`parom.clusters`).
    - Попытка зарегистрировать неавторизованный кластер отклоняется с ошибкой `403 Forbidden`: посторонний агент не может подменить адрес кластера в топологии (topology poisoning).
 3. Защита от SSRF и валидация сетевых адресов:
    - Оркестратор валидирует структуру анонсируемого gRPC-адреса `host:port` и диапазон порта (1–65535).
@@ -159,12 +159,12 @@ flowchart TD
 
 Каналы передачи файлов по gRPC поддерживают шифрование и проверку сертификатов:
 1. Шифрование данных в канале (TLS):
-   - Включается установкой `REPLICATOR_GRPC_TLS_ENABLED=true` либо указанием префикса `grpcs://` в целевом адресе.
-   - Сервер-приемник использует сертификат и приватный ключ (`REPLICATOR_GRPC_CERT_CHAIN_PATH` и `REPLICATOR_GRPC_PRIVATE_KEY_PATH`).
+   - Включается установкой `PAROM_GRPC_TLS_ENABLED=true` либо указанием префикса `grpcs://` в целевом адресе.
+   - Сервер-приемник использует сертификат и приватный ключ (`PAROM_GRPC_CERT_CHAIN_PATH` и `PAROM_GRPC_PRIVATE_KEY_PATH`).
    - При отсутствии явных сертификатов в dev/тест средах генерируется временный самоподписанный сертификат на лету (`SelfSignedCertificate`).
 2. Взаимная аутентификация узлов (mTLS):
-   - При `REPLICATOR_GRPC_CLIENT_AUTH=REQUIRE` сервер запрашивает и валидирует сертификат подключающегося передающего агента.
-   - Доверенные корневые центры сертификации задаются через `REPLICATOR_GRPC_TRUST_CERT_COLLECTION_PATH`.
+   - При `PAROM_GRPC_CLIENT_AUTH=REQUIRE` сервер запрашивает и валидирует сертификат подключающегося передающего агента.
+   - Доверенные корневые центры сертификации задаются через `PAROM_GRPC_TRUST_CERT_COLLECTION_PATH`.
    - Клиент-отправитель (`ReplicationSender`) передает клиентский сертификат и ключ, если они заданы в конфигурации.
 3. REST-вызовы Оркестратора:
    - `OrchestratorClient` поддерживает вызовы по `https://` с проверкой доверенных сертификатов. Флаг `ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=true` отключает проверку сертификата; используйте его только в тестовых средах.
@@ -200,28 +200,28 @@ flowchart TD
 | Переменная | Описание | Значение по умолчанию | Обязательность |
 |---|---|---|---|
 | `SPRING_CONFIG_ADDITIONAL_LOCATION` | Путь к внешнему файлу конфигурации Spring Boot | `file:/etc/pristan/replicator/application.yml` | Опционально |
-| `HADOOP_REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC` | Глобальный лимит пропускной способности WAN (байт/сек) | `104857600` (100 МБ/с) | Опционально |
-| `SPRING_DATASOURCE_URL` | JDBC URL подключения к БД (PostgreSQL / SQLite / H2) | `jdbc:h2:mem:replicator` | Опционально |
+| `PAROM_GLOBAL_LIMIT_BYTES_PER_SEC` | Глобальный лимит пропускной способности WAN (байт/сек) | `104857600` (100 МБ/с) | Опционально |
+| `SPRING_DATASOURCE_URL` | JDBC URL подключения к БД (PostgreSQL / SQLite / H2) | `jdbc:h2:mem:parom` | Опционально |
 | `SPRING_DATASOURCE_USERNAME` | Пользователь базы данных | `sa` | Опционально |
 | `SPRING_DATASOURCE_PASSWORD` | Пароль пользователя базы данных | `""` | Опционально |
-| `HADOOP_REPLICATOR_AGENT_SECRET` / `REPLICATOR_AGENT_SECRET` | Общий секретный ключ аутентификации агентов репликации (заголовок `X-Agent-Secret` и gRPC context). Значения по умолчанию нет; при незаданном секрете оркестратор не запускается | — | Обязательно |
-| `HADOOP_REPLICATOR_ENFORCE_AGENT_SECRET` | Fail-Closed проверка секрета агентов (`true`/`false`) | `true` | Опционально |
-| `HADOOP_REPLICATOR_ENFORCE_TASK_ATTESTATION` | Включение криптографической аттестации задач HMAC-SHA256 (`true`/`false`) | `true` | Рекомендуется |
-| `HADOOP_REPLICATOR_ALLOW_LOOPBACK_AGENTS` | Разрешение регистрации агентов на loopback-адресах (`127.0.0.1`, `localhost`) | `true` (в prod следует выставить `false`) | Опционально |
-| `HADOOP_REPLICATOR_PROGRESS_DEBOUNCE_MS` | Интервал дебаунсинга буфера фиксации прогресса задач в БД (мс) | `500` | Опционально |
-| `HADOOP_REPLICATOR_PROGRESS_BUFFER_SIZE` | Максимальный размер буфера завершенных задач до принудительного flush | `1000` | Опционально |
-| `HADOOP_REPLICATOR_ENFORCE_CLUSTER_WHITELIST` | Блокировка регистрации кластеров, которых нет в топологии (`true`/`false`) | `true` | Опционально |
-| `HADOOP_REPLICATOR_HMS_POLL_INTERVAL_MS` | Интервал фонового опроса NOTIFICATION_LOG Hive Metastore (мс) | `5000` (5 сек) | Опционально |
-| `HADOOP_REPLICATOR_HMS_BOOTSTRAP_CONCURRENCY` | Количество параллельных потоков-воркеров для Bootstrap таблиц схемы Hive | `8` | Опционально |
-| `HADOOP_REPLICATOR_HMS_PARTITION_BATCH_SIZE` | Число партиций в одном пакете Thrift RPC | `1000` | Опционально |
-| `HADOOP_REPLICATOR_HMS_LEASE_TIMEOUT_SECONDS` | Длительность эксклюзивной аренды (Distributed Lease) HMS задачи агентом источника (сек) | `30` | Опционально |
-| `HADOOP_REPLICATOR_HMS_MAX_BOOTSTRAPS_PER_AGENT` | Верхний предел bootstrap HMS-задач на одного агента кластера. Свободную задачу (bootstrap или CDC) берет только агент, у которого задач не больше, чем у самого свободного агента кластера плюс одна: задачи расходятся по агентам, а не заполняют первых опросивших до предела. CDC-задачи (ACTIVE) в предел не входят | `4` | Опционально |
-| `REPLICATOR_HMS_MOCK_CLUSTER_API_ENABLED` | Включение тестового слоя эмуляции метасторов (`/api/v1/hms/clusters/**`) для разработки и тестов; демо-стенды его не используют | `false` (в боевом режиме полностью отключено) | Опционально |
+| `PAROM_AGENT_SECRET` / `PAROM_AGENT_SECRET` | Общий секретный ключ аутентификации агентов репликации (заголовок `X-Agent-Secret` и gRPC context). Значения по умолчанию нет; при незаданном секрете оркестратор не запускается | — | Обязательно |
+| `PAROM_ENFORCE_AGENT_SECRET` | Fail-Closed проверка секрета агентов (`true`/`false`) | `true` | Опционально |
+| `PAROM_ENFORCE_TASK_ATTESTATION` | Включение криптографической аттестации задач HMAC-SHA256 (`true`/`false`) | `true` | Рекомендуется |
+| `PAROM_ALLOW_LOOPBACK_AGENTS` | Разрешение регистрации агентов на loopback-адресах (`127.0.0.1`, `localhost`) | `true` (в prod следует выставить `false`) | Опционально |
+| `PAROM_PROGRESS_DEBOUNCE_MS` | Интервал дебаунсинга буфера фиксации прогресса задач в БД (мс) | `500` | Опционально |
+| `PAROM_PROGRESS_BUFFER_SIZE` | Максимальный размер буфера завершенных задач до принудительного flush | `1000` | Опционально |
+| `PAROM_ENFORCE_CLUSTER_WHITELIST` | Блокировка регистрации кластеров, которых нет в топологии (`true`/`false`) | `true` | Опционально |
+| `PAROM_HMS_POLL_INTERVAL_MS` | Интервал фонового опроса NOTIFICATION_LOG Hive Metastore (мс) | `5000` (5 сек) | Опционально |
+| `PAROM_HMS_BOOTSTRAP_CONCURRENCY` | Количество параллельных потоков-воркеров для Bootstrap таблиц схемы Hive | `8` | Опционально |
+| `PAROM_HMS_PARTITION_BATCH_SIZE` | Число партиций в одном пакете Thrift RPC | `1000` | Опционально |
+| `PAROM_HMS_LEASE_TIMEOUT_SECONDS` | Длительность эксклюзивной аренды (Distributed Lease) HMS задачи агентом источника (сек) | `30` | Опционально |
+| `PAROM_HMS_MAX_BOOTSTRAPS_PER_AGENT` | Верхний предел bootstrap HMS-задач на одного агента кластера. Свободную задачу (bootstrap или CDC) берет только агент, у которого задач не больше, чем у самого свободного агента кластера плюс одна: задачи расходятся по агентам, а не заполняют первых опросивших до предела. CDC-задачи (ACTIVE) в предел не входят | `4` | Опционально |
+| `PAROM_HMS_MOCK_CLUSTER_API_ENABLED` | Включение тестового слоя эмуляции метасторов (`/api/v1/hms/clusters/**`) для разработки и тестов; демо-стенды его не используют | `false` (в боевом режиме полностью отключено) | Опционально |
 | — (флаг задания `sync_deletes`) | — | Репликация удалений потокового задания: включается в интерфейсе на задание, не переменной окружения. По умолчанию выключена |
-| `HADOOP_REPLICATOR_TASK_RETENTION_DAYS` | Возраст, после которого завершенная подзадача удаляется; `0` выключает очистку | `7` | Опционально |
-| `HADOOP_REPLICATOR_TASK_RETENTION_BATCH_SIZE` | Размер пакета удаления при очистке истории задач | `500` | Опционально |
-| `HADOOP_REPLICATOR_TASK_RETENTION_MAX_BATCHES_PER_RUN` | Сколько пакетов удаляется за один проход очистки | `20` | Опционально |
-| `HADOOP_REPLICATOR_TASK_CLEANUP_INTERVAL_MS` | Интервал запуска очистки истории задач (мс) | `3600000` (1 ч) | Опционально |
+| `PAROM_TASK_RETENTION_DAYS` | Возраст, после которого завершенная подзадача удаляется; `0` выключает очистку | `7` | Опционально |
+| `PAROM_TASK_RETENTION_BATCH_SIZE` | Размер пакета удаления при очистке истории задач | `500` | Опционально |
+| `PAROM_TASK_RETENTION_MAX_BATCHES_PER_RUN` | Сколько пакетов удаляется за один проход очистки | `20` | Опционально |
+| `PAROM_TASK_CLEANUP_INTERVAL_MS` | Интервал запуска очистки истории задач (мс) | `3600000` (1 ч) | Опционально |
 | `MANAGEMENT_OTLP_TRACING_ENDPOINT` | Адрес OTLP-коллектора для экспорта трасс. Не задан — экспорта нет, но `trace_id` в логах и `traceparent` в вызовах gRPC работают | — | Опционально |
 | `TRACING_SAMPLING_PROBABILITY` | Доля трассируемых запросов | `1.0` (в профиле `prod` — `0.1`) | Опционально |
 | `SPRING_PROFILES_ACTIVE` | Профиль конфигурации. `prod` включает PostgreSQL, Kerberos-аутентификацию, обязательный TLS для gRPC и закрытые детали health | — (dev-профиль) | Обязательно в prod |
@@ -232,7 +232,7 @@ flowchart TD
 |---|---|---|---|
 | `AGENT_ID` | Уникальный строковый идентификатор агента в платформе | `agent-01` (или `$WORKER_ID`) | Рекомендуется |
 | `AGENT_CLUSTER_ID` | Идентификатор HDFS-кластера, который обслуживает агент | `demo-cluster` | Рекомендуется |
-| `REPLICATOR_AGENT_SECRET` | Секретный ключ для аутентификации на Оркестраторе (передается в `X-Agent-Secret`). Значения по умолчанию нет: без него gRPC-серверы агента работают в режиме Fail-Closed и отклоняют все вызовы | — (должен совпадать с Оркестратором) | Обязательно |
+| `PAROM_AGENT_SECRET` | Секретный ключ для аутентификации на Оркестраторе (передается в `X-Agent-Secret`). Значения по умолчанию нет: без него gRPC-серверы агента работают в режиме Fail-Closed и отклоняют все вызовы | — (должен совпадать с Оркестратором) | Обязательно |
 | `AGENT_MODE` | Режим работы агента: `all` (дуплекс: прием + передача), `sender` (только передача), `receiver` (только прием) | `all` | Опционально |
 | `ORCHESTRATOR_URL` | URL Replicator Orchestrator для саморегистрации, задач и квот | `http://localhost:8005` | Обязательно |
 | `RECEIVER_HOST` | Сетевой интерфейс для прослушивания входящего gRPC-сервера | `0.0.0.0` | Опционально |
@@ -240,39 +240,39 @@ flowchart TD
 | `CHUNK_SIZE_BYTES` | Размер чанка потоковой передачи. От него считается предел распакованного чанка на приемнике (защита от decompression bomb): четыре размера чанка, но не меньше 1 МБ и не больше 64 МБ. Значение задается одинаковым на передающей и принимающей стороне | `65536` (64 КБ) | Опционально |
 | `AGENT_ADVERTISED_ADDRESS` | Внешний gRPC-адрес для саморегистрации в Оркестраторе (например, `agent-dc1:50051`) | Вычисляется автоматически (`hostname:50051`) | Опционально |
 | `AGENT_ENABLE_REGISTRATION` | Включение режима динамической саморегистрации с keepalive | `true` | Опционально |
-| `REPLICATOR_STAGING_DIR` | Локальная директория буфера для приема чанков перед коммитом в локальную ФС (для HDFS используется прямой Zero-Staging в целевой HDFS) | `/tmp/staging` | Опционально |
-| `REPLICATOR_LOCAL_SANDBOX` / `LOCAL_SANDBOX_DIR` | Корневой каталог Chroot-песочницы локальных файловых операций (SEC-10) | `/var/lib/hadoop-replicator/sandbox` | Рекомендуется |
-| `REPLICATOR_ENFORCE_TASK_ATTESTATION` | Обязательная проверка HMAC-токенов аттестации задач перед записью в HDFS | `true` | Рекомендуется |
+| `PAROM_STAGING_DIR` | Локальная директория буфера для приема чанков перед коммитом в локальную ФС (для HDFS используется прямой Zero-Staging в целевой HDFS) | `/tmp/staging` | Опционально |
+| `PAROM_LOCAL_SANDBOX` / `LOCAL_SANDBOX_DIR` | Корневой каталог Chroot-песочницы локальных файловых операций (SEC-10) | `/var/lib/hadoop-replicator/sandbox` | Рекомендуется |
+| `PAROM_ENFORCE_TASK_ATTESTATION` | Обязательная проверка HMAC-токенов аттестации задач перед записью в HDFS | `true` | Рекомендуется |
 | `OTEL_EXPORTER_OTLP_ENDPOINT` | Адрес OTLP-коллектора. Не задан — трассировка выключена и ничего не стоит | — | Опционально |
 | `OTEL_TRACES_SAMPLER_ARG` | Доля трассируемых вызовов агента | `0.05` | Опционально |
-| `REPLICATOR_SR_MUTUAL_AUTH` | Включение взаимной аутентификации SPNEGO для Schema Registry (SEC-15) | `false` | Опционально |
-| `REPLICATOR_SMALL_FILE_THRESHOLD_BYTES` | Порог размера файла (в байтах) для бандлинга мелких файлов в виртуальные TAR-архивы | `1048576` (1 МБ) | Опционально |
-| `REPLICATOR_BUNDLE_TARGET_SIZE_BYTES` | Целевой объем файлов в одном виртуальном TAR-бандле `BUNDLE_TAR` | `16777216` (16 МБ) | Опционально |
-| `REPLICATOR_MAX_BUNDLE_FILES` | Максимальное количество файлов в одном виртуальном бандле | `500` | Опционально |
-| `REPLICATOR_BUNDLE_COMMIT_CONCURRENCY` | Количество параллельных потоков прямой записи файлов бандла в целевой HDFS | `8` | Опционально |
-| `REPLICATOR_STAGING_CLEANUP_ENABLED` | Включение фонового сборщика мусора (Reaper) для периодической очистки осиротевших staging-файлов на HDFS | `true` | Опционально |
-| `REPLICATOR_STAGING_CLEANUP_INTERVAL_MINUTES` | Интервал запуска периодической очистки staging-файлов фоновым демоном (минуты) | `15` | Опционально |
-| `REPLICATOR_STAGING_TTL_MINUTES` | Время жизни (TTL) staging-файлов, после которого они считаются осиротевшими и удаляются (минуты) | `30` | Опционально |
-| `REPLICATOR_HDFS_NAMENODE` | Хост целевого NameNode для прямого HDFS-коммита через Java HDFS Client | Не задано (локальный commit) | Опционально |
+| `PAROM_SR_MUTUAL_AUTH` | Включение взаимной аутентификации SPNEGO для Schema Registry (SEC-15) | `false` | Опционально |
+| `PAROM_SMALL_FILE_THRESHOLD_BYTES` | Порог размера файла (в байтах) для бандлинга мелких файлов в виртуальные TAR-архивы | `1048576` (1 МБ) | Опционально |
+| `PAROM_BUNDLE_TARGET_SIZE_BYTES` | Целевой объем файлов в одном виртуальном TAR-бандле `BUNDLE_TAR` | `16777216` (16 МБ) | Опционально |
+| `PAROM_MAX_BUNDLE_FILES` | Максимальное количество файлов в одном виртуальном бандле | `500` | Опционально |
+| `PAROM_BUNDLE_COMMIT_CONCURRENCY` | Количество параллельных потоков прямой записи файлов бандла в целевой HDFS | `8` | Опционально |
+| `PAROM_STAGING_CLEANUP_ENABLED` | Включение фонового сборщика мусора (Reaper) для периодической очистки осиротевших staging-файлов на HDFS | `true` | Опционально |
+| `PAROM_STAGING_CLEANUP_INTERVAL_MINUTES` | Интервал запуска периодической очистки staging-файлов фоновым демоном (минуты) | `15` | Опционально |
+| `PAROM_STAGING_TTL_MINUTES` | Время жизни (TTL) staging-файлов, после которого они считаются осиротевшими и удаляются (минуты) | `30` | Опционально |
+| `PAROM_HDFS_NAMENODE` | Хост целевого NameNode для прямого HDFS-коммита через Java HDFS Client | Не задано (локальный commit) | Опционально |
 | `POLL_INTERVAL_SEC` | Интервал опроса очереди задач и keepalive-пингов (секунды) | `3.0` | Опционально |
 | `AGENT_MAX_BANDWIDTH_MB_S` | Локальный лимит пропускной способности агента (МБ/с, Token Bucket). Ограничивает нагрузку агента на сетевую карту и диски, когда он установлен на узле Hadoop (DataNode / Edge Gateway). `0` или пусто — без ограничений | `0.0` (без ограничений) | Опционально |
 | `AGENT_TARGET_<CLUSTER_ID>` | Ручное переопределение gRPC-адреса для целевого кластера (для NAT/DMZ) | Динамический реестр Оркестратора | Опционально |
-| `REPLICATOR_KEYTAB_PATH` | Путь к Keytab-файлу системной техучетки для Kerberos аутентификации | `/etc/security/keytabs/replicator.keytab` | Рекомендуется |
-| `REPLICATOR_GRPC_TLS_ENABLED` | Включение TLS для входящего и исходящего gRPC-трафика | `false` | Опционально |
-| `REPLICATOR_GRPC_CERT_CHAIN_PATH` | Путь к сертификату узла (X.509 PEM) | `null` | Опционально |
-| `REPLICATOR_GRPC_PRIVATE_KEY_PATH` | Путь к приватному ключу узла (PKCS8 PEM) | `null` | Опционально |
-| `REPLICATOR_GRPC_TRUST_CERT_COLLECTION_PATH` | Путь к цепочке доверенных сертификатов CA для проверки пиров | `null` | Опционально |
-| `REPLICATOR_GRPC_CLIENT_AUTH` | Режим взаимной проверки сертификатов mTLS (`NONE`, `OPTIONAL`, `REQUIRE`) | `NONE` | Опционально |
-| `REPLICATOR_GRPC_INSECURE_SKIP_VERIFY` | Отключение строгой проверки TLS сертификатов для gRPC (только dev) | `false` | Опционально |
+| `PAROM_KEYTAB_PATH` | Путь к Keytab-файлу системной техучетки для Kerberos аутентификации | `/etc/security/keytabs/replicator.keytab` | Рекомендуется |
+| `PAROM_GRPC_TLS_ENABLED` | Включение TLS для входящего и исходящего gRPC-трафика | `false` | Опционально |
+| `PAROM_GRPC_CERT_CHAIN_PATH` | Путь к сертификату узла (X.509 PEM) | `null` | Опционально |
+| `PAROM_GRPC_PRIVATE_KEY_PATH` | Путь к приватному ключу узла (PKCS8 PEM) | `null` | Опционально |
+| `PAROM_GRPC_TRUST_CERT_COLLECTION_PATH` | Путь к цепочке доверенных сертификатов CA для проверки пиров | `null` | Опционально |
+| `PAROM_GRPC_CLIENT_AUTH` | Режим взаимной проверки сертификатов mTLS (`NONE`, `OPTIONAL`, `REQUIRE`) | `NONE` | Опционально |
+| `PAROM_GRPC_INSECURE_SKIP_VERIFY` | Отключение строгой проверки TLS сертификатов для gRPC (только dev) | `false` | Опционально |
 | `ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY` | Отключение проверки HTTPS сертификатов при запросах к Оркестратору | `false` | Опционально |
-| `REPLICATOR_HMS_MODE` | Режим работы HMS клиента агента: `thrift` (Thrift RPC к Hive Metastore; без `HMS_THRIFT_URIS` агент не стартует), `auto` (Thrift, если задан `HMS_THRIFT_URIS`, иначе репликация метаданных на агенте отключена), `demo-http` (тестовый API оркестратора, нужен `REPLICATOR_HMS_MOCK_CLUSTER_API_ENABLED`), `mock` (встроенный эмулятор, только для тестов). Другое значение останавливает старт агента | `thrift` (если задан `HMS_THRIFT_URIS`), иначе `auto` | Опционально |
+| `PAROM_HMS_MODE` | Режим работы HMS клиента агента: `thrift` (Thrift RPC к Hive Metastore; без `HMS_THRIFT_URIS` агент не стартует), `auto` (Thrift, если задан `HMS_THRIFT_URIS`, иначе репликация метаданных на агенте отключена), `demo-http` (тестовый API оркестратора, нужен `PAROM_HMS_MOCK_CLUSTER_API_ENABLED`), `mock` (встроенный эмулятор, только для тестов). Другое значение останавливает старт агента | `thrift` (если задан `HMS_THRIFT_URIS`), иначе `auto` | Опционально |
 | `HMS_THRIFT_POOL_MAX_SIZE` | Максимальный размер пула Thrift-соединений к Hive Metastore (Commons-Pool2) | `16` (minIdle: 1, maxIdle: 8) | Опционально |
-| `REPLICATOR_HMS_DATA_BARRIER_ENABLED` | Барьер «данные раньше DDL»: партиции и таблицы появляются на приемнике только после успешного копирования их данных. Сбой связи с оркестратором барьер не открывает | `true` | Рекомендуется |
-| `REPLICATOR_HMS_DATA_BARRIER_TIMEOUT_SEC` | Сколько ждать копирования данных одной порции партиций, прежде чем отменить DDL (секунды). Копия таблицы на терабайты идет часами | `21600` (6 ч) | Опционально |
-| `REPLICATOR_HMS_BOOTSTRAP_CONCURRENCY` | Сколько таблиц агент переносит параллельно при bootstrap | `8` | Опционально |
-| `REPLICATOR_HMS_PARTITION_BATCH_SIZE` | Порция партиций: столько читается из метастора, применяется на приемнике и держится в памяти агента за раз (не больше 1000) | `1000` | Опционально |
+| `PAROM_HMS_DATA_BARRIER_ENABLED` | Барьер «данные раньше DDL»: партиции и таблицы появляются на приемнике только после успешного копирования их данных. Сбой связи с оркестратором барьер не открывает | `true` | Рекомендуется |
+| `PAROM_HMS_DATA_BARRIER_TIMEOUT_SEC` | Сколько ждать копирования данных одной порции партиций, прежде чем отменить DDL (секунды). Копия таблицы на терабайты идет часами | `21600` (6 ч) | Опционально |
+| `PAROM_HMS_BOOTSTRAP_CONCURRENCY` | Сколько таблиц агент переносит параллельно при bootstrap | `8` | Опционально |
+| `PAROM_HMS_PARTITION_BATCH_SIZE` | Порция партиций: столько читается из метастора, применяется на приемнике и держится в памяти агента за раз (не больше 1000) | `1000` | Опционально |
 | `TARGET_HDFS_DEFAULTFS` / `TARGET_HDFS_DEFAULT_FS` | URI целевой HDFS файловой системы (например, `hdfs://hdfs-cluster-2:9000`) для перезаписи схем и путей таблиц/партиций в Thrift Hive Metastore через `HmsPathRewriter` | Не задано (используются эвристики и mappings) | Рекомендуется при межкластерной репликации |
-| `REPLICATOR_FEDERATION_MAPPINGS` | Список сопоставлений HDFS authority для федерации кластеров через запятую (например, `hdfs-cluster-1:9000=hdfs-cluster-2:9000,dc1=dc2`) | Не задано | Опционально |
+| `PAROM_FEDERATION_MAPPINGS` | Список сопоставлений HDFS authority для федерации кластеров через запятую (например, `hdfs-cluster-1:9000=hdfs-cluster-2:9000,dc1=dc2`) | Не задано | Опционально |
 | `HMS_LOOP_INTERVAL_MS` | Интервал фонового опроса и синхронизации метаданных HMS в изолированном потоке `replicator-hms-loop` (мс) | `2000` (2 сек) | Опционально |
 
 ### 1.5 Настройка Hadoop Impersonation (Proxy User) для Apache Ranger
@@ -343,11 +343,11 @@ flowchart TD
    - Эндпоинт изменения пропускной способности каналов (`PUT /api/v1/tokens/limit`) требует роли `ADMIN`. Рядовые пользователи не могут изменять лимиты шейпинга.
 
 4. Защита от fail-open и требование к длине секрета агентов (`enforce-agent-secret`):
-   - При `hadoop.replicator.enforce-agent-secret=true` реестр агентов `AgentRegistry` блокирует запуск оркестратора, если секрет не задан или короче 16 символов.
+   - При `parom.enforce-agent-secret=true` реестр агентов `AgentRegistry` блокирует запуск оркестратора, если секрет не задан или короче 16 символов.
    - Метод `verifySecret` работает в режиме fail-closed: запросы агентов без валидного заголовка `X-Agent-Secret` отклоняются.
 
 5. Автоочистка подзадач (task retention policy):
-   - Фоновая задача удаляет устаревшие подзадачи репликации (`hadoop.replicator.task-retention-days`, по умолчанию 7 дней).
+   - Фоновая задача удаляет устаревшие подзадачи репликации (`parom.task-retention-days`, по умолчанию 7 дней).
    - Завершенные (`COMPLETED`) и ошибочные (`FAILED`) задачи старше заданного срока удаляются из таблицы `replication_tasks`; подробности — в разделе 1.6.2.
 
 6. Защита от BOLA/IDOR при чтении данных и инспекции задач (P0):
@@ -365,12 +365,12 @@ flowchart TD
 - Передача в gRPC-контрактах: токен `task_token` передается в метаданных вызовов `FileMetadata` и `TarStreamMetadata` по межЦОДному WAN-каналу (порт 50051).
 - Проверка на стороне приемника (`TaskAttestationValidator`): перед открытием выходного потока в HDFS (`DataTransferServiceImpl`) приемник извлекает токен и проверяет подпись общим секретом `agentSecret`.
 - Защита от подмены: изменение `targetPath` (попытка записи в чужой каталог), подмена `executionPrincipal` (эскалация прав в doAs) или просроченный токен приводят к отклонению операции со статусом `Status.PERMISSION_DENIED` и фиксации инцидента безопасности в логе.
-- Включение проверки: параметр `hadoop.replicator.enforce-task-attestation=true` включен по умолчанию.
+- Включение проверки: параметр `parom.enforce-task-attestation=true` включен по умолчанию.
 
 #### 1.5.4 Chroot-песочница целевых путей и защита системных файлов ОС (SEC-10)
 
 Метод `HadoopFsManager.validateSandboxAccess` не дает операциям агента-приемника писать или удалять файлы ОС хоста за пределами песочницы:
-- Песочница путей (`localSandboxDir`): все файловые операции в локальной ФС (`REPLICATOR_LOCAL_SANDBOX` / `LOCAL_SANDBOX_DIR`) валидируются относительно канонического пути `File.getCanonicalFile()`.
+- Песочница путей (`localSandboxDir`): все файловые операции в локальной ФС (`PAROM_LOCAL_SANDBOX` / `LOCAL_SANDBOX_DIR`) валидируются относительно канонического пути `File.getCanonicalFile()`.
 - Защита от symlink traversal и null byte injection: символические ссылки, указывающие за пределы песочницы, а также байты `\0` в именах путей блокируются с выбросом `SecurityException`.
 - Черный список системных каталогов (`FORBIDDEN_OS_PREFIXES`): доступ к системным каталогам Linux/macOS запрещен:
   ```
@@ -393,8 +393,8 @@ flowchart TD
 #### 1.5.6 Сквозной контекст секрета агента и защита от SSRF Loopback (SEC-12, SEC-13, SEC-16)
 
 - Передача секрета через gRPC Context (SEC-16): интерцептор `AgentGrpcAuthInterceptor` помещает проверенный токен в контекст потока `AGENT_SECRET_CONTEXT_KEY`, откуда он извлекается контроллерами Control Plane.
-- Приоритет переменной окружения `REPLICATOR_AGENT_SECRET` (SEC-12): Оркестратор и агент читают секрет из переменных окружения или K8s Secrets; прописывать его в конфигурационных файлах не нужно.
-- Защита от SSRF через loopback (SEC-13): регистрация агентов на сетевых интерфейсах обратной петли (`127.0.0.1`, `::1`, `localhost`) по умолчанию заблокирована параметром `hadoop.replicator.allow-loopback-agents=false`. Для адресов хостов проводится валидация по спецификации FQDN.
+- Приоритет переменной окружения `PAROM_AGENT_SECRET` (SEC-12): Оркестратор и агент читают секрет из переменных окружения или K8s Secrets; прописывать его в конфигурационных файлах не нужно.
+- Защита от SSRF через loopback (SEC-13): регистрация агентов на сетевых интерфейсах обратной петли (`127.0.0.1`, `::1`, `localhost`) по умолчанию заблокирована параметром `parom.allow-loopback-agents=false`. Для адресов хостов проводится валидация по спецификации FQDN.
 
 ---
 
@@ -404,7 +404,7 @@ flowchart TD
 
 #### 1.6.1 Схема создается миграциями Flyway
 
-- Общие миграции: `backend/replicator/orchestrator/src/main/resources/db/migration/common`.
+- Общие миграции: `backend/parom/orchestrator/src/main/resources/db/migration/common`.
 - Специфика вендора (частичные индексы по активным статусам, `fillfactor`, параметры autovacuum): `db/migration/postgresql`. Каталоги подключены как `spring.flyway.locations: classpath:db/migration/common,classpath:db/migration/{vendor}`.
 - `spring.jpa.hibernate.ddl-auto: validate` во всех профилях: приложение схему не меняет, а сверяет с моделью и падает на старте при расхождении. Прежний `ddl-auto: update` молча подгонял базу под модель, и в каждом окружении получалась своя схема.
 - Существующая база, созданная прежним `ddl-auto: update`, подхватывается через `spring.flyway.baseline-on-migrate: true`: Flyway помечает ее как baseline и применяет только последующие миграции. Индексы таблицы заданий такие базы получают отдельной идемпотентной миграцией `V3`.
@@ -471,8 +471,8 @@ Pristan поставляется собранными релизными арт�
 
 #### Готовые контейнеры (GitHub Container Registry — GHCR)
 Для сред Docker и Kubernetes в реестре контейнеров GitHub (`ghcr.io`) публикуются собранные образы на базе `eclipse-temurin:21-jre-jammy`:
-- `ghcr.io/company/pristan/replicator-orchestrator:${VERSION}`
-- `ghcr.io/company/pristan/replicator-agent:${VERSION}`
+- `ghcr.io/company/pristan/parom-orchestrator:${VERSION}`
+- `ghcr.io/company/pristan/parom-agent:${VERSION}`
 
 > Пробы живости. Серверы gRPC отвечают по стандартному протоколу `grpc.health.v1.Health`, а проба контейнера агента выполняется тем же jar-ом, что и сам агент. Подробности и команда пробы — в разделе 5.3; настройка экспорта трасс — в разделе 7.1.2 `docs/CONFIGURATION.md`.
 
@@ -542,7 +542,7 @@ sudo chmod 750 /var/lib/pristan/replicator/data /var/lib/pristan/replicator/stag
 
 ##### Способ А (для production): загрузка из GitHub Releases
 
-Fat JAR скачиваются из раздела релизов GitHub. Веб-ресурсы фронтенда (Svelte 5) встроены в `replicator-orchestrator.jar`, библиотеки gRPC и Hadoop — в `replicator-agent-*-all.jar`.
+Fat JAR скачиваются из раздела релизов GitHub. Веб-ресурсы фронтенда (Svelte 5) встроены в `parom-orchestrator.jar`, библиотеки gRPC и Hadoop — в `replicator-agent-*-all.jar`.
 
 ##### 1. Загрузка через GitHub CLI (`gh`)
 Если на сервере или шлюзе установлен `gh`:
@@ -586,8 +586,8 @@ curl -fsSL -O "${BASE_URL}/SHA256SUMS.txt"
 cd "${RELEASE_DIR}"
 sha256sum -c SHA256SUMS.txt --ignore-missing
 # Ожидаемый вывод:
-# replicator-orchestrator-1.0.0.jar: УСПЕШНО (OK)
-# replicator-agent-1.0.0-all.jar: УСПЕШНО (OK)
+# parom-orchestrator-1.0.0.jar: УСПЕШНО (OK)
+# parom-agent-1.0.0-all.jar: УСПЕШНО (OK)
 ```
 
 ##### 4. Создание символических ссылок
@@ -596,10 +596,10 @@ sha256sum -c SHA256SUMS.txt --ignore-missing
 BIN_DIR="/opt/pristan/replicator/bin"
 
 # Для сервера Оркестратора:
-ln -sfn "${RELEASE_DIR}/replicator-orchestrator-${VERSION}.jar" "${BIN_DIR}/replicator-orchestrator.jar"
+ln -sfn "${RELEASE_DIR}/replicator-orchestrator-${VERSION}.jar" "${BIN_DIR}/parom-orchestrator.jar"
 
 # Для серверов Агентов:
-ln -sfn "${RELEASE_DIR}/replicator-agent-${VERSION}-all.jar" "${BIN_DIR}/replicator-agent.jar"
+ln -sfn "${RELEASE_DIR}/replicator-agent-${VERSION}-all.jar" "${BIN_DIR}/parom-agent.jar"
 ```
 
 ##### 5. Скрипт развертывания `install-from-release.sh`
@@ -615,7 +615,7 @@ RELEASE_DIR="${BASE_DIR}/releases/v${VERSION}"
 BIN_DIR="${BASE_DIR}/bin"
 BASE_URL="https://github.com/${GITHUB_REPO}/releases/download/v${VERSION}"
 
-echo "==> Установка Hadoop gRPC Replicator v${VERSION} из GitHub Releases..."
+echo "==> Установка Parom v${VERSION} из GitHub Releases..."
 mkdir -p "${RELEASE_DIR}" "${BIN_DIR}"
 cd "${RELEASE_DIR}"
 
@@ -628,8 +628,8 @@ echo "--> Проверка контрольных сумм..."
 sha256sum -c SHA256SUMS.txt --ignore-missing
 
 echo "--> Обновление символических ссылок..."
-ln -sfn "${RELEASE_DIR}/replicator-orchestrator-${VERSION}.jar" "${BIN_DIR}/replicator-orchestrator.jar"
-ln -sfn "${RELEASE_DIR}/replicator-agent-${VERSION}-all.jar" "${BIN_DIR}/replicator-agent.jar"
+ln -sfn "${RELEASE_DIR}/replicator-orchestrator-${VERSION}.jar" "${BIN_DIR}/parom-orchestrator.jar"
+ln -sfn "${RELEASE_DIR}/replicator-agent-${VERSION}-all.jar" "${BIN_DIR}/parom-agent.jar"
 
 echo "Версия v${VERSION} успешно установлена в ${BIN_DIR}!"
 ```
@@ -647,19 +647,19 @@ cd hadoop-explorer
 
 # 1. Сборка фронтенда (Svelte 5 SPA)
 cd frontend
-npm ci --workspace=apps/replicator --include-workspace-root
-# Бандл собирается сразу в backend/replicator/orchestrator/src/main/resources/static и попадает в JAR
+npm ci --workspace=apps/parom --include-workspace-root
+# Бандл собирается сразу в backend/parom/orchestrator/src/main/resources/static и попадает в JAR
 npm run build:replicator
 cd ..
 
 # 2. Сборка Java-модулей (Spring Boot Orchestrator + Shaded Agent)
-mvn clean package -DskipTests -f backend/replicator/pom.xml
+mvn clean package -DskipTests -f backend/parom/pom.xml
 
 # 3. Копирование артефактов в рабочий каталог bin
-cp backend/replicator/orchestrator/target/replicator-orchestrator-*.jar \
-   /opt/pristan/replicator/bin/replicator-orchestrator.jar
-cp backend/replicator/agent/target/replicator-agent-*-all.jar \
-   /opt/pristan/replicator/bin/replicator-agent.jar
+cp backend/parom/orchestrator/target/replicator-orchestrator-*.jar \
+   /opt/pristan/replicator/bin/parom-orchestrator.jar
+cp backend/parom/agent/target/replicator-agent-*-all.jar \
+   /opt/pristan/replicator/bin/parom-agent.jar
 ```
 
 ---
@@ -745,7 +745,7 @@ hadoop:
 ##### 1. Сервис Оркестратора (`/etc/systemd/system/replicator-orchestrator.service`)
 ```ini
 [Unit]
-Description=Hadoop gRPC Replicator Orchestrator
+Description=Parom Orchestrator
 After=network.target
 
 [Service]
@@ -756,7 +756,7 @@ WorkingDirectory=/opt/pristan/replicator
 Environment="SPRING_CONFIG_ADDITIONAL_LOCATION=file:/etc/pristan/replicator/application.yml"
 
 ExecStart=/usr/bin/java -Xms512m -Xmx2048m \
-    -jar /opt/pristan/replicator/bin/replicator-orchestrator.jar \
+    -jar /opt/pristan/replicator/bin/parom-orchestrator.jar \
     --server.port=8005
 
 Restart=always
@@ -771,7 +771,7 @@ WantedBy=multi-user.target
 Устанавливается на серверах в каждом ЦОД (DC1 и DC2); для двунаправленной репликации (`DC1 ⇄ DC2`) агент нужен с обеих сторон:
 ```ini
 [Unit]
-Description=Hadoop gRPC Replicator Full-Duplex Agent
+Description=Parom Full-Duplex Agent
 After=network.target
 
 [Service]
@@ -785,11 +785,11 @@ Environment="AGENT_MODE=all"
 Environment="ORCHESTRATOR_URL=http://orchestrator.company.local:8005"
 Environment="RECEIVER_HOST=0.0.0.0"
 Environment="RECEIVER_PORT=50051"
-Environment="REPLICATOR_STAGING_DIR=/var/lib/pristan/replicator/staging"
+Environment="PAROM_STAGING_DIR=/var/lib/pristan/replicator/staging"
 Environment="POLL_INTERVAL_SEC=2.0"
 
 ExecStart=/usr/bin/java -Xms256m -Xmx1024m \
-    -jar /opt/pristan/replicator/bin/replicator-agent.jar
+    -jar /opt/pristan/replicator/bin/parom-agent.jar
 
 Restart=always
 RestartSec=5s
@@ -806,7 +806,7 @@ sudo systemctl daemon-reload
 # На сервере Оркестратора:
 sudo systemctl enable --now replicator-orchestrator
 curl -s http://127.0.0.1:8005/health
-# {"status":"UP","database":"UP","service":"hadoop-grpc-replicator-orchestrator","uptime_seconds":...}
+# {"status":"UP","database":"UP","service":"parom-orchestrator","uptime_seconds":...}
 
 # На серверах Агентов (DC1 и DC2):
 sudo systemctl enable --now replicator-agent
@@ -831,8 +831,8 @@ sudo systemctl enable --now replicator-agent
 
 2. Переключите символические ссылки (`ln -sfn` заменяет ссылку атомарно):
    ```bash
-   ln -sfn "${NEW_DIR}/replicator-orchestrator-${NEW_VER}.jar" /opt/pristan/replicator/bin/replicator-orchestrator.jar
-   ln -sfn "${NEW_DIR}/replicator-agent-${NEW_VER}-all.jar" /opt/pristan/replicator/bin/replicator-agent.jar
+   ln -sfn "${NEW_DIR}/replicator-orchestrator-${NEW_VER}.jar" /opt/pristan/replicator/bin/parom-orchestrator.jar
+   ln -sfn "${NEW_DIR}/replicator-agent-${NEW_VER}-all.jar" /opt/pristan/replicator/bin/parom-agent.jar
    ```
 
 3. Перезапустите сервисы:
@@ -859,7 +859,7 @@ sudo systemctl enable --now replicator-agent
   - Оркестратор увеличивает счетчик попыток `retry_count`, запоминает сбойный узел (`last_failed_agent_id`) и возвращает задачу в статус `QUEUED`; дальше ее берет другой доступный агент.
   - Фоновый сторожевой сервис (watchdog `checkAndFailoverOrphanedTasks`, каждые 3 сек) находит задачи в статусе `RUNNING`, чьи агенты перешли в `OFFLINE` или потеряли связь (`STALE` дольше `agent-heartbeat-timeout-seconds`), и возвращает их в очередь для других агентов.
   - При штатной остановке агента (`POST /api/v1/agents/unregister`) активные задачи сразу возвращаются в очередь, без ожидания таймаутов.
-  - Параметр `hadoop.replicator.max-task-retries` (по умолчанию `3`) определяет максимальное количество попыток до перевода в терминальный `FAILED`.
+  - Параметр `parom.max-task-retries` (по умолчанию `3`) определяет максимальное количество попыток до перевода в терминальный `FAILED`.
 
 #### Вариант 1: Запуск нескольких агентов в systemd (шаблонные юниты)
 Создайте шаблонный юнит `/etc/systemd/system/replicator-agent@.service`:
@@ -877,7 +877,7 @@ Environment="AGENT_CLUSTER_ID=demo-cluster"
 Environment="RECEIVER_PORT=5005%i"
 Environment="AGENT_ADVERTISED_ADDRESS=node1.dc1.company.local:5005%i"
 Environment="ORCHESTRATOR_URL=http://orchestrator.company.local:8005"
-ExecStart=/usr/bin/java -jar /opt/pristan/replicator/bin/replicator-agent.jar
+ExecStart=/usr/bin/java -jar /opt/pristan/replicator/bin/parom-agent.jar
 Restart=always
 
 [Install]
@@ -893,7 +893,7 @@ sudo systemctl enable --now replicator-agent@2
 ```yaml
 services:
   agent-dc1-01:
-    image: pristan/replicator:latest
+    image: pristan/parom:latest
     environment:
       AGENT_ID: agent-dc1-01
       AGENT_CLUSTER_ID: demo-cluster
@@ -901,7 +901,7 @@ services:
       RECEIVER_PORT: 50051
 
   agent-dc1-02:
-    image: pristan/replicator:latest
+    image: pristan/parom:latest
     environment:
       AGENT_ID: agent-dc1-02
       AGENT_CLUSTER_ID: demo-cluster
@@ -946,18 +946,18 @@ Replicator Agent работает с HDFS напрямую через `org.apach
 Сборка выполняется через корневой Makefile или напрямую через Maven:
 ```bash
 # Из корня репозитория через Makefile:
-make build-replicator-agent
+make build-parom-agent
 
 # Либо напрямую через Maven:
-mvn clean package -pl backend/replicator/agent -am -DskipTests
+mvn clean package -pl backend/parom/agent -am -DskipTests
 ```
 
-В каталоге `backend/replicator/agent/target/` появляются два артефакта:
+В каталоге `backend/parom/agent/target/` появляются два артефакта:
 
 | Артефакт | Размер | Содержимое | Сценарии применения |
 |---|---|---|---|
-| `replicator-agent-1.0.0-all.jar`<br/>(Shaded Fat JAR) | ~81.5 МБ | Классы агента, сгенерированные стабы gRPC/Protobuf и все runtime-зависимости: Netty HTTP/2, gRPC Java runtime, Apache Hadoop Client, YARN Client, Jackson, Commons CLI. | 1. Запуск в Docker-контейнерах (`Dockerfile.replicator-agent`).<br/>2. Автономный запуск через `java -jar` на серверах без дистрибутива Hadoop.<br/>3. Отправка в YARN (`yarn jar` или `submit-yarn.sh` — JAR загружается в staging-каталог приложения в HDFS).<br/>4. Запуск через `hadoop jar` на DataNode и edge-узлах. |
-| `replicator-agent-1.0.0.jar`<br/>(тонкий JAR) | ~211 КБ | Только классы агента и Protobuf DTO, без внешних библиотек. | 1. Maven-зависимость в `replicator-orchestrator` (`<artifactId>replicator-agent</artifactId>`): внешние библиотеки агента не добавляются в classpath Оркестратора.<br/>2. Запуск на узлах Hadoop с подключением системного `HADOOP_CLASSPATH` (`hadoop classpath`). |
+| `parom-agent-1.0.0-all.jar`<br/>(Shaded Fat JAR) | ~81.5 МБ | Классы агента, сгенерированные стабы gRPC/Protobuf и все runtime-зависимости: Netty HTTP/2, gRPC Java runtime, Apache Hadoop Client, YARN Client, Jackson, Commons CLI. | 1. Запуск в Docker-контейнерах (`Dockerfile.parom-agent`).<br/>2. Автономный запуск через `java -jar` на серверах без дистрибутива Hadoop.<br/>3. Отправка в YARN (`yarn jar` или `submit-yarn.sh` — JAR загружается в staging-каталог приложения в HDFS).<br/>4. Запуск через `hadoop jar` на DataNode и edge-узлах. |
+| `parom-agent-1.0.0.jar`<br/>(тонкий JAR) | ~211 КБ | Только классы агента и Protobuf DTO, без внешних библиотек. | 1. Maven-зависимость в `replicator-orchestrator` (`<artifactId>parom-agent</artifactId>`): внешние библиотеки агента не добавляются в classpath Оркестратора.<br/>2. Запуск на узлах Hadoop с подключением системного `HADOOP_CLASSPATH` (`hadoop classpath`). |
 
 #### 2.4.2 Почему артефактов два
 В Spring Boot сервисах плагин `spring-boot-maven-plugin` заменяет исходный JAR исполняемым fat-архивом. У Replicator Agent так сделать нельзя по двум причинам:
@@ -975,8 +975,8 @@ mvn clean package -pl backend/replicator/agent -am -DskipTests
 
 ```bash
 # 1. Запуск Shaded Fat JAR (установленного из GitHub Release в /opt/pristan/replicator/bin):
-hadoop jar /opt/pristan/replicator/bin/replicator-agent.jar \
-    io.github.balookrd.pristan.replicator.agent.ReplicatorAgentMain \
+hadoop jar /opt/pristan/replicator/bin/parom-agent.jar \
+    io.github.balookrd.pristan.parom.agent.ParomAgentMain \
     --agent-id agent-dn01-dc1 \
     --cluster-id dc1-prod \
     --orchestrator http://orchestrator.company.local:8005 \
@@ -992,8 +992,8 @@ hadoop jar /opt/pristan/replicator/bin/replicator-agent.jar \
 export HADOOP_CLASSPATH=$(hadoop classpath)
 
 java -Xms1g -Xmx4g \
-    -cp "/opt/pristan/replicator/releases/v1.0.0/replicator-agent-1.0.0.jar:${HADOOP_CLASSPATH}" \
-    io.github.balookrd.pristan.replicator.agent.ReplicatorAgentMain \
+    -cp "/opt/pristan/replicator/releases/v1.0.0/parom-agent-1.0.0.jar:${HADOOP_CLASSPATH}" \
+    io.github.balookrd.pristan.parom.agent.ParomAgentMain \
     --agent-id agent-dn01-dc1 \
     --cluster-id dc1-prod \
     --orchestrator http://orchestrator.company.local:8005 \
@@ -1002,12 +1002,12 @@ java -Xms1g -Xmx4g \
     --mode all
 ```
 
-#### 2.5.2 Способ Б: запуск через скрипт `replicator-agent.sh`
-Скрипт `replicator-agent.sh` находит JAR, проверяет наличие `hadoop classpath`, задает флаги JVM для G1GC и запускает процесс:
+#### 2.5.2 Способ Б: запуск через скрипт `parom-agent.sh`
+Скрипт `parom-agent.sh` находит JAR, проверяет наличие `hadoop classpath`, задает флаги JVM для G1GC и запускает процесс:
 
 ```bash
-JAR_FILE=/opt/pristan/replicator/bin/replicator-agent.jar \
-/opt/pristan/replicator/bin/replicator-agent.sh \
+JAR_FILE=/opt/pristan/replicator/bin/parom-agent.jar \
+/opt/pristan/replicator/bin/parom-agent.sh \
     --agent-id agent-dn01-dc1 \
     --cluster-id dc1-prod \
     --orchestrator http://orchestrator.company.local:8005 \
@@ -1023,7 +1023,7 @@ JAR_FILE=/opt/pristan/replicator/bin/replicator-agent.jar \
 Создайте файл `/etc/systemd/system/replicator-agent.service`:
 ```ini
 [Unit]
-Description=Hadoop gRPC Replicator Agent (Java 21)
+Description=Parom Agent (Java 21)
 After=network.target hadoop-hdfs-datanode.service
 Wants=hadoop-hdfs-datanode.service
 
@@ -1047,14 +1047,14 @@ Environment="ORCHESTRATOR_URL=http://orchestrator.company.local:8005"
 Environment="RECEIVER_HOST=0.0.0.0"
 Environment="RECEIVER_PORT=50051"
 Environment="AGENT_MAX_BANDWIDTH_MB_S=60.0"
-Environment="REPLICATOR_STAGING_DIR=/tmp/staging"
+Environment="PAROM_STAGING_DIR=/tmp/staging"
 
 # Безопасность Kerberos
 Environment="KRB5_KEYTAB=/etc/security/keytabs/hdfs.keytab"
 Environment="KRB5_PRINCIPAL=hdfs/_HOST@REALM.LOCAL"
 
 # Параметры запуска
-ExecStart=/opt/pristan/replicator/backend/replicator/agent/bin/replicator-agent.sh
+ExecStart=/opt/pristan/replicator/backend/parom/agent/bin/parom-agent.sh
 
 Restart=always
 RestartSec=5s
@@ -1085,17 +1085,17 @@ sudo systemctl status replicator-agent
 | `-m, --mode` | `AGENT_MODE` | `all` | Режим работы: `all` (дуплекс: прием и передача), `sender` (только чтение и отправка), `receiver` (только прием и запись). |
 | `-p, --port` | `RECEIVER_PORT` | `50051` | Порт прослушивания входящих gRPC-соединений для приема данных. |
 | `-b, --bandwidth` | `AGENT_MAX_BANDWIDTH_MB_S` | `0.0` | Локальный Token Bucket лимит скорости репликации в МБ/с (`0.0` — без ограничений). |
-| — | `REPLICATOR_REQUIRE_CHECKSUM` | `true` | Отклонять передачу, если другая сторона не прислала или не подтвердила SHA-256: приемник не коммитит файл и бандл, отправитель завершает задачу ошибкой. `false` задают на время обновления, пока работают агенты выпуска без контрольных сумм. |
-| `-s, --staging-dir` | `REPLICATOR_STAGING_DIR` | `/tmp/staging` | Локальная или HDFS директория временных файлов перед коммитом. |
-| — | `REPLICATOR_AGENT_SECRET` | `null` | Общий секретный токен для заголовка `X-Agent-Secret`. |
-| — | `REPLICATOR_GRPC_TLS_ENABLED` | `false` | Включение TLS/mTLS для gRPC-соединений. |
-| — | `REPLICATOR_GRPC_CERT_CHAIN_PATH` | `null` | Путь к цепочке X.509 сертификатов (PEM). |
-| — | `REPLICATOR_GRPC_PRIVATE_KEY_PATH` | `null` | Путь к закрытому ключу PKCS8 (PEM). |
-| — | `REPLICATOR_GRPC_TRUST_CERT_COLLECTION_PATH` | `null` | Путь к доверенным корневым сертификатам CA для mTLS. |
+| — | `PAROM_REQUIRE_CHECKSUM` | `true` | Отклонять передачу, если другая сторона не прислала или не подтвердила SHA-256: приемник не коммитит файл и бандл, отправитель завершает задачу ошибкой. `false` задают на время обновления, пока работают агенты выпуска без контрольных сумм. |
+| `-s, --staging-dir` | `PAROM_STAGING_DIR` | `/tmp/staging` | Локальная или HDFS директория временных файлов перед коммитом. |
+| — | `PAROM_AGENT_SECRET` | `null` | Общий секретный токен для заголовка `X-Agent-Secret`. |
+| — | `PAROM_GRPC_TLS_ENABLED` | `false` | Включение TLS/mTLS для gRPC-соединений. |
+| — | `PAROM_GRPC_CERT_CHAIN_PATH` | `null` | Путь к цепочке X.509 сертификатов (PEM). |
+| — | `PAROM_GRPC_PRIVATE_KEY_PATH` | `null` | Путь к закрытому ключу PKCS8 (PEM). |
+| — | `PAROM_GRPC_TRUST_CERT_COLLECTION_PATH` | `null` | Путь к доверенным корневым сертификатам CA для mTLS. |
 | — | `KRB5_KEYTAB` | `null` | Путь к Kerberos Keytab файлу для авторизации в защищенном HDFS. |
 | — | `KRB5_PRINCIPAL` | `null` | Kerberos Principal (например, `hdfs/node01.corp@REALM`). |
-| `-z, --compression` | `REPLICATOR_WIRE_COMPRESSION` | `zstd` | Кодек потокового сжатия в gRPC-канале: `zstd` (Zstandard), `lz4` (LZ4), `none` (отключено). |
-| `-zl, --compression-level` | `REPLICATOR_WIRE_COMPRESSION_LEVEL` | `3` | Уровень сжатия для Zstandard (1–22). Выше уровень — меньше трафика WAN и больше нагрузка на CPU. |
+| `-z, --compression` | `PAROM_WIRE_COMPRESSION` | `zstd` | Кодек потокового сжатия в gRPC-канале: `zstd` (Zstandard), `lz4` (LZ4), `none` (отключено). |
+| `-zl, --compression-level` | `PAROM_WIRE_COMPRESSION_LEVEL` | `3` | Уровень сжатия для Zstandard (1–22). Выше уровень — меньше трафика WAN и больше нагрузка на CPU. |
 
 ---
 
@@ -1109,14 +1109,14 @@ sudo systemctl status replicator-agent
 sequenceDiagram
     autonumber
     actor Admin as Администратор / Cron
-    participant Client as ReplicatorYarnClient
+    participant Client as ParomYarnClient
     participant HDFS as HDFS Staging
     participant RM as YARN ResourceManager
-    participant AM as ReplicatorApplicationMaster
+    participant AM as ParomApplicationMaster
     participant NM as NodeManager Containers (Agents)
     participant Orch as Replicator Orchestrator
 
-    Admin->>Client: yarn jar replicator-agent-1.0.0-all.jar ...
+    Admin->>Client: yarn jar parom-agent-1.0.0-all.jar ...
     Client->>HDFS: Загрузка fat JAR и токенов в .replicator-staging/<appId>
     Client->>RM: submitApplication(ApplicationSubmissionContext)
     RM->>AM: Выделение контейнера и запуск ApplicationMaster
@@ -1124,7 +1124,7 @@ sequenceDiagram
     AM->>RM: Запрос N контейнеров (память, vCores, приоритет)
     RM-->>AM: Выделение N контейнеров на NodeManager узлах
     loop Запуск воркеров
-        AM->>NM: startContainer(ReplicatorAgentMain, agent-id=yarn-<containerId>)
+        AM->>NM: startContainer(ParomAgentMain, agent-id=yarn-<containerId>)
         NM->>Orch: POST /api/v1/agents/register (саморегистрация, ONLINE)
     end
     Note over NM,Orch: Контейнеры берут задачи из пула Оркестратора и передают файлы
@@ -1154,9 +1154,9 @@ sequenceDiagram
 ##### Способ 1: Прямой вызов через CLI `yarn jar` или `hadoop jar`
 ```bash
 # Запуск 4 контейнеров по 2 ГБ RAM и 1 vCore в очереди replication (из установленного релиза):
-yarn jar /opt/pristan/replicator/bin/replicator-agent.jar \
-    io.github.balookrd.pristan.replicator.yarn.ReplicatorYarnClient \
-    --jar /opt/pristan/replicator/bin/replicator-agent.jar \
+yarn jar /opt/pristan/replicator/bin/parom-agent.jar \
+    io.github.balookrd.pristan.parom.yarn.ParomYarnClient \
+    --jar /opt/pristan/replicator/bin/parom-agent.jar \
     --cluster_id dc1-prod \
     --orchestrator http://orchestrator.company.local:8005 \
     --num_containers 4 \
@@ -1166,9 +1166,9 @@ yarn jar /opt/pristan/replicator/bin/replicator-agent.jar \
 ```
 
 ##### Способ 2: Запуск через скрипт `submit-yarn.sh`
-Скрипт `submit-yarn.sh` проверяет переменные окружения и вызывает `ReplicatorYarnClient`:
+Скрипт `submit-yarn.sh` проверяет переменные окружения и вызывает `ParomYarnClient`:
 ```bash
-JAR_FILE=/opt/pristan/replicator/bin/replicator-agent.jar \
+JAR_FILE=/opt/pristan/replicator/bin/parom-agent.jar \
 /opt/pristan/replicator/bin/submit-yarn.sh \
     --cluster_id dc1-prod \
     --orchestrator http://orchestrator.company.local:8005 \
@@ -1178,7 +1178,7 @@ JAR_FILE=/opt/pristan/replicator/bin/replicator-agent.jar \
     --queue data_transfer
 ```
 
-#### 2.6.3 Полный справочник параметров `ReplicatorYarnClient`
+#### 2.6.3 Полный справочник параметров `ParomYarnClient`
 
 | Флаг CLI | Обязательный | По умолчанию | Описание |
 |---|---|---|---|
@@ -1243,7 +1243,7 @@ yarn rmadmin -refreshQueues
    ```bash
    kinit -kt /etc/security/keytabs/hdfs-replicator.keytab hdfs-replicator@REALM.LOCAL
    ```
-2. `ReplicatorYarnClient` при инициализации запрашивает у NameNode HDFS Delegation Token.
+2. `ParomYarnClient` при инициализации запрашивает у NameNode HDFS Delegation Token.
 3. Токены делегирования сериализуются в `Credentials` контекста `ApplicationSubmissionContext`.
 4. ResourceManager передает токены на узлы NodeManager, и контейнеры агента работают с HDFS от имени принципала `hdfs-replicator` без локальных keytab-файлов.
 
@@ -1305,14 +1305,14 @@ yarn application -kill application_1728460000000_0042
    - Replicator Agent (data & metadata worker): исполняет задачи репликации в локальном сетевом периметре своего ЦОД. Source Agent вычитывает метаданные из локального Hive Metastore по LAN Thrift (порт 9083), Target Agent применяет DDL в целевой Hive Metastore по локальному LAN Thrift, а агенты обмениваются данными по WAN напрямую через gRPC-контракт `HmsTransferService` (порт 50051).
 
 2. Восстановление прерванного начального переноса схем (bootstrap recovery):
-   - Если Оркестратор перезапустился во время первичной синхронизации схемы (статус `BOOTSTRAPPING`), обработчик [`ApplicationReadyEvent`](../backend/replicator/orchestrator/src/main/java/io/github/balookrd/pristan/replicator/orchestrator/hms/service/HmsCoordinatorService.java) при старте находит прерванные задачи.
+   - Если Оркестратор перезапустился во время первичной синхронизации схемы (статус `BOOTSTRAPPING`), обработчик [`ApplicationReadyEvent`](../backend/parom/orchestrator/src/main/java/io/github/balookrd/pristan/parom/orchestrator/hms/service/HmsCoordinatorService.java) при старте находит прерванные задачи.
    - Метод `recoverInterruptedJobsOnStartup()` переотдает агентам только задачи с истекшей арендой. В HA-кластере рестарт одного узла не прерывает идущий bootstrap: агент продолжает работу через соседний узел и продлевает аренду своими отчетами.
 
 3. CDC-опрос Hive Metastore агентом:
    - Журнал событий `NOTIFICATION_LOG` для активных задач репликации опрашивает агент-источник (`HmsTaskExecutor.pollAndSyncCdc`).
    - Агент источника опрашивает локальный Thrift, конвертирует события и передает их целевому агенту по gRPC, после чего отправляет контрольную точку `lastProcessedEventId` и `eventLag` в Оркестратор по gRPC Control Plane (`ReportHmsProgress`).
    - Перед запуском на боевых кластерах пройдите [чек-лист настройки HMS-репликации](replicator-hms-production-checklist.md): имперсонация агента на HDFS и метасторах, журнал событий и срок его хранения, события DML, оркестратор на PostgreSQL.
-   - Клиент метастора — Hive 3.1 (`hive-standalone-metastore` 3.1.3, Thrift 0.9.3): он работает с HMS 3.1 / HDP 3.1 и с HMS 4.x (там сохранены методы 3.x). Клиент 4.0 вызывал методы `*_req` (`create_table_req` и др.), которых у метастора 3.1 нет. Проверка совместимости — `demo/replicator/run-hms31-compat-test.sh`.
+   - Клиент метастора — Hive 3.1 (`hive-standalone-metastore` 3.1.3, Thrift 0.9.3): он работает с HMS 3.1 / HDP 3.1 и с HMS 4.x (там сохранены методы 3.x). Клиент 4.0 вызывал методы `*_req` (`create_table_req` и др.), которых у метастора 3.1 нет. Проверка совместимости — `demo/parom/run-hms31-compat-test.sh`.
    - Какие события переносятся: `CREATE_TABLE`, `ALTER_TABLE` (включая `RENAME` — таблица на приемнике переименовывается с сохранением партиций), `DROP_TABLE`, `ADD_PARTITION`, `ALTER_PARTITION`, `DROP_PARTITION` и `INSERT`. Сообщения разбираются в форматах `json-0.2` (Hive 3 / HDP 3.1) и `gzip(json-2.0)` (Hive 4).
    - `INSERT` — дозапись в существующую таблицу или партицию без inotify: агент заводит свежую подзадачу копирования каталога (без переиспользования прошедшей копии), при `INSERT OVERWRITE` удаляет на приемнике файлы, которых в каталоге больше нет, и обновляет метаданные партиции (статистику). Событие пишется в журнал, только если на стороне, выполняющей DML, включено `hive.metastore.dml.events=true` (в HiveServer2 по умолчанию `false`). Spark событий `INSERT` не публикует: дозапись Spark в существующие партиции без inotify не переносится.
    - Обязательные настройки метастора-источника: `hive.metastore.transactional.event.listeners=org.apache.hive.hcatalog.listener.DbNotificationListener` и срок хранения событий `hive.metastore.event.db.listener.timetolive` больше самого долгого bootstrap и простоя задачи (по умолчанию 1 сутки). Если события вычищены раньше, чем агент их прочитал, задача переходит в `ERROR` с требованием повторного bootstrap — продолжить CDC через разрыв журнала нельзя.
@@ -1401,13 +1401,13 @@ curl -X POST http://orchestrator:8005/api/v1/hms/jobs \
 
 ##### 1. Трехуровневая стратегия трансляции путей (`HmsPathRewriter`)
 1. Явный целевой HDFS (`TARGET_HDFS_DEFAULT_FS`): если в конфигурации агента задан URI целевого кластера (например, `hdfs://hdfs-cluster-2:9000`), рерайтер извлекает целевые `scheme` и `authority` (`host:port`) и выполняет подстановку для всех входящих путей.
-2. Таблица маппингов федерации (`REPLICATOR_FEDERATION_MAPPINGS`): при сложной топологии с несколькими Nameservice или ViewFS настраивается список соответствий (например, `hdfs-cluster-1:9000=hdfs-cluster-2:9000,ns-hot=ns-hot-dc2`). Если входящий authority совпадает с ключом из словаря, он заменяется на целевое значение.
+2. Таблица маппингов федерации (`PAROM_FEDERATION_MAPPINGS`): при сложной топологии с несколькими Nameservice или ViewFS настраивается список соответствий (например, `hdfs-cluster-1:9000=hdfs-cluster-2:9000,ns-hot=ns-hot-dc2`). Если входящий authority совпадает с ключом из словаря, он заменяется на целевое значение.
 3. Подстановка идентификаторов кластеров: если ни маппинги, ни целевая ФС не подошли, рерайтер заменяет в authority вхождение идентификатора кластера-источника на идентификатор приемника по границам слова (`hdfs://hdfs-cluster-1:9000/...` ➔ `hdfs://hdfs-cluster-2:9000/...` при задаче `hdfs-cluster-1` ➔ `hdfs-cluster-2`). Если заменить нечего, путь помечается как неперезаписанный (`unmapped`).
 
 ##### 1.1. Отказ на неперезаписанной локации (fail-closed)
 
 Неперезаписанный путь означает, что в целевой метастор ушла бы локация кластера-источника: запросы к такой таблице читали бы чужой кластер, а HDFS-подзадача копировала бы путь сам в себя.
-- Правила перезаписи заданы (`REPLICATOR_FEDERATION_MAPPINGS` или целевая ФС по умолчанию): путь мимо них считается ошибкой конфигурации. Таблица или партиция не переносится, в журнале событий задачи появляется запись `FAILED` с указанием локации, итоговый статус задачи — `ERROR`. Остальные таблицы обрабатываются как обычно.
+- Правила перезаписи заданы (`PAROM_FEDERATION_MAPPINGS` или целевая ФС по умолчанию): путь мимо них считается ошибкой конфигурации. Таблица или партиция не переносится, в журнале событий задачи появляется запись `FAILED` с указанием локации, итоговый статус задачи — `ERROR`. Остальные таблицы обрабатываются как обычно.
 - Правила не заданы: это режим сквозного переноса для одинакового пространства имен на обеих сторонах. Путь переносится как есть, в лог агента пишется предупреждение.
 
 ##### 2. Изоляция потоков worker и metadata (`replicator-hms-loop`)
@@ -1427,8 +1427,8 @@ curl -X POST http://orchestrator:8005/api/v1/hms/jobs \
 ### 3.1 Запуск из предсобранных образов GitHub Container Registry (GHCR — рекомендуется)
 
 Docker-образы публикуются в реестре контейнеров GitHub (`ghcr.io`) для каждого релиза:
-- Оркестратор: `ghcr.io/company/pristan/replicator-orchestrator:${VERSION}`
-- Агент: `ghcr.io/company/pristan/replicator-agent:${VERSION}`
+- Оркестратор: `ghcr.io/company/pristan/parom-orchestrator:${VERSION}`
+- Агент: `ghcr.io/company/pristan/parom-agent:${VERSION}`
 
 #### 1. Авторизация в GHCR (для приватного репозитория)
 ```bash
@@ -1438,8 +1438,8 @@ echo "${GITHUB_TOKEN}" | docker login ghcr.io -u <github-username> --password-st
 #### 2. Загрузка образов
 ```bash
 VERSION="1.0.0"
-docker pull ghcr.io/company/pristan/replicator-orchestrator:${VERSION}
-docker pull ghcr.io/company/pristan/replicator-agent:${VERSION}
+docker pull ghcr.io/company/pristan/parom-orchestrator:${VERSION}
+docker pull ghcr.io/company/pristan/parom-agent:${VERSION}
 ```
 
 ---
@@ -1449,12 +1449,12 @@ docker pull ghcr.io/company/pristan/replicator-agent:${VERSION}
 Если исходный код менялся локально, соберите образы вручную:
 ```bash
 # Сборка Оркестратора:
-docker build -t ghcr.io/company/pristan/replicator-orchestrator:latest \
-    -f docker/Dockerfile.replicator-orchestrator .
+docker build -t ghcr.io/company/pristan/parom-orchestrator:latest \
+    -f docker/Dockerfile.parom-orchestrator .
 
 # Сборка Агента:
-docker build -t ghcr.io/company/pristan/replicator-agent:latest \
-    -f docker/Dockerfile.replicator-agent .
+docker build -t ghcr.io/company/pristan/parom-agent:latest \
+    -f docker/Dockerfile.parom-agent .
 
 # Либо через общий скрипт платформы:
 ./scripts/build-containers.sh replicator
@@ -1463,21 +1463,21 @@ docker build -t ghcr.io/company/pristan/replicator-agent:latest \
 ---
 
 ### 3.3 Полный `docker-compose.yml` (двунаправленная репликация DC1 ⇄ DC2)
-Готовый compose-файл находится в `demo/replicator/docker-compose.yml`:
+Готовый compose-файл находится в `demo/parom/docker-compose.yml`:
 ```yaml
 name: hadoop-replicator-demo
 
 services:
   # 1. Orchestrator (Web UI, API, Token Bucket, Scheduler, Prometheus)
   orchestrator:
-    image: ghcr.io/company/pristan/replicator-orchestrator:1.0.0
+    image: ghcr.io/company/pristan/parom-orchestrator:1.0.0
     container_name: replicator-orchestrator
     hostname: orchestrator
     restart: unless-stopped
     environment:
-      HADOOP_REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC: "104857600" # 100 MB/s
-      HADOOP_REPLICATOR_AGENT_SECRET: "${REPLICATOR_AGENT_SECRET:-}"
-      SPRING_DATASOURCE_URL: "jdbc:h2:file:/app/data/replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;AUTO_SERVER=TRUE"
+      PAROM_GLOBAL_LIMIT_BYTES_PER_SEC: "104857600" # 100 MB/s
+      PAROM_AGENT_SECRET: "${PAROM_AGENT_SECRET:-}"
+      SPRING_DATASOURCE_URL: "jdbc:h2:file:/app/data/parom;DB_CLOSE_DELAY=-1;MODE=PostgreSQL;AUTO_SERVER=TRUE"
       JWT_SECRET_KEY: "${JWT_SECRET_KEY:-}"
     volumes:
       - replicator-data:/app/data
@@ -1495,7 +1495,7 @@ services:
 
   # 2. Агент DC1 (Primary ЦОД: Москва, dc1 / demo-cluster) — Полный дуплекс
   agent-dc1:
-    image: ghcr.io/company/pristan/replicator-agent:1.0.0
+    image: ghcr.io/company/pristan/parom-agent:1.0.0
     container_name: replicator-agent-dc1
     hostname: agent-dc1
     restart: unless-stopped
@@ -1509,9 +1509,9 @@ services:
       RECEIVER_PORT: "50051"
       AGENT_ADVERTISED_ADDRESS: "agent-dc1:50051"
       FALLBACK_TARGET_ADDRESS: "agent-dc2:50051"
-      REPLICATOR_STAGING_DIR: "/tmp/staging"
+      PAROM_STAGING_DIR: "/tmp/staging"
       POLL_INTERVAL_SEC: "2.0"
-      REPLICATOR_AGENT_SECRET: "${REPLICATOR_AGENT_SECRET:-}"
+      PAROM_AGENT_SECRET: "${PAROM_AGENT_SECRET:-}"
     volumes:
       - agent-dc1-staging:/tmp/staging
       - /etc/krb5.conf:/etc/krb5.conf:ro
@@ -1525,7 +1525,7 @@ services:
 
   # 3. Агент DC2 (DR ЦОД: Санкт-Петербург, dc2 / backup-cluster) — Полный дуплекс
   agent-dc2:
-    image: ghcr.io/company/pristan/replicator-agent:1.0.0
+    image: ghcr.io/company/pristan/parom-agent:1.0.0
     container_name: replicator-agent-dc2
     hostname: agent-dc2
     restart: unless-stopped
@@ -1539,9 +1539,9 @@ services:
       RECEIVER_PORT: "50051"
       AGENT_ADVERTISED_ADDRESS: "agent-dc2:50051"
       FALLBACK_TARGET_ADDRESS: "agent-dc1:50051"
-      REPLICATOR_STAGING_DIR: "/tmp/staging"
+      PAROM_STAGING_DIR: "/tmp/staging"
       POLL_INTERVAL_SEC: "2.0"
-      REPLICATOR_AGENT_SECRET: "${REPLICATOR_AGENT_SECRET:-}"
+      PAROM_AGENT_SECRET: "${PAROM_AGENT_SECRET:-}"
     volumes:
       - agent-dc2-staging:/tmp/staging
       - /etc/krb5.conf:/etc/krb5.conf:ro
@@ -1603,7 +1603,7 @@ kubectl create secret docker-registry ghcr-secret \
 | `<metrics_scrape_token>` | вывод `openssl rand -hex 32`; этим токеном Prometheus читает `GET /metrics` |
 | `<postgres_host>`, `<postgres_user>`, `<postgres_password>` | адрес и учетная запись базы `replicator` |
 | `<ldap_url>`, `<ldap_manager_dn>`, `<ldap_manager_password>`, `<ldap_user_search_base>` | каталог LDAP для входа в веб-консоль |
-| `<cluster_id>` | идентификатор кластера из `hadoop.replicator.clusters` оркестратора |
+| `<cluster_id>` | идентификатор кластера из `parom.clusters` оркестратора |
 | `<hdfs_default_fs>` | `fs.defaultFS` кластера, например `hdfs://ns1` |
 | `<agent_principal>` | принципал Kerberos техучетки агента |
 
@@ -1611,7 +1611,7 @@ kubectl create secret docker-registry ghcr-secret \
 рестарте пода. Активный профиль виден в логе старта: `The following 1 profile is active: "prod"`.
 
 Внимание: оркестратор принимает агентов только тех кластеров, которые объявлены в
-`hadoop.replicator.clusters`. В образе объявлены демонстрационные `dc1` и `dc2`. Свою топологию передайте
+`parom.clusters`. В образе объявлены демонстрационные `dc1` и `dc2`. Свою топологию передайте
 файлом `application-prod.yml` через ConfigMap и `SPRING_CONFIG_ADDITIONAL_LOCATION`; агент кластера, которого
 нет в топологии, получает отказ при регистрации.
 
@@ -1646,8 +1646,8 @@ data:
   ORCHESTRATOR_GRPC_ADDRESS: "replicator-orchestrator:50050"
   AGENT_CLUSTER_ID: "<cluster_id>"
   HDFS_DEFAULT_FS: "<hdfs_default_fs>"
-  REPLICATOR_GRPC_TLS_ENABLED: "true"
-  REPLICATOR_GRPC_TRUST_CERT_COLLECTION_PATH: "/etc/replicator/tls/ca.crt"
+  PAROM_GRPC_TLS_ENABLED: "true"
+  PAROM_GRPC_TRUST_CERT_COLLECTION_PATH: "/etc/replicator/tls/ca.crt"
 ```
 
 Сертификат gRPC и keytab создайте из файлов:
@@ -1684,7 +1684,7 @@ spec:
         - name: ghcr-secret
       containers:
         - name: orchestrator
-          image: ghcr.io/company/pristan/replicator-orchestrator:1.0.0
+          image: ghcr.io/company/pristan/parom-orchestrator:1.0.0
           imagePullPolicy: IfNotPresent
           env:
             - name: SPRING_PROFILES_ACTIVE
@@ -1702,10 +1702,10 @@ spec:
             - name: JWT_SECRET_KEY
               valueFrom:
                 secretKeyRef: {name: replicator-secrets, key: jwt-secret-key}
-            - name: REPLICATOR_AGENT_SECRET
+            - name: PAROM_AGENT_SECRET
               valueFrom:
                 secretKeyRef: {name: replicator-secrets, key: agent-secret}
-            - name: REPLICATOR_METRICS_SCRAPE_TOKEN
+            - name: PAROM_METRICS_SCRAPE_TOKEN
               valueFrom:
                 secretKeyRef: {name: replicator-secrets, key: metrics-scrape-token}
             - name: HADOOP_AUTH_MODE
@@ -1719,12 +1719,12 @@ spec:
                 secretKeyRef: {name: replicator-secrets, key: ldap-manager-password}
             - name: LDAP_USER_SEARCH_BASE
               value: "<ldap_user_search_base>"
-            - name: REPLICATOR_GRPC_CERT_CHAIN
+            - name: PAROM_GRPC_CERT_CHAIN
               value: "/etc/replicator/tls/tls.crt"
-            - name: REPLICATOR_GRPC_PRIVATE_KEY
+            - name: PAROM_GRPC_PRIVATE_KEY
               value: "/etc/replicator/tls/tls.key"
             # Агент не предъявляет клиентский сертификат: он аутентифицируется секретом
-            - name: REPLICATOR_GRPC_CLIENT_AUTH
+            - name: PAROM_GRPC_CLIENT_AUTH
               value: "NONE"
           ports:
             - containerPort: 8005
@@ -1777,7 +1777,7 @@ spec:
       name: grpc
 ```
 
-Образ запускает JVM с `-Xmx1024m` (`docker/Dockerfile.replicator-orchestrator`), поэтому запрос памяти ниже
+Образ запускает JVM с `-Xmx1024m` (`docker/Dockerfile.parom-orchestrator`), поэтому запрос памяти ниже
 1,5 ГиБ приводит к OOMKilled под нагрузкой.
 
 Внимание: не останавливайте все экземпляры оркестратора одновременно дольше 45 с. После такого простоя
@@ -1813,7 +1813,7 @@ spec:
         - name: ghcr-secret
       containers:
         - name: agent
-          image: ghcr.io/company/pristan/replicator-agent:1.0.0
+          image: ghcr.io/company/pristan/parom-agent:1.0.0
           imagePullPolicy: IfNotPresent
           envFrom:
             - configMapRef:
@@ -1834,7 +1834,7 @@ spec:
               value: "all"
             - name: RECEIVER_PORT
               value: "50051"
-            - name: REPLICATOR_AGENT_SECRET
+            - name: PAROM_AGENT_SECRET
               valueFrom:
                 secretKeyRef: {name: replicator-secrets, key: agent-secret}
             - name: KRB5_KEYTAB
@@ -1892,8 +1892,8 @@ HA-nameservice): смонтируйте их так же, как в образа
 [проверить: каталог, из которого агент читает конфигурацию Hadoop в контейнере].
 
 Потоки передачи между агентами в этом манифесте идут без TLS: серверный сертификат агенту не выдан.
-Чтобы включить TLS на приеме, добавьте агенту `REPLICATOR_GRPC_CERT_CHAIN_PATH` и
-`REPLICATOR_GRPC_PRIVATE_KEY_PATH` и выпустите сертификат с IP пода или его DNS-именем в SAN.
+Чтобы включить TLS на приеме, добавьте агенту `PAROM_GRPC_CERT_CHAIN_PATH` и
+`PAROM_GRPC_PRIVATE_KEY_PATH` и выпустите сертификат с IP пода или его DNS-именем в SAN.
 
 #### 4. Проверка
 
@@ -1911,7 +1911,7 @@ HA-nameservice): смонтируйте их так же, как в образа
 
 3. Убедитесь, что агенты зарегистрировались: в веб-консоли на странице агентов оба пода
    (`replicator-agent-0`, `replicator-agent-1`) в статусе `ONLINE`. Если агента нет, смотрите его лог:
-   отказ `UNAUTHENTICATED` означает несовпадение `REPLICATOR_AGENT_SECRET`, отказ регистрации кластера —
+   отказ `UNAUTHENTICATED` означает несовпадение `PAROM_AGENT_SECRET`, отказ регистрации кластера —
    отсутствие `<cluster_id>` в топологии оркестратора.
 
 ---
@@ -1923,8 +1923,8 @@ HA-nameservice): смонтируйте их так же, как в образа
 > [!IMPORTANT]
 > Эндпоинт требует аутентификации: анонимный доступ к `/metrics` закрыт, потому что состав
 > метрик раскрывает топологию ЦОД, имена кластеров и объемы передач, а каждый опрос читает БД.
-> Для Prometheus задайте оркестратору `REPLICATOR_METRICS_SCRAPE_TOKEN`
-> (`hadoop.replicator.metrics-scrape-token`) и настройте в задании скрейпа HTTP Basic с
+> Для Prometheus задайте оркестратору `PAROM_METRICS_SCRAPE_TOKEN`
+> (`parom.metrics-scrape-token`) и настройте в задании скрейпа HTTP Basic с
 > пользователем `prometheus` и этим токеном. Учетка принимается только на `GET /metrics` и не
 > дает доступа к REST API. Пока токен не задан, Basic-доступ выключен. `/actuator/prometheus`
 > открыт без аутентификации, но содержит только метрики Micrometer, без `replicator_*` и `kafka_*`.
@@ -1941,7 +1941,7 @@ HA-nameservice): смонтируйте их так же, как в образа
       - targets: ['orchestrator:8005']
 ```
 
-Проверка: `curl -s -u "prometheus:$REPLICATOR_METRICS_SCRAPE_TOKEN" http://orchestrator:8005/metrics | grep -c '^replicator_'` выводит число больше нуля; с неверным токеном `curl -s -o /dev/null -w '%{http_code}' -u prometheus:wrong http://orchestrator:8005/metrics` выводит `401`.
+Проверка: `curl -s -u "prometheus:$PAROM_METRICS_SCRAPE_TOKEN" http://orchestrator:8005/metrics | grep -c '^replicator_'` выводит число больше нуля; с неверным токеном `curl -s -o /dev/null -w '%{http_code}' -u prometheus:wrong http://orchestrator:8005/metrics` выводит `401`.
 
 Оркестратор экспортирует метрики передачи данных, пула задач, очередей, token bucket, HMS-репликации, Disaster Recovery и телеметрии gRPC-агентов:
 
@@ -2037,8 +2037,8 @@ MDC. Поэтому одна операция собирается из лого
 
 Health-пробы gRPC. Control Plane оркестратора, приемник агента и приемник Kafka-батчей
 отвечают по стандартному протоколу `grpc.health.v1.Health`. Статус выставляется и в целом по
-серверу, и отдельно по подсистемам (`replicator.DataTransferService`,
-`replicator.kafka.KafkaDataTransferService`), а при остановке переводится в терминальное
+серверу, и отдельно по подсистемам (`parom.DataTransferService`,
+`parom.kafka.KafkaDataTransferService`), а при остановке переводится в терминальное
 состояние до закрытия порта, чтобы балансировщик и отправители успели увести трафик.
 
 Проба не требует `x-agent-secret`: оркестратор контейнеров и балансировщик секрета агента не
@@ -2047,8 +2047,8 @@ Health-пробы gRPC. Control Plane оркестратора, приемник
 выполняется тем же jar-ом, что и сам агент:
 
 ```bash
-java -cp /app/replicator-agent.jar \
-    io.github.balookrd.pristan.replicator.telemetry.GrpcHealthProbeMain 127.0.0.1:50051
+java -cp /app/parom-agent.jar \
+    io.github.balookrd.pristan.parom.telemetry.GrpcHealthProbeMain 127.0.0.1:50051
 # Код возврата 0 — SERVING, 1 — любое другое состояние или недоступность.
 # Второй аргумент — имя подсистемы, третий — таймаут в секундах.
 ```
@@ -2070,21 +2070,21 @@ java -cp /app/replicator-agent.jar \
 
 ## 6. Сборка, проверка и поведение подсистемы передачи данных
 
-Hadoop gRPC Replicator — мультимодульный проект Java 21 (`backend/replicator/pom.xml`) из модулей:
+Parom — мультимодульный проект Java 21 (`backend/parom/pom.xml`) из модулей:
 - `agent` (Java 21 LTS / gRPC / Protobuf / Hadoop HDFS Client / YARN Client & ApplicationMaster);
 - `orchestrator` (Java 21 LTS / Spring Boot 3.3.4 / Spring Data JPA / `zastava`).
 
 ### 6.1 Мультимодульная архитектура Maven
 
 ```
-backend/replicator/
-├── pom.xml                 # Родительский POM (io.github.balookrd.pristan:replicator-parent)
+backend/parom/
+├── pom.xml                 # Родительский POM (io.github.balookrd.pristan:parom-parent)
 ├── proto/                  # Общие wire-контракты
-│   ├── pom.xml             # io.github.balookrd.pristan:replicator-proto:1.0.0
-│   └── src/main/proto/     # replicator.proto, kafka_replicator.proto,
+│   ├── pom.xml             # io.github.balookrd.pristan:parom-proto:1.0.0
+│   └── src/main/proto/     # parom.proto, parom_kafka.proto,
 │                           # orchestrator_control_plane.proto + кодогенерация gRPC
 ├── model/                  # Общие DTO, HMS-модель, аттестация задач, телеметрия gRPC
-│   └── pom.xml             # io.github.balookrd.pristan:replicator-model:1.0.0
+│   └── pom.xml             # io.github.balookrd.pristan:parom-model:1.0.0
 ├── agent/                  # Агент репликации (DataNode/Edge Node/YARN)
 │   └── pom.xml             # io.github.balookrd.pristan:replicator-agent:1.0.0
 └── orchestrator/           # Высокопроизводительный оркестратор
@@ -2096,32 +2096,32 @@ backend/replicator/
         └── test/           # Интеграционные и юнит-тесты MockMvc / H2
 ```
 
-Оркестратор не зависит от `replicator-agent`: общее лежит в `replicator-proto` и
-`replicator-model`. Запрет закреплен в сборке правилом `bannedDependencies`
+Оркестратор не зависит от `replicator-agent`: общее лежит в `parom-proto` и
+`parom-model`. Запрет закреплен в сборке правилом `bannedDependencies`
 (`maven-enforcer-plugin` в `orchestrator/pom.xml`) — возврат зависимости ломает сборку.
-Модуль `replicator-model` держится тонким: Jackson, SLF4J, `grpc-api`, `grpc-services` и
+Модуль `parom-model` держится тонким: Jackson, SLF4J, `grpc-api`, `grpc-services` и
 `opentelemetry-api`, без Hadoop, Hive Thrift и Kafka-клиента.
 
 ### 6.2 Команды сборки и тестирования
 
 ```bash
 # Сборка всех модулей Replicator (proto, model, agent, orchestrator)
-make build-replicator
+make build-parom
 
 # Запуск тестов всего Replicator
-make test-replicator
+make test-parom
 
 # Тестирование отдельно Orchestrator
-make test-replicator-orchestrator
+make test-parom-orchestrator
 
 # Сборка исполняемого Spring Boot fat JAR оркестратора
-mvn clean package -DskipTests -f backend/replicator/pom.xml -pl orchestrator -am
-# Результат: backend/replicator/orchestrator/target/replicator-orchestrator-1.0.0.jar
+mvn clean package -DskipTests -f backend/parom/pom.xml -pl orchestrator -am
+# Результат: backend/parom/orchestrator/target/parom-orchestrator-1.0.0.jar
 ```
 
 > [!IMPORTANT]
 > Отдельный модуль собирается только через реактор родителя (`-pl <модуль> -am`). При сборке
-> напрямую по `pom.xml` модуля Maven берет `replicator-proto` и `replicator-model` из локального
+> напрямую по `pom.xml` модуля Maven берет `parom-proto` и `parom-model` из локального
 > репозитория — то есть возможно собрать модуль против устаревших контрактов и получить
 > `NoSuchMethodError` уже во время работы.
 
@@ -2134,7 +2134,7 @@ java -jar -Dspring.profiles.active=prod \
   -Dspring.datasource.username=replicator_user \
   -Dspring.datasource.password=secret_password \
   -Dhadoop.security.auth.mode=kerberos \
-  backend/replicator/orchestrator/target/replicator-orchestrator-1.0.0.jar
+  backend/parom/orchestrator/target/parom-orchestrator-1.0.0.jar
 ```
 
 ### 6.4 End-to-end smoke-тесты репликации Hive Metastore и HDFS (2 ЦОД)
@@ -2152,12 +2152,12 @@ Smoke-тест проверяет полный цикл репликации м�
 
 ```bash
 # Прямой запуск полного сквозного smoke-тестирования:
-./demo/replicator/run-smoke-tests.sh all
+./demo/parom/run-smoke-tests.sh all
 
 # Выборочный запуск целевого сценария:
-./demo/replicator/run-smoke-tests.sh standard   # Сценарии 1-2 (перенос таблицы и дописывание)
-./demo/replicator/run-smoke-tests.sh cdc        # Сценарии 1-6 (таблицы, партиции, дописывание, drop)
-./demo/replicator/run-smoke-tests.sh inotify    # Сценарии 7-8 (Inotify lease HA и commit rename)
+./demo/parom/run-smoke-tests.sh standard   # Сценарии 1-2 (перенос таблицы и дописывание)
+./demo/parom/run-smoke-tests.sh cdc        # Сценарии 1-6 (таблицы, партиции, дописывание, drop)
+./demo/parom/run-smoke-tests.sh inotify    # Сценарии 7-8 (Inotify lease HA и commit rename)
 ```
 
 #### Проверяемые сценарии (реальный стек, без заглушек)
@@ -2172,7 +2172,7 @@ Smoke-тест проверяет полный цикл репликации м�
 
 #### REST API управления кластерами для тестов и интеграций (`/api/v1/hms/clusters`)
 > [!NOTE]
-> Этот тестовый контроллер активен только при явном включении свойства `replicator.hms.mock-cluster-api.enabled: true` в конфигурации Оркестратора (по умолчанию отключен).
+> Этот тестовый контроллер активен только при явном включении свойства `parom.hms.mock-cluster-api.enabled: true` в конфигурации Оркестратора (по умолчанию отключен).
 
 - `POST /api/v1/hms/clusters/{clusterId}/databases` — создание базы данных в метасторе кластера.
 - `POST /api/v1/hms/clusters/{clusterId}/tables` — создание таблицы с генерацией схемы, опциональных файлов данных и CDC-события `CREATE_TABLE`.
@@ -2255,10 +2255,10 @@ flowchart LR
 
 | Параметр | Рекомендуемое значение | Что дает |
 |---|---|---|
-| `REPLICATOR_SMALL_FILE_THRESHOLD_BYTES` | `1048576` (1 МБ) | Файлы меньше порога пакуются в бандлы: меньше вызовов gRPC и операций NameNode на файл. |
-| `REPLICATOR_BUNDLE_TARGET_SIZE_BYTES` | `16777216` (16 МБ) — `33554432` (32 МБ) | Размер бандла. Больше бандл — меньше вызовов на объем данных, но больше памяти на одну передачу. |
-| `REPLICATOR_MAX_BUNDLE_FILES` | `500` — `1000` | Ограничивает число файлов в задаче, чтобы задача из множества файлов по 1–2 КБ не обрабатывалась слишком долго. |
-| `REPLICATOR_BUNDLE_COMMIT_CONCURRENCY` | `8` — `16` | Число потоков записи в целевой HDFS; ожидания ответов NameNode/DataNode перекрываются параллельно. |
+| `PAROM_SMALL_FILE_THRESHOLD_BYTES` | `1048576` (1 МБ) | Файлы меньше порога пакуются в бандлы: меньше вызовов gRPC и операций NameNode на файл. |
+| `PAROM_BUNDLE_TARGET_SIZE_BYTES` | `16777216` (16 МБ) — `33554432` (32 МБ) | Размер бандла. Больше бандл — меньше вызовов на объем данных, но больше памяти на одну передачу. |
+| `PAROM_MAX_BUNDLE_FILES` | `500` — `1000` | Ограничивает число файлов в задаче, чтобы задача из множества файлов по 1–2 КБ не обрабатывалась слишком долго. |
+| `PAROM_BUNDLE_COMMIT_CONCURRENCY` | `8` — `16` | Число потоков записи в целевой HDFS; ожидания ответов NameNode/DataNode перекрываются параллельно. |
 
 #### Оптимизации Data Plane (PERF и concurrency)
 
@@ -2272,7 +2272,7 @@ flowchart LR
    - Распаковка входящих потоков TAR вынесена в выделенный пул виртуальных потоков `tarUnpackExecutor` (`tar-stream-unpacker-*`). Распаковка не конкурирует за потоки с общим пулом `ForkJoinPool.commonPool()`.
    - Устранение пиннинга несущих потоков (carrier thread pinning): в конвейерах передачи данных и flow control (`TarStreamPipeline`, `KafkaDataTransferServiceImpl`, `LocalBandwidthLimiter`) `synchronized` и `wait/notify` заменены на `ReentrantLock` и `Condition.await(timeout)`. При ожидании сокета Netty или троттлинге полосы виртуальный поток отсоединяется (`unmount`) от несущего потока `ForkJoinPool`; с `synchronized` на Java 21 он оставался бы закрепленным и мог исчерпать пул несущих потоков.
    - Замки вокруг сетевых вызовов: на `ReentrantLock` переведены и места, где под замком идет сам ввод-вывод: переключение узла оркестратора и закрытие канала (`OrchestratorGrpcClient` — создание канала, чтение сертификатов TLS и ожидание завершения старого канала до трех секунд), создание канала в пуле отправителя (`ReplicationSender`), пакетный сброс задач inotify (`InotifyBatchProcessor.flush`, gRPC-вызовы с таймаутами в секунды) и логин по keytab в SPNEGO-аутентификаторе Schema Registry (`KerberosSpnegoAuthenticator`, обращение к KDC). Самые существенные из них — переключение узла и логин SPNEGO: они вызываются из путей, которые исполняются на виртуальных потоках (gRPC-приемник, распаковщик TAR, колбэки продюсера Kafka).
-   - Что осознанно осталось монитором: методы жизненного цикла (`ReplicatorAgent.start/stop`, `HdfsInotifyListener.start/stop`, `ReplicatorApplicationMaster.cleanup`) и синхронизация пулов Kafka (`KafkaJobPoolManager.sync`, вызывается из платформенного потока `kafka-agent-heartbeat`). Эти вызовы не идут с виртуальных потоков, и замена замка там ничего не улучшила бы.
+   - Что осознанно осталось монитором: методы жизненного цикла (`ParomAgent.start/stop`, `HdfsInotifyListener.start/stop`, `ParomApplicationMaster.cleanup`) и синхронизация пулов Kafka (`KafkaJobPoolManager.sync`, вызывается из платформенного потока `kafka-agent-heartbeat`). Эти вызовы не идут с виртуальных потоков, и замена замка там ничего не улучшила бы.
    - Защита от регресса: структурное правило `ast-grep` `no-synchronized-on-io-path` (`.ast-grep/rules/`) запрещает `synchronized` в четырех перечисленных файлах; проверка выполняется командой `ast-grep scan`. Поведенческая проверка — `CarrierPinningTest`: пакетный сброс inotify выполняется в виртуальном потоке с заведомо медленным вызовом в Оркестратор, а запись JFR не должна содержать событий `jdk.VirtualThreadPinned`. Тест начинается с контрольного случая на настоящем мониторе: если проба не видит пиннинг, тест падает сам, а не молча проходит. На JDK 24 и новее тест пропускается, поэтому прогонять его нужно на Java 21 (как в CI).
    - Оговорка про версию JDK: пиннинг несущего потока на мониторе актуален для заявленной платформы Java 21 LTS (на ней же собирается CI). В JDK 24 и новее монитор больше не пиннит виртуальный поток (JEP 491), поэтому на более новых рантаймах эти правки — вопрос гигиены, а не производительности.
    - Переход на более новый JDK пока закрыт: на JDK 24+ Hadoop 3.3.6 теряет имперсонацию — `UserGroupInformation.getCurrentUser()` внутри `doAs` идет через `Subject.getSubject`, который после удаления Security Manager (JEP 486) бросает `UnsupportedOperationException`; обойти флагом нельзя, `-Djava.security.manager=allow` на таких JDK не дает стартовать VM. Поэтому сборка и прогоны закреплены за Java 21: `maven-enforcer-plugin` (`require-java-21`) в модулях `proto`, `model`, `agent`, `orchestrator` останавливает сборку на другом JDK, а цели `make test-*` сами подставляют найденный JDK 21 (`make check-jdk21` показывает, какой именно). Пересматривать имеет смысл после релиза Hadoop с переходом на `Subject.current`/`Subject.callAs`.
@@ -2331,7 +2331,7 @@ flowchart TD
      - Временные файлы с маркером `._staging_<jobId>` удаляются до старта репликации, чтобы новая попытка не столкнулась с файлами прошлой.
 
 3. Фоновый сборщик мусора по TTL с защитой активных записей (orphaned staging reaper, RES-03 & SEC-03):
-   - В `ReplicatorAgent` работает фоновый демон `ScheduledExecutorService` с потоком `hdfs-staging-cleaner` (интервал по умолчанию `15` минут).
+   - В `ParomAgent` работает фоновый демон `ScheduledExecutorService` с потоком `hdfs-staging-cleaner` (интервал по умолчанию `15` минут).
    - Демон обращается к реестру известных целевых каталогов `DataTransferServiceImpl.getKnownTargetDirectories()` и запускает рекурсивную очистку по времени жизни `stagingTtlMinutes` (по умолчанию `30` минут).
    - Защита активных стримов (RES-03): перед удалением файла сборщик проверяет его статус через `DistributedFileSystem.isFileClosed(path)`. Если файл все еще открыт на запись (например, медленная передача терабайтного файла по WAN), он пропускается даже при превышении TTL.
    - Санитизация путей (SEC-03): при сканировании пути нормализуются, поэтому выход через `..` (path traversal) и удаление системных каталогов HDFS невозможны.
@@ -2444,7 +2444,7 @@ flowchart LR
 5. Транскодинг идентификаторов схем (zero-copy wire transcoding):
    - Трансляция идентификаторов схем включается, когда заданы адреса обоих реестров: `--source-schema-registry-url` и `--target-schema-registry-url` (плюс типы `CONFLUENT` или `HORTONWORKS`). С одним известным адресом трансляция не включается: в целевой кластер уходили бы идентификаторы чужого реестра.
    - Включение — флаг задачи `schema_transcoding` (галочка в интерфейсе), который доезжает до агента в `KafkaJobItemProto`; для топиков из CLI — `--schema-transcoding`.
-   - Адреса реестров привязаны к кластерам в конфигурации Оркестратора (`hadoop.replicator.clusters[].schema-registry-url` и `schema-registry-type`). Выбор кластеров в задаче приносит их реестры сам: оркестратор берет их из топологии и передает агенту в той же задаче, инвертируя для обратного плеча. Задача не может указать произвольный реестр — иначе она направляла бы запросы схем куда угодно. Переменные окружения узла (`SOURCE_SCHEMA_REGISTRY_URL`, `TARGET_SCHEMA_REGISTRY_URL`) остаются запасным вариантом для топиков из командной строки, где задачи нет.
+   - Адреса реестров привязаны к кластерам в конфигурации Оркестратора (`parom.clusters[].schema-registry-url` и `schema-registry-type`). Выбор кластеров в задаче приносит их реестры сам: оркестратор берет их из топологии и передает агенту в той же задаче, инвертируя для обратного плеча. Задача не может указать произвольный реестр — иначе она направляла бы запросы схем куда угодно. Переменные окружения узла (`SOURCE_SCHEMA_REGISTRY_URL`, `TARGET_SCHEMA_REGISTRY_URL`) остаются запасным вариантом для топиков из командной строки, где задачи нет.
    - Смена флага или реестра в топологии пересоздает конвейер задачи: резолвер схем и транскодер создаются вместе с пулом.
    - Формат полезной нагрузки задается `--payload-format`; неизвестное или незаданное имя означает автоопределение по заголовку сообщения. При выключенном транскодинге формат остается `PAYLOAD_PASSTHROUGH`.
    - Если реестры не настроены, работает passthrough: идентификаторы переносятся как есть. Это законный режим, а не деградация, но тогда идентификаторы схем в кластерах должны совпадать, иначе потребители на целевой стороне не разберут сообщения.
@@ -2457,7 +2457,7 @@ flowchart LR
 ### 8.2 Параметры командной строки демона `kafka-replicator-agent`
 
 ```bash
-java -Xmx4g -XX:+ExitOnOutOfMemoryError -cp replicator-agent.jar io.github.balookrd.pristan.replicator.kafka.agent.KafkaReplicatorAgentMain \
+java -Xmx4g -XX:+ExitOnOutOfMemoryError -cp parom-agent.jar io.github.balookrd.pristan.parom.kafka.agent.ParomKafkaAgentMain \
   --port 50052 \
   --bootstrap-servers "kafka-broker1.corp:9092,kafka-broker2.corp:9092" \
   --dc-id "DC1" \
@@ -2608,8 +2608,8 @@ sudo mkdir -p /var/log/kafka-replicator
 sudo chown -R kafka-replicator:kafka-replicator /var/log/kafka-replicator /opt/pristan/replicator
 
 # Размещение исполняемого JAR-пакета (или создание симлинка)
-sudo ln -sfn /opt/pristan/replicator/releases/replicator-agent-1.0.0-all.jar \
-  /opt/pristan/replicator/bin/replicator-agent.jar
+sudo ln -sfn /opt/pristan/replicator/releases/parom-agent-1.0.0-all.jar \
+  /opt/pristan/replicator/bin/parom-agent.jar
 ```
 
 ---
@@ -2698,8 +2698,8 @@ Environment="JAVA_OPTS=-Xms2g -Xmx4g \
 # Приемник держит в хипе принятые и неподтвержденные батчи не больше четверти -Xmx.
 
 ExecStart=/usr/bin/java $JAVA_OPTS \
-  -cp /opt/pristan/replicator/bin/replicator-agent.jar \
-  io.github.balookrd.pristan.replicator.kafka.agent.KafkaReplicatorAgentMain \
+  -cp /opt/pristan/replicator/bin/parom-agent.jar \
+  io.github.balookrd.pristan.parom.kafka.agent.ParomKafkaAgentMain \
   --port ${PORT} \
   --bootstrap-servers ${BOOTSTRAP_SERVERS} \
   --dc-id ${DC_ID} \

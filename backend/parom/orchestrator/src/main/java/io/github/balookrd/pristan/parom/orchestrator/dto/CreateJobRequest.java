@@ -1,0 +1,119 @@
+package io.github.balookrd.pristan.parom.orchestrator.dto;
+
+import com.fasterxml.jackson.annotation.JsonProperty;
+import jakarta.validation.constraints.NotBlank;
+
+public record CreateJobRequest(
+    @NotBlank(message = "source_path cannot be blank")
+    @JsonProperty("source_path")
+    String sourcePath,
+
+    @NotBlank(message = "target_path cannot be blank")
+    @JsonProperty("target_path")
+    String targetPath,
+
+    @JsonProperty("source_cluster_id")
+    String sourceClusterId,
+
+    @JsonProperty("target_cluster_id")
+    String targetClusterId,
+
+    @JsonProperty("total_bytes")
+    Long totalBytes,
+
+    @JsonProperty("execution_principal")
+    String executionPrincipal,
+
+    @JsonProperty("run_as_service_account")
+    Boolean runAsServiceAccount,
+
+    @JsonProperty("is_scheduled")
+    Boolean isScheduled,
+
+    @JsonProperty("cron_expression")
+    String cronExpression,
+
+    @JsonProperty("history_retention_runs")
+    Integer historyRetentionRuns,
+
+    @JsonProperty("job_type")
+    String jobType,
+
+    @JsonProperty("parent_job_id")
+    String parentJobId,
+
+    @JsonProperty("sync_mode")
+    String syncMode,
+
+    /** Реплицировать удаления с источника на приемник (только для потокового режима inotify). */
+    @JsonProperty("sync_deletes")
+    Boolean syncDeletes
+) {
+    public CreateJobRequest {
+        if (totalBytes == null) totalBytes = 0L;
+        if (executionPrincipal == null) executionPrincipal = "hdfs@EXAMPLE.COM";
+        if (runAsServiceAccount == null) runAsServiceAccount = true;
+        if (isScheduled == null) isScheduled = false;
+        if (historyRetentionRuns == null) historyRetentionRuns = 20;
+        if (jobType == null) jobType = "STANDARD";
+        if (syncMode == null) {
+            syncMode = Boolean.TRUE.equals(isScheduled) ? "SCHEDULED" : "MANUAL";
+        }
+        // Удаление данных на приемнике по умолчанию выключено: его включает оператор осознанно
+        if (syncDeletes == null) syncDeletes = false;
+    }
+
+    /**
+     * Copy with another execution identity; every other field, including {@code syncMode} and
+     * {@code syncDeletes}, is kept. The REST controller pins the identity this way: listing the
+     * fields by hand there dropped the ones added later.
+     */
+    public CreateJobRequest withExecution(String principal, boolean asServiceAccount) {
+        return new CreateJobRequest(sourcePath, targetPath, sourceClusterId, targetClusterId, totalBytes,
+                principal, asServiceAccount, isScheduled, cronExpression, historyRetentionRuns, jobType,
+                parentJobId, syncMode, syncDeletes);
+    }
+
+    /** Совместимость с вызовами без флага репликации удалений. */
+    public CreateJobRequest(
+        String sourcePath, String targetPath, String sourceClusterId, String targetClusterId,
+        Long totalBytes, String executionPrincipal, Boolean runAsServiceAccount, Boolean isScheduled,
+        String cronExpression, Integer historyRetentionRuns, String jobType, String parentJobId,
+        String syncMode
+    ) {
+        this(sourcePath, targetPath, sourceClusterId, targetClusterId, totalBytes, executionPrincipal,
+                runAsServiceAccount, isScheduled, cronExpression, historyRetentionRuns, jobType,
+                parentJobId, syncMode, false);
+    }
+
+    public CreateJobRequest(
+        String sourcePath,
+        String targetPath,
+        String sourceClusterId,
+        String targetClusterId,
+        Long totalBytes,
+        String executionPrincipal,
+        Boolean runAsServiceAccount,
+        Boolean isScheduled,
+        String cronExpression
+    ) {
+        this(sourcePath, targetPath, sourceClusterId, targetClusterId, totalBytes, executionPrincipal, runAsServiceAccount, isScheduled, cronExpression, 20, "STANDARD", null, null);
+    }
+
+    public CreateJobRequest(
+        String sourcePath,
+        String targetPath,
+        String sourceClusterId,
+        String targetClusterId,
+        Long totalBytes,
+        String executionPrincipal,
+        Boolean runAsServiceAccount,
+        Boolean isScheduled,
+        String cronExpression,
+        Integer historyRetentionRuns,
+        String jobType,
+        String parentJobId
+    ) {
+        this(sourcePath, targetPath, sourceClusterId, targetClusterId, totalBytes, executionPrincipal, runAsServiceAccount, isScheduled, cronExpression, historyRetentionRuns, jobType, parentJobId, null);
+    }
+}

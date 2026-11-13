@@ -34,11 +34,11 @@ run_iskra() {
   mvn test -f "$ROOT_DIR/backend/iskra/pom.xml"
 }
 
-run_replicator() {
+run_parom() {
   echo "=========================================="
   echo "🧪 Запуск тестов: Replicator (Java 21 / Spring Boot 3 & Agent)"
   echo "=========================================="
-  mvn test -f "$ROOT_DIR/backend/replicator/pom.xml"
+  mvn test -f "$ROOT_DIR/backend/parom/pom.xml"
 }
 
 run_frontend() {
@@ -64,8 +64,8 @@ case "$APP" in
   iskra)
     run_iskra
     ;;
-  replicator)
-    run_replicator
+  parom)
+    run_parom
     ;;
   all)
     run_frontend
@@ -73,14 +73,14 @@ case "$APP" in
     run_sklad
     run_tolmach
     run_iskra
-    run_replicator
+    run_parom
     echo ""
     echo "========================================================"
     echo "🎉 ВСЕ ТЕСТЫ ПЛАТФОРМЫ PRISTAN ПРОЙДЕНЫ УСПЕШНО!"
     echo "========================================================"
     ;;
   *)
-    echo "Использование: $0 [all|frontend|sklad|iskra|tolmach|artel|replicator]"
+    echo "Использование: $0 [all|frontend|sklad|iskra|tolmach|artel|parom]"
     exit 1
     ;;
 esac

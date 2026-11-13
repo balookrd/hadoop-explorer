@@ -1,0 +1,40 @@
+# =========================================================================
+# Parom :: Orchestrator (Java 21 / Spring Boot 3)
+# =========================================================================
+FROM eclipse-temurin:21-jre-jammy
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    krb5-user \
+    curl \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Копирование собранного Spring Boot Fat JAR
+COPY backend/parom/orchestrator/target/parom-orchestrator-1.0.0.jar /app/parom-orchestrator.jar
+
+# Копирование собранного Frontend SPA (Svelte 5)
+COPY backend/parom/orchestrator/src/main/resources/static /app/frontend/dist
+
+# Создание непривилегированного пользователя appuser (UID 10001)
+RUN groupadd -g 10001 appuser && \
+    useradd -u 10001 -g appuser -m -s /bin/bash appuser && \
+    mkdir -p /app/data /etc/security/keytabs /app/config && \
+    touch /etc/krb5.conf && \
+    chown -R appuser:appuser /app /etc/krb5.conf /etc/security/keytabs
+
+ENV APP_NAME="parom-orchestrator" \
+    FRONTEND_DIST="/app/frontend/dist" \
+    SERVER_PORT="8005"
+
+# Запуск от непривилегированного пользователя: сервис распаковывает внешние
+# архивы и ходит в HDFS с doAs, поэтому права root в контейнере избыточны.
+USER appuser
+
+EXPOSE 8005 50050
+
+HEALTHCHECK --interval=30s --timeout=5s --start-period=15s --retries=3 \
+    CMD curl -f http://localhost:8005/health || curl -f http://localhost:8005/actuator/health || exit 1
+
+ENTRYPOINT ["java", "-Xms256m", "-Xmx1024m", "-jar", "/app/parom-orchestrator.jar"]

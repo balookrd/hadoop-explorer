@@ -14,7 +14,7 @@
       }
     ]
   },
-  "description": "Мониторинг распределенной системы репликации Hadoop gRPC Replicator: сетевой трафик, иерархический шейпинг Token Bucket Throttler, воркеры gRPC, статусы задач и планировщик Cron",
+  "description": "Мониторинг распределенной системы репликации Parom: сетевой трафик, иерархический шейпинг Token Bucket Throttler, воркеры gRPC, статусы задач и планировщик Cron",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -2723,7 +2723,7 @@
     ]
   },
   "timezone": "browser",
-  "title": "Hadoop gRPC Replicator — Межкластерная репликация и шейпинг (QoS & Throttling)",
+  "title": "Parom — Межкластерная репликация и шейпинг (QoS & Throttling)",
   "uid": "hadoop-replicator-overview",
   "version": 1
 }

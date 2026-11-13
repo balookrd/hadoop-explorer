@@ -1,6 +1,6 @@
-.PHONY: help test test-artel test-sklad test-tolmach test-iskra test-replicator \
-        test-zastava test-replicator-agent test-replicator-orchestrator test-java test-ui \
-        build build-java build-zastava build-artel build-sklad build-tolmach build-iskra build-replicator \
+.PHONY: help test test-artel test-sklad test-tolmach test-iskra test-parom \
+        test-zastava test-parom-agent test-parom-orchestrator test-java test-ui \
+        build build-java build-zastava build-artel build-sklad build-tolmach build-iskra build-parom \
         frontend-build frontend-install demo-artel demo-sklad demo-tolmach demo-iskra demo-all \
         demo-artel-stop demo-sklad-stop demo-tolmach-stop demo-iskra-stop demo-all-stop \
         skeleton skeleton-all skeleton-backend java-index java-query check-jdk21
@@ -15,7 +15,7 @@ REGISTRY ?= pristan
 #
 # JAVA21_HOME ищется в таком порядке: текущий JAVA_HOME, если это 21; java_home -v 21 (macOS);
 # каталоги JDK с «21» в имени (установка из IDE, Linux). Можно задать явно:
-#   make test-replicator JAVA21_HOME=/path/to/jdk-21
+#   make test-parom JAVA21_HOME=/path/to/jdk-21
 JAVA21_HOME ?= $(shell \
 	if [ -x "$$JAVA_HOME/bin/java" ] && "$$JAVA_HOME/bin/java" -version 2>&1 | grep -q 'version "21'; then \
 		echo "$$JAVA_HOME"; \
@@ -49,7 +49,7 @@ help:
 	@echo "    make test-sklad        - Тесты сервиса Sklad (Java 21)"
 	@echo "    make test-tolmach         - Тесты сервиса Tolmach (Java 21)"
 	@echo "    make test-iskra       - Тесты сервиса Iskra (Java 21)"
-	@echo "    make test-replicator  - Тесты сервиса Replicator (Java 21)"
+	@echo "    make test-parom  - Тесты сервиса Replicator (Java 21)"
 	@echo "    make test-zastava - Тесты Java 21 zastava"
 	@echo "    make test-java        - Запуск всех Java тестов платформы"
 	@echo "    make test-ui          - Запуск тестов фронтенда (Vitest / Svelte 5)"
@@ -63,7 +63,7 @@ help:
 	@echo "    make build-sklad       - Сборка образа Sklad"
 	@echo "    make build-tolmach        - Сборка образа Tolmach"
 	@echo "    make build-iskra      - Сборка образа Iskra"
-	@echo "    make build-replicator - Сборка образа Replicator Orchestrator"
+	@echo "    make build-parom - Сборка образа Replicator Orchestrator"
 	@echo ""
 	@echo "  Фронтенд:"
 	@echo "    make frontend-install - Установка зависимостей frontend apps"
@@ -103,18 +103,18 @@ test-tolmach: check-jdk21
 test-iskra: check-jdk21
 	$(JAVA21) mvn test -f backend/iskra/pom.xml
 
-test-replicator: check-jdk21
-	$(JAVA21) mvn test -f backend/replicator/pom.xml
+test-parom: check-jdk21
+	$(JAVA21) mvn test -f backend/parom/pom.xml
 
-test-replicator-agent: check-jdk21
-	$(JAVA21) mvn test -f backend/replicator/pom.xml -pl agent -am
+test-parom-agent: check-jdk21
+	$(JAVA21) mvn test -f backend/parom/pom.xml -pl agent -am
 
-test-replicator-orchestrator: check-jdk21
-	$(JAVA21) mvn test -f backend/replicator/pom.xml -pl orchestrator -am
+test-parom-orchestrator: check-jdk21
+	$(JAVA21) mvn test -f backend/parom/pom.xml -pl orchestrator -am
 
-test-replicator-agent-java: test-replicator-agent
-test-replicator-orchestrator-java: test-replicator-orchestrator
-test-replicator-java: test-replicator
+test-parom-agent-java: test-parom-agent
+test-parom-orchestrator-java: test-parom-orchestrator
+test-parom-java: test-parom
 
 test-zastava: check-jdk21
 	$(JAVA21) mvn test -f backend/zastava/pom.xml
@@ -124,7 +124,7 @@ test-artel-java: test-artel
 test-tolmach-java: test-tolmach
 test-iskra-java: test-iskra
 
-test-java: test-zastava test-replicator test-sklad test-artel test-tolmach test-iskra
+test-java: test-zastava test-parom test-sklad test-artel test-tolmach test-iskra
 
 test-ui:
 	./scripts/run-tests.sh frontend
@@ -150,18 +150,18 @@ build-tolmach: frontend-build-tolmach
 build-iskra: frontend-build-iskra
 	$(JAVA21) mvn clean package -DskipTests -f backend/iskra/pom.xml
 
-build-replicator: frontend-build-replicator
-	$(JAVA21) mvn clean package -DskipTests -f backend/replicator/pom.xml
+build-parom: frontend-build-parom
+	$(JAVA21) mvn clean package -DskipTests -f backend/parom/pom.xml
 
-build-replicator-agent:
-	$(JAVA21) mvn clean package -DskipTests -f backend/replicator/pom.xml -pl agent -am
+build-parom-agent:
+	$(JAVA21) mvn clean package -DskipTests -f backend/parom/pom.xml -pl agent -am
 
-build-replicator-orchestrator: frontend-build-replicator
-	$(JAVA21) mvn clean package -DskipTests -f backend/replicator/pom.xml -pl orchestrator -am
+build-parom-orchestrator: frontend-build-parom
+	$(JAVA21) mvn clean package -DskipTests -f backend/parom/pom.xml -pl orchestrator -am
 
-build-replicator-agent-java: build-replicator-agent
-build-replicator-orchestrator-java: build-replicator-orchestrator
-build-replicator-java: build-replicator
+build-parom-agent-java: build-parom-agent
+build-parom-orchestrator-java: build-parom-orchestrator
+build-parom-java: build-parom
 
 build-sklad-java: build-sklad
 build-artel-java: build-artel
@@ -193,7 +193,7 @@ frontend-build-%: frontend/node_modules
 	cd frontend && npm run build:$*
 
 generate-proto:
-	$(JAVA21) mvn compile -DskipTests -f backend/replicator/agent/pom.xml
+	$(JAVA21) mvn compile -DskipTests -f backend/parom/agent/pom.xml
 
 proto: generate-proto
 
@@ -227,11 +227,11 @@ demo-iskra:
 demo-iskra-stop:
 	cd demo/iskra && ./stop-demo.sh
 
-demo-replicator:
-	cd demo/replicator && ./start-demo.sh
+demo-parom:
+	cd demo/parom && ./start-demo.sh
 
-demo-replicator-stop:
-	cd demo/replicator && ./stop-demo.sh
+demo-parom-stop:
+	cd demo/parom && ./stop-demo.sh
 
 demo-monitoring:
 	cd demo/monitoring && ./start-monitoring.sh
@@ -243,7 +243,7 @@ demo-monitoring-smoke:
 	cd demo/monitoring && ./run-monitoring-smoke-tests.sh
 
 demo-kafka-smoke:
-	cd demo/replicator && ./run-kafka-smoke-tests.sh
+	cd demo/parom && ./run-kafka-smoke-tests.sh
 
 demo-all:
 	cd demo/all && ./start-all-demo.sh

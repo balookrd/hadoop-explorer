@@ -1,7 +1,7 @@
-# Аудит Hadoop gRPC Replicator — 24 октября 2026
+# Аудит Parom — 24 октября 2026
 
-Объём: `backend/replicator` — 31 510 строк main-кода (agent 404 файла / orchestrator), 15 893 строк тестов,
-77 тест-классов, 450 тестов, 0 падений (прогон `mvn test -f backend/replicator/pom.xml` выполнен в рамках аудита).
+Объём: `backend/parom` — 31 510 строк main-кода (agent 404 файла / orchestrator), 15 893 строк тестов,
+77 тест-классов, 450 тестов, 0 падений (прогон `mvn test -f backend/parom/pom.xml` выполнен в рамках аудита).
 
 Метод: AST-индекс (`scripts/java-index-query.sh`) для навигации без чтения файлов целиком, точечное чтение
 горячих участков, прогон тестов, `ast-grep scan`, разбор конфигурации и развёртывания. Предыдущие аудиты
@@ -67,7 +67,7 @@
 | `agent-secret` | хардкод `replicator-secure-agent-secret-key-12345` (в коде и в yml) | известный публичный секрет |
 | `enforce-agent-secret` | `false` | регистрация агента без секрета (`AgentRegistry.register`: секрет проверяется только если заголовок прислан) |
 | `enforce-cluster-whitelist` | `false` | агент регистрируется в произвольном `clusterId` |
-| `REPLICATOR_ENFORCE_TASK_ATTESTATION` | `false` | HMAC-аттестация задач (защита от privilege escalation) не требуется |
+| `PAROM_ENFORCE_TASK_ATTESTATION` | `false` | HMAC-аттестация задач (защита от privilege escalation) не требуется |
 | `grpc.tls-enabled` | `false` | control plane и data plane в plaintext |
 | `jwt.secret-key` | хардкод в `application.yml` | подделка токенов |
 | `cookie.secure` | `false` | — |
@@ -180,7 +180,7 @@ TextInputFormat → Hive читает партиции по их SD → запр
 *Фикс*: сериализовать запись по партиции (per-partition очередь) либо stop-and-wait.
 
 #### P0-11. Kafka: эндпоинты и топики всех задач смешиваются в один пул
-`kafka/agent/KafkaReplicatorAgentMain.java:362-394` — `flatMap` по всем активным задачам ДЦ:
+`kafka/agent/ParomKafkaAgentMain.java:362-394` — `flatMap` по всем активным задачам ДЦ:
 объединённый список топиков и объединённый список `targetEndpoints` отдаются одному пулу и одной
 consumer-группе.
 *Сценарий*: job A (DC1→DC2) и реверс BIDIRECTIONAL job B (DC1→DC3) → HRW раскидывает партиции одного
@@ -215,15 +215,15 @@ consumer-группе.
 *Фикс*: нет снимка по ключу — возвращать ошибку, без fallback.
 
 #### P0-19. Открытый `/metrics` грузит всю таблицу задач в heap
-`metrics/ReplicatorMetricsService.java:186` — `taskRepository.findAll()` по `replication_tasks`
+`metrics/ParomMetricsService.java:186` — `taskRepository.findAll()` по `replication_tasks`
 (миллионы пофайловых задач), плюс ещё 7 полных `findAll()` (453, 491, 519, 530, 574, 589) на один скрейп.
-Эндпоинт `/metrics` стоит в `permitAll` (`ReplicatorOrchestratorApplication.java:64`).
+Эндпоинт `/metrics` стоит в `permitAll` (`ParomOrchestratorApplication.java:64`).
 *Сценарий*: Prometheus со стандартным интервалом 15 с (или любой, кто дотянулся до порта 8005) →
 OOM/остановка GC-паузами, без аутентификации.
 *Фикс*: агрегатные `@Query` (`count/sum ... GROUP BY`) или Micrometer-гистограммы; закрыть эндпоинт.
 
 #### P0-13. TAR-приёмник нерабочий в продовой конфигурации (Piped* + virtual threads)
-`receiver/DataTransferServiceImpl.java:543-544,743` + `agent/ReplicatorAgent.java:234` — поток склеивается
+`receiver/DataTransferServiceImpl.java:543-544,743` + `agent/ParomAgent.java:234` — поток склеивается
 через `PipedOutputStream`/`PipedInputStream`, а gRPC-сервер сконфигурирован
 `.executor(Executors.newVirtualThreadPerTaskExecutor())`. `PipedInputStream` запоминает `writeSide` и бросает
 `IOException("Write end dead")`, если этот поток мёртв, а каждая порция сообщений приходит в новом
@@ -247,12 +247,12 @@ OOM/остановка GC-паузами, без аутентификации.
 #### P0-15. Control plane оркестратора fail-open при пустом секрете
 `orchestrator/grpc/OrchestratorGrpcServer.java:82-87` — интерцептор аутентификации добавляется
 только если секрет непустой; иначе gRPC control plane (register, claim tasks, report progress)
-полностью анонимен. Та же схема в `kafka/agent/KafkaReplicatorAgentMain.java:215` — приём Kafka-батчей
+полностью анонимен. Та же схема в `kafka/agent/ParomKafkaAgentMain.java:215` — приём Kafka-батчей
 без аутентификации, то есть запись произвольных записей в целевые топики и коммит оффсетов.
-Важно: `demo/replicator/docker-compose.yml:18,89,137` задаёт `AGENT_SECRET: ""` — в демо-режиме
-control plane открыт. При этом HDFS-приёмник (`agent/ReplicatorAgent.java:247`) реализован правильно,
+Важно: `demo/parom/docker-compose.yml:18,89,137` задаёт `AGENT_SECRET: ""` — в демо-режиме
+control plane открыт. При этом HDFS-приёмник (`agent/ParomAgent.java:247`) реализован правильно,
 fail-closed — поведение несогласованно между компонентами.
-*Фикс*: fail-closed везде (как в `ReplicatorAgent`): при отсутствии секрета отклонять вызовы или не стартовать.
+*Фикс*: fail-closed везде (как в `ParomAgent`): при отсутствии секрета отклонять вызовы или не стартовать.
 
 #### P0-16. HMS REST: отчёт о прогрессе и захват lease без авторизации
 `orchestrator/controller/HmsReplicationController.java:136-164` — `POST /{id}/progress` проверяет только
@@ -410,11 +410,11 @@ fail-closed — поведение несогласованно между ко�
 - `orchestrator/pom.xml:41-44` — оркестратор зависит от артефакта `replicator-agent` в compile scope и
   тянет весь стек агента: `hadoop-common`, `hadoop-hdfs-client`, `hadoop-yarn-client`,
   `hive-standalone-metastore-common`, `kafka-clients`, zstd, lz4. Нет выделенного модуля
-  `replicator-proto`/`replicator-model`. Следствия: раздутый classpath control plane, конфликты
+  `parom-proto`/`parom-model`. Следствия: раздутый classpath control plane, конфликты
   транзитивных зависимостей, расширенная attack surface, невозможность независимой эволюции.
   Дополнительно `orchestrator/hms/client/HmsClientPool` использует Thrift-клиент агента напрямую —
   оркестратор сам ходит в HMS, вопреки заявленной модели «только агент касается кластера».
-- Контракты proto продублированы: `backend/replicator/proto/*.proto` (устаревшая копия, без `task_token`
+- Контракты proto продублированы: `backend/parom/proto/*.proto` (устаревшая копия, без `task_token`
   и `execution_principal`, `int64 target_offset` вместо `optional`) и
   `agent/src/main/proto/*.proto` (компилируется только она — `protoSourceRoot` в `agent/pom.xml:261`).
   Первая — мёртвый код, вводящий в заблуждение.
@@ -586,8 +586,8 @@ fail-closed — поведение несогласованно между ко�
 26. `CallerRunsPolicy` → ограниченная очередь с отказом или виртуальные потоки в control plane;
     `isReady()`/flow-control на пофайловом пути; явные `max.poll.*`, `linger.ms`, `batch.size` для Kafka;
     провижининг топиков — за пределы транзакции.
-27. Выделить модуль `replicator-proto`/`replicator-model`, убрать зависимость оркестратора от агента
-    и дубль `backend/replicator/proto`.
+27. Выделить модуль `parom-proto`/`parom-model`, убрать зависимость оркестратора от агента
+    и дубль `backend/parom/proto`.
 28. Миграции (Flyway/Liquibase) как единственный источник схемы; согласовать имена таблиц; индексы на
     `JobEntity`; автосоздание партиций (сейчас статически до `2027_01`).
 29. OpenTelemetry/micrometer-tracing сквозь оркестратор и агенты; gRPC health-service; HEALTHCHECK агента.

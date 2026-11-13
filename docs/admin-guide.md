@@ -14,7 +14,7 @@
 | Sklad | `8002` (или `8000`) | Менеджер файлов Data Lake, WebHDFS NameNode HA, превью Parquet/ORC, квоты каталогов, Cross-Cluster Copy | [docs/hdfs-admin-guide.md](hdfs-admin-guide.md) |
 | Tolmach | `8003` (или `8000`) | Веб-консоль Trino и Apache Hive, потоковая выдача результатов, отмена запросов, ИИ-ассистент SQL | [docs/sql-admin-guide.md](sql-admin-guide.md) |
 | Iskra | `8004` (или `8000`) | Управление интерактивными сессиями Livy (PySpark / Scala), интеграция с YARN и Spark History Server | [docs/spark-admin-guide.md](spark-admin-guide.md) |
-| Hadoop gRPC Replicator | `8005` (API/UI)<br>`50051` (gRPC) | Межкластерная репликация HDFS (Orchestrator и двунаправленные агенты), ограничение полосы WAN, cron-планировщик | [docs/replicator-admin-guide.md](replicator-admin-guide.md) |
+| Parom | `8005` (API/UI)<br>`50051` (gRPC) | Межкластерная репликация HDFS (Orchestrator и двунаправленные агенты), ограничение полосы WAN, cron-планировщик | [docs/replicator-admin-guide.md](replicator-admin-guide.md) |
 
 ---
 
@@ -40,7 +40,7 @@
 
 Replicator Agent, кроме трех режимов выше, запускается внутри кластера Hadoop:
 - На DataNode или edge-узле через `hadoop jar`: shaded fat JAR или тонкий JAR с системным `HADOOP_CLASSPATH`, полоса ограничивается `AGENT_MAX_BANDWIDTH_MB_S`.
-- В Apache Hadoop YARN: пул воркеров запускает `ReplicatorYarnClient`, ими управляет `ReplicatorApplicationMaster`. HDFS delegation tokens передаются воркерам автоматически, поэтому keytab на NodeManager не нужен. Подробнее: [docs/replicator-admin-guide.md#26-запуск-распределенного-пула-агентов-в-apache-hadoop-yarn](replicator-admin-guide.md#26-запуск-распределенного-пула-агентов-в-apache-hadoop-yarn).
+- В Apache Hadoop YARN: пул воркеров запускает `ParomYarnClient`, ими управляет `ParomApplicationMaster`. HDFS delegation tokens передаются воркерам автоматически, поэтому keytab на NodeManager не нужен. Подробнее: [docs/replicator-admin-guide.md#26-запуск-распределенного-пула-агентов-в-apache-hadoop-yarn](replicator-admin-guide.md#26-запуск-распределенного-пула-агентов-в-apache-hadoop-yarn).
 
 ---
 

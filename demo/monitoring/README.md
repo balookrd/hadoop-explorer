@@ -1,6 +1,6 @@
 # Стек мониторинга платформы (demo/monitoring)
 
-Демонстрационный стек Prometheus 2.50 и Grafana 10.4. Собирает HTTP golden signals, метрики очередей YARN, файловых операций HDFS, SQL- и Spark-запросов и межкластерной репликации Hadoop gRPC Replicator (HDFS, HMS, Kafka).
+Демонстрационный стек Prometheus 2.50 и Grafana 10.4. Собирает HTTP golden signals, метрики очередей YARN, файловых операций HDFS, SQL- и Spark-запросов и межкластерной репликации Parom (HDFS, HMS, Kafka).
 
 ---
 
@@ -53,7 +53,7 @@ cd demo/monitoring && ./run-monitoring-smoke-tests.sh
 1. `pristan-overview` — сводка по платформе и golden signals:
    - Скорость запросов (RPS), p50/p90/p95/p99-задержки, доля ответов 5xx, запросы в обработке по сервисам YARN, HDFS, SQL, Spark.
    - Входы через `/api/v1/auth/login` по кодам ответа, ответы 429 ограничителя частоты по уровням `login` и `api` (`hadoop_rate_limit_blocks_total`), ответы 5xx по классу исключения.
-   - Сводка Hadoop gRPC Replicator.
+   - Сводка Parom.
 2. `hadoop-replicator-overview` — межкластерная репликация и шейпинг полосы:
    - Скорость репликации данных (MB/s), задержки троттлинга Token Bucket.
    - Статусы пакетных и потоковых задач HDFS.
@@ -93,4 +93,4 @@ cd demo/monitoring && ./run-monitoring-smoke-tests.sh
 - `KafkaReplicationHighLag` и `KafkaReplicationCriticalLag` — `kafka_current_lag_ms` больше 1000 мс в течение 1 минуты и больше 5000 мс в течение 2 минут.
 - `KafkaReplicationJobPaused` — задача репликации Kafka в статусе `PAUSED` дольше 5 минут.
 
-Задание `hadoop-replicator` опрашивает `GET /metrics` оркестратора с HTTP Basic `prometheus:<токен>`; токен в `prometheus/prometheus.yml` совпадает с `REPLICATOR_METRICS_SCRAPE_TOKEN` в `demo/replicator/docker-compose.yml` и `docker-compose.kafka.yml`. При расхождении цель `hadoop-replicator` в статусе `DOWN` с `server returned HTTP status 401`.
+Задание `hadoop-replicator` опрашивает `GET /metrics` оркестратора с HTTP Basic `prometheus:<токен>`; токен в `prometheus/prometheus.yml` совпадает с `PAROM_METRICS_SCRAPE_TOKEN` в `demo/parom/docker-compose.yml` и `docker-compose.kafka.yml`. При расхождении цель `hadoop-replicator` в статусе `DOWN` с `server returned HTTP status 401`.

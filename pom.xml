@@ -15,7 +15,7 @@
 
     <modules>
         <module>backend/zastava</module>
-        <module>backend/replicator</module>
+        <module>backend/parom</module>
         <module>backend/artel</module>
         <module>backend/sklad</module>
         <module>backend/tolmach</module>

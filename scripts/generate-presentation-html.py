@@ -11,7 +11,7 @@ HTML_CONTENT = """<!DOCTYPE html>
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Hadoop gRPC Replicator: Системная архитектура и эксплуатация (Техническая спецификация)</title>
+  <title>Parom: Системная архитектура и эксплуатация (Техническая спецификация)</title>
   <style>
     :root {
       --bg: #090d16;
@@ -530,12 +530,12 @@ HTML_CONTENT = """<!DOCTYPE html>
     <div class="slide active" id="slide-1">
       <div class="slide-header">
         <div class="slide-subtitle">Генеральная архитектурная схема • Топология и размещение компонентов</div>
-        <h1 class="slide-title">Hadoop gRPC Replicator: Что где располагается</h1>
+        <h1 class="slide-title">Parom: Что где располагается</h1>
         <p class="slide-desc">Физическое размещение Orchestrator (:8005/:50050), Daemons агентов в ЦОД-1 и ЦОД-2, Hadoop NameNode/DataNodes, Kafka и сквозной gRPC WAN :50051/:50052</p>
       </div>
       <div class="slide-body">
-        <div class="arch-container" onclick="openLightbox('images/replicator/architecture_deployment_traffic.png')">
-          <img src="images/replicator/architecture_deployment_traffic.png" alt="Генеральная архитектурная схема развертывания и сетевых потоков">
+        <div class="arch-container" onclick="openLightbox('images/parom/architecture_deployment_traffic.png')">
+          <img src="images/parom/architecture_deployment_traffic.png" alt="Генеральная архитектурная схема развертывания и сетевых потоков">
           <div class="arch-zoom-hint">🔍 Нажмите на схему для полноэкранного зума</div>
         </div>
       </div>
@@ -598,7 +598,7 @@ HTML_CONTENT = """<!DOCTYPE html>
       <div class="slide-body">
         <div class="grid-2">
           <div class="card card-accent-indigo">
-            <div class="card-title">Параметры CLI агента (ReplicatorAgentMain)</div>
+            <div class="card-title">Параметры CLI агента (ParomAgentMain)</div>
             <ul class="card-list">
               <li><code>--agent-id &lt;id&gt;</code>: Уникальный ID агента (hostname).</li>
               <li><code>--cluster-id &lt;id&gt;</code>: ID обслуживаемого кластера (<code>dc1</code> / <code>dc2</code>).</li>
@@ -611,7 +611,7 @@ HTML_CONTENT = """<!DOCTYPE html>
             </ul>
             <div class="code-box"># Запуск демона под Kerberos учеткой:
 java -Xms4g -Xmx8g -XX:+UseG1GC \
-  -jar replicator-agent.jar \
+  -jar parom-agent.jar \
   --agent-id=agent-dc1-01 --cluster-id=dc1 \
   --mode=all --orchestrator=http://orch:8005 \
   --port=50051 --max-bandwidth-mb-s=2500 --compression=zstd</div>
@@ -1023,8 +1023,8 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
               </ul>
             </div>
           </div>
-          <div class="ui-screenshot-card" onclick="openLightbox('images/replicator/04_topology_bandwidth.png')">
-            <img src="images/replicator/04_topology_bandwidth.png" onerror="this.src='images/replicator/replicator_topology_screen.png'" alt="Управление топологией дата-центров">
+          <div class="ui-screenshot-card" onclick="openLightbox('images/parom/04_topology_bandwidth.png')">
+            <img src="images/parom/04_topology_bandwidth.png" onerror="this.src='images/parom/replicator_topology_screen.png'" alt="Управление топологией дата-центров">
             <div class="arch-zoom-hint">🔍 Нажмите для зума</div>
           </div>
         </div>
@@ -1060,7 +1060,7 @@ GET http://orchestrator:8005/actuator/health</div>
           <div class="card card-accent-red">
             <div class="card-title">Правила алертинга (Prometheus Alertmanager)</div>
             <ul class="card-list">
-              <li><strong>ReplicatorAgentOffline (Critical):</strong>
+              <li><strong>ParomAgentOffline (Critical):</strong>
                 <br/><code>time() - replicator_agent_heartbeat_timestamp > 30s</code>
                 <br/>Агент не присылает heartbeat более 30 секунд.
               </li>

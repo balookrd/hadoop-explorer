@@ -6,7 +6,7 @@
 - Sklad (`backend/sklad` — Java 21 LTS / Spring Boot 3, подключение к HDFS Client, HA NameNode, Kerberos, doAs имперсонация, квоты, превью Parquet/ORC, Circuit Breaker).
 - Tolmach (`backend/tolmach` — Java 21 LTS / Spring Boot 3, Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
 - Iskra (`backend/iskra` — Java 21 LTS / Spring Boot 3, Apache Livy, PySpark, Scala, DAG Pipelines, Metastore, Circuit Breaker).
-- Hadoop gRPC Replicator (`backend/replicator` — Java 21 / Spring Boot 3 Orchestrator, нативный Java gRPC Worker Daemon, топология ЦОД, Hierarchical Token Bucket, Kerberos, Snapshot Diff, Cron Scheduler).
+- Parom (`backend/parom` — Java 21 / Spring Boot 3 Orchestrator, нативный Java gRPC Worker Daemon, топология ЦОД, Hierarchical Token Bucket, Kerberos, Snapshot Diff, Cron Scheduler).
 
 ---
 
@@ -35,7 +35,7 @@
    - [Интеграция с YARN и разграничение очередей](#63-интеграция-с-yarn-и-разграничение-очередей)
    - [Hive Metastore, Iceberg и профили ресурсов](#64-hive-metastore-iceberg-и-профили-ресурсов)
    - [Персистентность рабочих пространств пользователя](#65-персистентность-рабочих-пространств-пользователя)
-7. [Настройка Hadoop gRPC Replicator (DC-DC WAN Sync & Throttling)](#7-настройка-hadoop-grpc-replicator-dc-dc-wan-sync--throttling)
+7. [Настройка Parom (DC-DC WAN Sync & Throttling)](#7-настройка-hadoop-grpc-replicator-dc-dc-wan-sync--throttling)
    - [Архитектура и компоненты (Orchestrator, Agent)](#71-архитектура-и-компоненты-orchestrator-agent)
    - [Безопасные значения по умолчанию и продуктивный профиль](#711-безопасные-значения-по-умолчанию-и-продуктивный-профиль)
    - [Трассировка и health-пробы gRPC](#712-трассировка-и-health-пробы-grpc)
@@ -126,7 +126,7 @@ hadoop:
 
 #### HTTP-заголовки безопасности и CSP
 
-Отдельной настройки заголовков в коде нет: `SecurityFilterChain` из `ZastavaAutoConfiguration` (и `replicatorSecurityFilterChain` в оркестраторе репликатора) не вызывает `http.headers(...)`, поэтому в ответы попадают заголовки Spring Security по умолчанию:
+Отдельной настройки заголовков в коде нет: `SecurityFilterChain` из `ZastavaAutoConfiguration` (и `paromSecurityFilterChain` в оркестраторе репликатора) не вызывает `http.headers(...)`, поэтому в ответы попадают заголовки Spring Security по умолчанию:
 - `X-Content-Type-Options: nosniff`: браузер не подменяет MIME-тип ответа.
 - `X-Frame-Options: DENY`: запрет встраивания в iframe (clickjacking).
 - `Cache-Control: no-cache, no-store, max-age=0, must-revalidate`, `Pragma: no-cache`, `Expires: 0`.
@@ -756,9 +756,9 @@ Iskra сохраняет в базу данных состояние сесси�
 
 ---
 
-## 7. Настройка Hadoop gRPC Replicator (DC-DC WAN Sync & Throttling)
+## 7. Настройка Parom (DC-DC WAN Sync & Throttling)
 
-Сервис межкластерной репликации `backend/replicator` (Java 21 LTS, Spring Boot 3, gRPC) копирует данные HDFS между ЦОД по WAN с ограничением полосы. Конфигурация задается в `application.yml` или переменными окружения.
+Сервис межкластерной репликации `backend/parom` (Java 21 LTS, Spring Boot 3, gRPC) копирует данные HDFS между ЦОД по WAN с ограничением полосы. Конфигурация задается в `application.yml` или переменными окружения.
 
 ### 7.1 Архитектура и компоненты (Orchestrator, Agent)
 
@@ -781,30 +781,30 @@ Iskra сохраняет в базу данных состояние сесси�
 Конфигурация оркестратора по умолчанию (`application.yml`) — H2 в памяти и боевая аутентификация
 (`auth.mode: ldap`, JWT-секрет из `JWT_SECRET_KEY`): без них оркестратор не стартует.
 Тестовые пользователи и `auth.mode: mock` вынесены в профиль `mock` (`SPRING_PROFILES_ACTIVE=mock`)
-для локальной разработки. Демо-стенды `demo/replicator` включают профиль `demo`: вход через OpenLDAP стенда
+для локальной разработки. Демо-стенды `demo/parom` включают профиль `demo`: вход через OpenLDAP стенда
 (`ldap://ldap:389`), группы — поиском `groupOfNames` по `member`. Схема базы во всех профилях
 создается миграциями Flyway, а `ddl-auto` стоит в `validate`. Для продуктива
 предусмотрен отдельный профиль `application-prod.yml`, активируемый через
 `SPRING_PROFILES_ACTIVE=prod`: PostgreSQL, `auth.mode: kerberos`,
 `cookie.secure: true`, `health.show-details: when-authorized` и обязательный TLS для gRPC
 Control Plane. Все секреты в этом профиле читаются только из окружения
-(`REPLICATOR_AGENT_SECRET`, `JWT_SECRET_KEY`, `POSTGRES_USER`, `POSTGRES_PASSWORD`).
+(`PAROM_AGENT_SECRET`, `JWT_SECRET_KEY`, `POSTGRES_USER`, `POSTGRES_PASSWORD`).
 
 Защитные параметры и их значения по умолчанию:
 
 | Параметр | Значение по умолчанию | Назначение |
 | :--- | :--- | :--- |
-| `hadoop.replicator.agent-secret` | не задан (только из `REPLICATOR_AGENT_SECRET`) | Зашитый в код секрет был единым публично известным ключом для всех установок |
-| `hadoop.replicator.enforce-agent-secret` | `true` | Запуск прерывается, если секрет не задан, короче 16 символов или равен прежнему значению из репозитория |
-| `hadoop.replicator.enforce-cluster-whitelist` | `true` | Агент регистрируется только в кластере из топологии |
-| `REPLICATOR_ENFORCE_TASK_ATTESTATION` (агент) | `true` | Приемник требует HMAC-токен аттестации задачи, выдаваемый оркестратором при заборе задач |
+| `parom.agent-secret` | не задан (только из `PAROM_AGENT_SECRET`) | Зашитый в код секрет был единым публично известным ключом для всех установок |
+| `parom.enforce-agent-secret` | `true` | Запуск прерывается, если секрет не задан, короче 16 символов или равен прежнему значению из репозитория |
+| `parom.enforce-cluster-whitelist` | `true` | Агент регистрируется только в кластере из топологии |
+| `PAROM_ENFORCE_TASK_ATTESTATION` (агент) | `true` | Приемник требует HMAC-токен аттестации задачи, выдаваемый оркестратором при заборе задач |
 
 > [!IMPORTANT]
 > gRPC-серверы (Control Plane оркестратора, HDFS Receiver и приемник Kafka-батчей агента)
 > работают в режиме fail-closed: интерцептор аутентификации устанавливается всегда, и при
 > незаданном `x-agent-secret` все входящие вызовы отклоняются со статусом `UNAUTHENTICATED`.
 > Поэтому пустой секрет не «открывает» стенд, а полностью останавливает репликацию.
-> Демо-стенд (`demo/replicator`) задает общий секрет через переменную `DEMO_AGENT_SECRET`.
+> Демо-стенд (`demo/parom`) задает общий секрет через переменную `DEMO_AGENT_SECRET`.
 
 > [!WARNING]
 > При включенном TLS (`grpc.tls-enabled: true`) недоступный или некорректный файл доверенных
@@ -850,8 +850,8 @@ REST API остается интерфейсом Web UI и операторов.
 
 Серверы gRPC — Control Plane оркестратора, приемник агента и приемник Kafka-батчей — отвечают по
 стандартному протоколу `grpc.health.v1.Health`. Статус выставляется и в целом по серверу, и
-отдельно по подсистемам (`replicator.DataTransferService`,
-`replicator.kafka.KafkaDataTransferService`), а при остановке переводится в терминальное
+отдельно по подсистемам (`parom.DataTransferService`,
+`parom.kafka.KafkaDataTransferService`), а при остановке переводится в терминальное
 состояние до закрытия порта, чтобы балансировщик и отправители успели увести трафик.
 
 Health-проба освобождена от аутентификации по `x-agent-secret`: пробы балансировщика, kubelet и
@@ -863,10 +863,10 @@ docker секрета агента не знают, а наблюдают они
 
 | Параметр | По умолчанию | Назначение |
 | :--- | :--- | :--- |
-| `hadoop.replicator.task-retention-days` | `7` | Возраст, после которого завершенная задача удаляется. `0` выключает очистку |
-| `hadoop.replicator.task-retention-batch-size` | `500` | Размер пакета удаления: одна транзакция на пакет, а не на все окно |
-| `hadoop.replicator.task-retention-max-batches-per-run` | `20` | Сколько пакетов удаляется за проход (по умолчанию до 10 000 записей) |
-| `hadoop.replicator.task-cleanup-interval-ms` | `3600000` | Интервал запуска очистки |
+| `parom.task-retention-days` | `7` | Возраст, после которого завершенная задача удаляется. `0` выключает очистку |
+| `parom.task-retention-batch-size` | `500` | Размер пакета удаления: одна транзакция на пакет, а не на все окно |
+| `parom.task-retention-max-batches-per-run` | `20` | Сколько пакетов удаляется за проход (по умолчанию до 10 000 записей) |
+| `parom.task-cleanup-interval-ms` | `3600000` | Интервал запуска очистки |
 
 Удаляются только терминальные статусы (`COMPLETED`, `FAILED`, `SKIPPED`): задача в `RUNNING`
 может прямо сейчас передаваться агентом, а зависшую подберет failover. В active-active очистку
@@ -876,8 +876,8 @@ docker секрета агента не знают, а наблюдают они
 образ ставить не нужно:
 
 ```bash
-java -cp /app/replicator-agent.jar \
-    io.github.balookrd.pristan.replicator.telemetry.GrpcHealthProbeMain 127.0.0.1:50051
+java -cp /app/parom-agent.jar \
+    io.github.balookrd.pristan.parom.telemetry.GrpcHealthProbeMain 127.0.0.1:50051
 ```
 
 Код возврата `0` — `SERVING`, `1` — любое другое состояние или недоступность. Третьим аргументом
@@ -887,7 +887,7 @@ java -cp /app/replicator-agent.jar \
 
 ### 7.2 Топология дата-центров и кластеров
 
-Топология описывает ЦОД и привязку кластеров к ним (`dc-id`). Задается в `hadoop.replicator.datacenters` и `hadoop.replicator.clusters` (`ReplicatorProperties`).
+Топология описывает ЦОД и привязку кластеров к ним (`dc-id`). Задается в `parom.datacenters` и `parom.clusters` (`ParomProperties`).
 
 На демо-стенде два ЦОД (`dc1`, `dc2`) и по одному кластеру в каждом.
 
@@ -919,14 +919,14 @@ hadoop:
         grpc-port: 50051
 ```
 
-Для Kafka-репликации у кластера задаются `kafka-bootstrap-servers`, `schema-registry-url`, `schema-registry-type` (`CONFLUENT` | `HORTONWORKS`) и при TLS — `kafka-security-protocol`, `kafka-service-name`, `kafka-truststore-location`, `kafka-truststore-password`, `kafka-truststore-type` (пример — в `backend/replicator/orchestrator/src/main/resources/application.yml`).
+Для Kafka-репликации у кластера задаются `kafka-bootstrap-servers`, `schema-registry-url`, `schema-registry-type` (`CONFLUENT` | `HORTONWORKS`) и при TLS — `kafka-security-protocol`, `kafka-service-name`, `kafka-truststore-location`, `kafka-truststore-password`, `kafka-truststore-type` (пример — в `backend/parom/orchestrator/src/main/resources/application.yml`).
 
 ---
 
 ### 7.3 Многоуровневые лимиты полосы (DC-DC и HDFS-HDFS)
 
 Чтобы репликация не забивала каналы WAN, оркестратор ограничивает полосу иерархическим Token Bucket с тремя уровнями:
-1. Глобальный лимит — верхняя граница суммарной скорости передачи по всей платформе. Начальное значение — `hadoop.replicator.global-limit-bytes-per-sec` (по умолчанию `104857600`, 100 МБ/с).
+1. Глобальный лимит — верхняя граница суммарной скорости передачи по всей платформе. Начальное значение — `parom.global-limit-bytes-per-sec` (по умолчанию `104857600`, 100 МБ/с).
 2. Лимиты между ЦОД — емкость магистрального канала между площадками. При старте для каждой пары ЦОД из `datacenters` ставится 100 МБ/с.
 3. Лимиты между парами кластеров — квота полосы под конкретное направление репликации. При старте для каждой пары кластеров из `clusters` ставится 60 МБ/с.
 
@@ -987,18 +987,18 @@ AGENT_ENABLE_REGISTRATION=true
 AGENT_HEARTBEAT_INTERVAL_SEC=5.0
 
 # Локальная буферная директория для временного приема чанков перед коммитом
-REPLICATOR_STAGING_DIR=/tmp/staging
+PAROM_STAGING_DIR=/tmp/staging
 
 # Интервал опроса очереди задач в Оркестраторе (в секундах)
 POLL_INTERVAL_SEC=2.0
 
 # Настройки защищенного TLS / mTLS канала для gRPC
-REPLICATOR_GRPC_TLS_ENABLED=true
-REPLICATOR_GRPC_CERT_CHAIN_PATH=/etc/security/tls/agent-cert.pem
-REPLICATOR_GRPC_PRIVATE_KEY_PATH=/etc/security/tls/agent-key.pem
-REPLICATOR_GRPC_TRUST_CERT_COLLECTION_PATH=/etc/security/tls/ca-chain.pem
-REPLICATOR_GRPC_CLIENT_AUTH=REQUIRE # NONE | OPTIONAL | REQUIRE (mTLS)
-REPLICATOR_GRPC_INSECURE_SKIP_VERIFY=false # true для тестовых сред
+PAROM_GRPC_TLS_ENABLED=true
+PAROM_GRPC_CERT_CHAIN_PATH=/etc/security/tls/agent-cert.pem
+PAROM_GRPC_PRIVATE_KEY_PATH=/etc/security/tls/agent-key.pem
+PAROM_GRPC_TRUST_CERT_COLLECTION_PATH=/etc/security/tls/ca-chain.pem
+PAROM_GRPC_CLIENT_AUTH=REQUIRE # NONE | OPTIONAL | REQUIRE (mTLS)
+PAROM_GRPC_INSECURE_SKIP_VERIFY=false # true для тестовых сред
 ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 ```
 
@@ -1007,14 +1007,14 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 Вызовы идут через gRPC Control Plane оркестратора (`orchestrator_control_plane.proto`); REST-эндпоинт `POST /api/v1/agents/register` удален (см. раздел 7.1.1).
 1. Регистрация при старте (`RegisterAgent`). Агент передает `agent_id`, `cluster_id`, `advertised_grpc_address` и версию. Оркестратор переводит агента в статус `ONLINE` и связывает его с кластером.
 2. Heartbeat (`Heartbeat`). Каждые 5 секунд (`AGENT_HEARTBEAT_INTERVAL_SEC`) агент сообщает число текущих передач (`active_transfers`).
-3. Обнаружение сбоя. Если heartbeat нет 15 секунд (`hadoop.replicator.agent-heartbeat-timeout-seconds`), агент переходит в `STALE` и новые передачи на него не направляются; через 45 секунд (`agent-offline-timeout-seconds`) — в `OFFLINE`.
+3. Обнаружение сбоя. Если heartbeat нет 15 секунд (`parom.agent-heartbeat-timeout-seconds`), агент переходит в `STALE` и новые передачи на него не направляются; через 45 секунд (`agent-offline-timeout-seconds`) — в `OFFLINE`.
 4. Плановая остановка (`UnregisterAgent`). Агент сообщает оркестратору о завершении, статус меняется на `OFFLINE`.
 5. Балансировка. Если в кластере зарегистрировано несколько агентов, оркестратор направляет новую передачу агенту с наименьшим `active_transfers`.
 
 #### Защита регистрации
 
-- Общий секрет агентов. Задается в `REPLICATOR_AGENT_SECRET` (не короче 16 символов, проверка в `AgentRegistry`). Агент передает его в заголовке `x-agent-secret`; вызов без секрета или с неверным секретом отклоняется со статусом `UNAUTHENTICATED`. В профиле `prod` секрет обязателен.
-- Белый список кластеров. При `HADOOP_REPLICATOR_ENFORCE_CLUSTER_WHITELIST=true` (значение по умолчанию) агент регистрируется только в кластере из топологии. Регистрация в чужом кластере завершается статусом gRPC `INTERNAL` с сообщением о политике `enforce-cluster-whitelist`.
+- Общий секрет агентов. Задается в `PAROM_AGENT_SECRET` (не короче 16 символов, проверка в `AgentRegistry`). Агент передает его в заголовке `x-agent-secret`; вызов без секрета или с неверным секретом отклоняется со статусом `UNAUTHENTICATED`. В профиле `prod` секрет обязателен.
+- Белый список кластеров. При `PAROM_ENFORCE_CLUSTER_WHITELIST=true` (значение по умолчанию) агент регистрируется только в кластере из топологии. Регистрация в чужом кластере завершается статусом gRPC `INTERNAL` с сообщением о политике `enforce-cluster-whitelist`.
 - Защита от SSRF. Оркестратор отклоняет `advertised_grpc_address` из диапазонов link-local (`169.254.0.0/16`, `fe80::/10`) и адреса облачных метаданных (`169.254.169.254`, `metadata.google.internal`).
 
 #### Атомарная фиксация файла
@@ -1033,10 +1033,10 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 
 1. Реестр активных агентов оркестратора (`AgentRegistry`) — штатный режим.
    - Оркестратор хранит список зарегистрированных агентов и их статусы.
-   - Метод `AgentRegistry.getLeastLoadedAgentForCluster(clusterId)` выбирает среди живых агентов кластера в режиме `all` или `receiver` агента с наименьшим числом текущих передач (`activeTransfers`). Живым считается агент, чей последний heartbeat моложе `hadoop.replicator.agent-offline-timeout-seconds` (по умолчанию 45 с).
-   - Адрес кластера из топологии агент перезаписать не может, если в `hadoop.replicator.clusters` для него задан `grpc-host`, отличный от `localhost` (`TopologyRegistry.updateClusterGrpcAddress`).
+   - Метод `AgentRegistry.getLeastLoadedAgentForCluster(clusterId)` выбирает среди живых агентов кластера в режиме `all` или `receiver` агента с наименьшим числом текущих передач (`activeTransfers`). Живым считается агент, чей последний heartbeat моложе `parom.agent-offline-timeout-seconds` (по умолчанию 45 с).
+   - Адрес кластера из топологии агент перезаписать не может, если в `parom.clusters` для него задан `grpc-host`, отличный от `localhost` (`TopologyRegistry.updateClusterGrpcAddress`).
 2. Статическая топология (`GET /api/v1/clusters`).
-   - В `hadoop.replicator.clusters` у кластера задаются `grpc-host` и `grpc-port` (например, `grpc-host: agent-dc2`, `grpc-port: 50051`).
+   - В `parom.clusters` у кластера задаются `grpc-host` и `grpc-port` (например, `grpc-host: agent-dc2`, `grpc-port: 50051`).
    - Используется, если регистрация отключена (`AGENT_ENABLE_REGISTRATION=false`) или агент-приемник не на связи.
 3. Переменная `AGENT_TARGET_<CLUSTER_ID>` на агенте-отправителе.
    - Нужна при NAT, маршрутизации через ingress/mesh или других портах в DMZ.
@@ -1048,16 +1048,16 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 
 ### 7.7 Планировщик периодических задач (Cron Scheduler)
 
-Планировщик `ReplicationScheduler` (пакет `io.github.balookrd.pristan.replicator.orchestrator.scheduler`) встроен в оркестратор:
+Планировщик `ReplicationScheduler` (пакет `io.github.balookrd.pristan.parom.orchestrator.scheduler`) встроен в оркестратор:
 - раз в 5 секунд (`@Scheduled(fixedDelay = 5000)`) выбирает задачи с `is_scheduled = true` и `next_run_at <= now`; при наличии `DistributedLockService` тик выполняется под блокировкой `cron_scheduler_lock`, поэтому в нескольких репликах оркестратора задачу запускает одна;
 - пропускает задачи в статусе `RUNNING`;
 - для остальных:
   1. ставит задачу в очередь (`status = QUEUED`) и создает запись запуска `JobRun` с `trigger_type = SCHEDULED` и `triggered_by = scheduler`;
   2. записывает `last_run_at = now`;
-  3. вычисляет `next_run_at` через `CronSchedule` в поясе `hadoop.replicator.scheduler.time-zone`;
+  3. вычисляет `next_run_at` через `CronSchedule` в поясе `parom.scheduler.time-zone`;
   4. удаляет старые записи `JobRun` сверх `history_retention_runs` задачи.
 
-`CronSchedule` разбирает выражение двумя способами: интервальные макросы отсчитываются от момента запуска планировщиком, календарные считает Spring `CronExpression` в часовом поясе `hadoop.replicator.scheduler.time-zone` (по умолчанию `UTC`, переменная `HADOOP_REPLICATOR_SCHEDULER_TIME_ZONE`). Неизвестный пояс останавливает старт оркестратора: пояс разбирается в конструкторах `ReplicationScheduler` и `ScheduleReconciler`, исключение `java.time.DateTimeException` (для неизвестного IANA-id — его подкласс `java.time.zone.ZoneRulesException`) приходит в журнал обернутым в `BeanCreationException` (`Error creating bean with name ...`), причина — в цепочке `Caused by`. Фактический запуск — до 5 секунд позже расчетного (период тика).
+`CronSchedule` разбирает выражение двумя способами: интервальные макросы отсчитываются от момента запуска планировщиком, календарные считает Spring `CronExpression` в часовом поясе `parom.scheduler.time-zone` (по умолчанию `UTC`, переменная `PAROM_SCHEDULER_TIME_ZONE`). Неизвестный пояс останавливает старт оркестратора: пояс разбирается в конструкторах `ReplicationScheduler` и `ScheduleReconciler`, исключение `java.time.DateTimeException` (для неизвестного IANA-id — его подкласс `java.time.zone.ZoneRulesException`) приходит в журнал обернутым в `BeanCreationException` (`Error creating bean with name ...`), причина — в цепочке `Caused by`. Фактический запуск — до 5 секунд позже расчетного (период тика).
 
 | Выражение | Когда запускается |
 |---|---|
@@ -1099,7 +1099,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 - Агент передает свой лимит при регистрации и в каждом heartbeat (`configuredBandwidthMbS`). Физическую сеть хостов (4x25G, бонды, L3-маршруты) оркестратор не моделирует; доступная полоса репликации считается как $\min(\text{wanQuotaMbS}, \sum \text{agentConfiguredBandwidthMbS})$.
 - Межброкерная репликация Kafka (ISR) идет внутри ЦОД по выделенным интерфейсам кластера (например, 2x25G) и в расчет межЦОДного шейпинга не входит.
 - Для потоковой репликации Kafka оркестратор рассчитывает число потоков вычитки как $\text{targetTotalThreads} = \max(64, \lceil \text{bandwidthMbS} / 30.0 \rceil)$, но не больше 32 потоков на одну JVM агента: больше потоков упираются в число сокетов и конкуренцию за CPU. Размер микробатча — от 10 000 до 50 000 сообщений (`batch.max.bytes` до 16 МБ).
-- Алгоритм — Token Bucket (`LocalBandwidthLimiter`, пакет `io.github.balookrd.pristan.replicator.shaper`) с burst-буфером 0,5 с. Метод `throttle(bytes)` блокирует вызывающий поток (`Thread.sleep`) на время, нужное для накопления токенов; `reserve(bytes)` только списывает токены и возвращает время ожидания (используется потоком опроса Kafka).
+- Алгоритм — Token Bucket (`LocalBandwidthLimiter`, пакет `io.github.balookrd.pristan.parom.shaper`) с burst-буфером 0,5 с. Метод `throttle(bytes)` блокирует вызывающий поток (`Thread.sleep`) на время, нужное для накопления токенов; `reserve(bytes)` только списывает токены и возвращает время ожидания (используется потоком опроса Kafka).
 - Ограничение работает с двух сторон:
   1. Sender (`ReplicationSender`, `TarStreamPipeline`) вызывает `bandwidthLimiter.throttle(wireBytes)` перед отправкой каждого чанка в gRPC;
   2. Receiver (`DataTransferServiceImpl`) вызывает `throttle` при приеме чанков в `transferFile` и `transferTarStream`; окно TCP и flow control HTTP/2 при этом замедляют удаленного отправителя.
@@ -1109,7 +1109,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 
 ### 7.9 Эталонный фрагмент конфигурации топологии (application.yml)
 
-Эталоном является секция `hadoop.replicator` в `backend/replicator/orchestrator/src/main/resources/application.yml`; ключи топологии описаны в разделе 7.2, лимиты — в разделе 7.3. Продуктивные переопределения (PostgreSQL, TLS gRPC) — в `application-prod.yml` того же каталога.
+Эталоном является секция `hadoop.replicator` в `backend/parom/orchestrator/src/main/resources/application.yml`; ключи топологии описаны в разделе 7.2, лимиты — в разделе 7.3. Продуктивные переопределения (PostgreSQL, TLS gRPC) — в `application-prod.yml` того же каталога.
 
 ---
 
@@ -1120,18 +1120,18 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 | Переменная | Описание | Значение по умолчанию |
 |---|---|---|
 | `SPRING_CONFIG_ADDITIONAL_LOCATION` | Дополнительный путь к конфигурационному файлу Spring Boot (`application.yml`) | — |
-| `HADOOP_REPLICATOR_GLOBAL_LIMIT_BYTES_PER_SEC` | Глобальный лимит скорости репликации (байт/сек) | `104857600` (100 МБ/с) |
-| `SPRING_DATASOURCE_URL` | Строка подключения JDBC к БД Оркестратора (H2/PostgreSQL) | `jdbc:h2:mem:replicator` |
-| `HADOOP_REPLICATOR_AGENT_SECRET` / `REPLICATOR_AGENT_SECRET` | Общий секрет аутентификации агентов (`x-agent-secret` в метаданных gRPC), не короче 16 символов | Не задан; без него оркестратор не стартует при `enforce-agent-secret: true` |
-| `HADOOP_REPLICATOR_ENFORCE_AGENT_SECRET` | Запрет запуска оркестратора без секрета агентов (fail-closed) | `true` (`ReplicatorProperties`) |
-| `REPLICATOR_METRICS_SCRAPE_TOKEN` (`hadoop.replicator.metrics-scrape-token`) | Пароль HTTP Basic для сборщика метрик: `prometheus:<token>` на `GET /metrics`; на остальные пути не действует | Пусто: Basic-доступ выключен, `/metrics` доступен только аутентифицированному пользователю |
-| `HADOOP_REPLICATOR_ENFORCE_TASK_ATTESTATION` | Включение криптографической аттестации задач HMAC-SHA256 | `true` |
-| `HADOOP_REPLICATOR_ALLOW_LOOPBACK_AGENTS` | Разрешение регистрации агентов на loopback-адресах (`127.0.0.1`, `localhost`) | `false` |
-| `HADOOP_REPLICATOR_PROGRESS_DEBOUNCE_MS` | Интервал дебаунсинга буфера фиксации прогресса задач в БД (мс) | `500` |
-| `HADOOP_REPLICATOR_PROGRESS_BUFFER_SIZE` | Максимальный размер буфера завершенных задач до принудительного flush | `1000` |
-| `REPLICATOR_LOCAL_SANDBOX` / `LOCAL_SANDBOX_DIR` | Корневой каталог Chroot-песочницы локальных файловых операций (SEC-10) | `/var/lib/hadoop-replicator/sandbox` |
-| `REPLICATOR_SR_MUTUAL_AUTH` | Включение взаимной аутентификации SPNEGO для Schema Registry | `false` |
-| `HADOOP_REPLICATOR_ENFORCE_CLUSTER_WHITELIST` | Запрет регистрации агентов в кластерах, которых нет в топологии | `true` (`application.yml`) |
+| `PAROM_GLOBAL_LIMIT_BYTES_PER_SEC` | Глобальный лимит скорости репликации (байт/сек) | `104857600` (100 МБ/с) |
+| `SPRING_DATASOURCE_URL` | Строка подключения JDBC к БД Оркестратора (H2/PostgreSQL) | `jdbc:h2:mem:parom` |
+| `PAROM_AGENT_SECRET` / `PAROM_AGENT_SECRET` | Общий секрет аутентификации агентов (`x-agent-secret` в метаданных gRPC), не короче 16 символов | Не задан; без него оркестратор не стартует при `enforce-agent-secret: true` |
+| `PAROM_ENFORCE_AGENT_SECRET` | Запрет запуска оркестратора без секрета агентов (fail-closed) | `true` (`ParomProperties`) |
+| `PAROM_METRICS_SCRAPE_TOKEN` (`parom.metrics-scrape-token`) | Пароль HTTP Basic для сборщика метрик: `prometheus:<token>` на `GET /metrics`; на остальные пути не действует | Пусто: Basic-доступ выключен, `/metrics` доступен только аутентифицированному пользователю |
+| `PAROM_ENFORCE_TASK_ATTESTATION` | Включение криптографической аттестации задач HMAC-SHA256 | `true` |
+| `PAROM_ALLOW_LOOPBACK_AGENTS` | Разрешение регистрации агентов на loopback-адресах (`127.0.0.1`, `localhost`) | `false` |
+| `PAROM_PROGRESS_DEBOUNCE_MS` | Интервал дебаунсинга буфера фиксации прогресса задач в БД (мс) | `500` |
+| `PAROM_PROGRESS_BUFFER_SIZE` | Максимальный размер буфера завершенных задач до принудительного flush | `1000` |
+| `PAROM_LOCAL_SANDBOX` / `LOCAL_SANDBOX_DIR` | Корневой каталог Chroot-песочницы локальных файловых операций (SEC-10) | `/var/lib/hadoop-replicator/sandbox` |
+| `PAROM_SR_MUTUAL_AUTH` | Включение взаимной аутентификации SPNEGO для Schema Registry | `false` |
+| `PAROM_ENFORCE_CLUSTER_WHITELIST` | Запрет регистрации агентов в кластерах, которых нет в топологии | `true` (`application.yml`) |
 | `AGENT_ID` | Уникальный идентификатор агента репликации | `agent-<uuid>` |
 | `AGENT_CLUSTER_ID` | Идентификатор HDFS-кластера, обслуживаемого агентом | `null` |
 | `AGENT_MODE` | Режим работы Replicator Agent (`all`, `sender`, `receiver`, `streamer`) | `all` |
@@ -1142,16 +1142,16 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 | `AGENT_TARGET_<CLUSTER_ID>` | Ручной оверрайд сетевого gRPC-адреса для конкретного целевого кластера (для NAT/DMZ) | Берется из топологии Оркестратора |
 | `FALLBACK_TARGET_ADDRESS` / `RECEIVER_ADDRESS` | Резервный gRPC-адрес назначения (fallback при отсутствии кластера в топологии) | `localhost:50051` |
 | `RECEIVER_HOST` / `RECEIVER_PORT` | Адрес и порт входящего gRPC-сервера Replicator Agent | `0.0.0.0:50051` |
-| `REPLICATOR_STAGING_DIR` | Буферная директория Staging для локального коммита (для HDFS используется прямой Zero-Staging) | `/tmp/staging` |
-| `REPLICATOR_SMALL_FILE_THRESHOLD_BYTES` | Порог размера файла (в байтах) для бандлинга мелких файлов в виртуальные TAR-архивы | `1048576` (1 МБ) |
-| `REPLICATOR_BUNDLE_TARGET_SIZE_BYTES` | Целевой объем файлов в одном виртуальном TAR-бандле `BUNDLE_TAR` | `16777216` (16 МБ) |
-| `REPLICATOR_MAX_BUNDLE_FILES` | Максимальное количество файлов в одном виртуальном бандле | `500` |
-| `REPLICATOR_BUNDLE_COMMIT_CONCURRENCY` | Количество параллельных потоков прямой записи файлов бандла в целевой HDFS | `8` |
-| `REPLICATOR_STAGING_CLEANUP_ENABLED` | Включение фонового сборщика мусора (Reaper) для очистки осиротевших staging-файлов на HDFS | `true` |
-| `REPLICATOR_STAGING_CLEANUP_INTERVAL_MINUTES` | Интервал запуска периодической очистки staging-файлов (минуты) | `15` |
-| `REPLICATOR_STAGING_TTL_MINUTES` | Время жизни (TTL) staging-файлов, после которого они удаляются (минуты) | `30` |
-| `REPLICATOR_WIRE_COMPRESSION` | Кодек потокового сжатия в канале: `zstd` (Zstandard), `lz4` (LZ4), `none` | `zstd` |
-| `REPLICATOR_WIRE_COMPRESSION_LEVEL` | Уровень сжатия для Zstandard (1–22) | `3` |
+| `PAROM_STAGING_DIR` | Буферная директория Staging для локального коммита (для HDFS используется прямой Zero-Staging) | `/tmp/staging` |
+| `PAROM_SMALL_FILE_THRESHOLD_BYTES` | Порог размера файла (в байтах) для бандлинга мелких файлов в виртуальные TAR-архивы | `1048576` (1 МБ) |
+| `PAROM_BUNDLE_TARGET_SIZE_BYTES` | Целевой объем файлов в одном виртуальном TAR-бандле `BUNDLE_TAR` | `16777216` (16 МБ) |
+| `PAROM_MAX_BUNDLE_FILES` | Максимальное количество файлов в одном виртуальном бандле | `500` |
+| `PAROM_BUNDLE_COMMIT_CONCURRENCY` | Количество параллельных потоков прямой записи файлов бандла в целевой HDFS | `8` |
+| `PAROM_STAGING_CLEANUP_ENABLED` | Включение фонового сборщика мусора (Reaper) для очистки осиротевших staging-файлов на HDFS | `true` |
+| `PAROM_STAGING_CLEANUP_INTERVAL_MINUTES` | Интервал запуска периодической очистки staging-файлов (минуты) | `15` |
+| `PAROM_STAGING_TTL_MINUTES` | Время жизни (TTL) staging-файлов, после которого они удаляются (минуты) | `30` |
+| `PAROM_WIRE_COMPRESSION` | Кодек потокового сжатия в канале: `zstd` (Zstandard), `lz4` (LZ4), `none` | `zstd` |
+| `PAROM_WIRE_COMPRESSION_LEVEL` | Уровень сжатия для Zstandard (1–22) | `3` |
 | `ORCHESTRATOR_URL` | Адрес Orchestrator для агентов/воркеров | `http://localhost:8005` |
 | `SPRING_PROFILES_ACTIVE` | Профили Spring Boot (`mock` для локальной разработки, `demo` для демо-стендов и `prod` для оркестратора репликатора) | — |
 | `HADOOP_AUTH_MODE` | `zastava.auth.mode` в сервисах `yarn`, `hdfs`, `sql`, `spark` | `ldap` |
@@ -1180,11 +1180,11 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 | Оркестратор Replicator | `GET /actuator/prometheus` | `8005` | без аутентификации | только Micrometer |
 | Оркестратор Replicator | `GET /metrics` | `8005` | пользователь платформы или HTTP Basic `prometheus:<scrape_token>` | Micrometer и `replicator_*`, `kafka_*` |
 
-`<scrape_token>` — значение `REPLICATOR_METRICS_SCRAPE_TOKEN` (`hadoop.replicator.metrics-scrape-token`) оркестратора, например вывод `openssl rand -hex 32`; учетка действует только на `GET /metrics`, пустое значение выключает Basic-доступ.
+`<scrape_token>` — значение `PAROM_METRICS_SCRAPE_TOKEN` (`parom.metrics-scrape-token`) оркестратора, например вывод `openssl rand -hex 32`; учетка действует только на `GET /metrics`, пустое значение выключает Basic-доступ.
 
 Порты задает `SERVER_PORT` в `docker/Dockerfile.<service>-java`. `GET /metrics` у YARN, HDFS, SQL и Iskra возвращает 404.
 
-Доступ к Actuator в YARN, HDFS, SQL и Iskra задает `ZastavaAutoConfiguration.securityFilterChain` (`zastava`): `/actuator/health`, `/actuator/health/**`, `/actuator/info` и `/actuator/prometheus` открыты, остальные пути `/actuator/**` требуют роли ADMIN (без токена — 401, с ролью READER или WRITER — 403). Так же устроен оркестратор (`ReplicatorOrchestratorApplication`).
+Доступ к Actuator в YARN, HDFS, SQL и Iskra задает `ZastavaAutoConfiguration.securityFilterChain` (`zastava`): `/actuator/health`, `/actuator/health/**`, `/actuator/info` и `/actuator/prometheus` открыты, остальные пути `/actuator/**` требуют роли ADMIN (без токена — 401, с ролью READER или WRITER — 403). Так же устроен оркестратор (`ParomOrchestratorApplication`).
 
 Внимание: `/actuator/prometheus` отдается без аутентификации. Метрики не содержат имен пользователей, путей HDFS и текстов запросов, но раскрывают идентификаторы кластеров, шаблоны URI API и объем трафика. Если сервис опубликован наружу через обратный прокси или балансировщик, закройте на нем этот путь или разрешите его только адресу Prometheus. Пример для nginx:
 
@@ -1270,7 +1270,7 @@ scrape_configs:
 
 Проверка: в Prometheus UI (**Status** → **Targets**) у заданий `hadoop-explorer` статус `UP`; запрос `up{job="pristan"}` возвращает `1` для каждой цели.
 
-Задание `hadoop-replicator` опрашивает `GET /metrics` оркестратора с HTTP Basic: пользователь `prometheus`, пароль — `REPLICATOR_METRICS_SCRAPE_TOKEN` оркестратора. В демо-стенде одно и то же значение задано в `demo/replicator/docker-compose.yml` и `demo/replicator/docker-compose.kafka.yml` (переменная `DEMO_METRICS_SCRAPE_TOKEN` его переопределяет) и в `demo/monitoring/prometheus/prometheus.yml`; при замене меняйте значение во всех трех файлах, а если задаете `DEMO_METRICS_SCRAPE_TOKEN`, впишите то же значение в `demo/monitoring/prometheus/prometheus.yml`. `monitoring/prometheus/prometheus.yml` читает пароль из файла `/etc/prometheus/secrets/replicator-metrics-scrape-token`: смонтируйте его в контейнер Prometheus. При неверном или незаданном токене цель в Prometheus `DOWN` с `server returned HTTP status 401`.
+Задание `hadoop-replicator` опрашивает `GET /metrics` оркестратора с HTTP Basic: пользователь `prometheus`, пароль — `PAROM_METRICS_SCRAPE_TOKEN` оркестратора. В демо-стенде одно и то же значение задано в `demo/parom/docker-compose.yml` и `demo/parom/docker-compose.kafka.yml` (переменная `DEMO_METRICS_SCRAPE_TOKEN` его переопределяет) и в `demo/monitoring/prometheus/prometheus.yml`; при замене меняйте значение во всех трех файлах, а если задаете `DEMO_METRICS_SCRAPE_TOKEN`, впишите то же значение в `demo/monitoring/prometheus/prometheus.yml`. `monitoring/prometheus/prometheus.yml` читает пароль из файла `/etc/prometheus/secrets/replicator-metrics-scrape-token`: смонтируйте его в контейнер Prometheus. При неверном или незаданном токене цель в Prometheus `DOWN` с `server returned HTTP status 401`.
 
 ### 9.4 Сбор метрик в Kubernetes
 
@@ -1355,5 +1355,5 @@ spec:
 - [Руководство администратора Sklad (hdfs-admin-guide.md)](hdfs-admin-guide.md)
 - [Руководство администратора Tolmach (sql-admin-guide.md)](sql-admin-guide.md)
 - [Руководство администратора Iskra (spark-admin-guide.md)](spark-admin-guide.md)
-- [Руководство администратора Hadoop gRPC Replicator (replicator-admin-guide.md)](replicator-admin-guide.md)
+- [Руководство администратора Parom (replicator-admin-guide.md)](replicator-admin-guide.md)
 

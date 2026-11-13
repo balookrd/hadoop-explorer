@@ -20,8 +20,8 @@ build_app() {
   # после сборки фронтенда (make frontend-build)
   local static_dir
   case "$app" in
-    replicator-orchestrator) static_dir="backend/replicator/orchestrator/src/main/resources/static" ;;
-    replicator-agent) static_dir="" ;;
+    parom-orchestrator) static_dir="backend/parom/orchestrator/src/main/resources/static" ;;
+    parom-agent) static_dir="" ;;
     *) static_dir="backend/$app/src/main/resources/static" ;;
   esac
   if [ -n "$static_dir" ] && [ ! -f "$ROOT_DIR/$static_dir/index.html" ]; then
@@ -47,23 +47,23 @@ case "$TARGET" in
   iskra)
     build_app iskra
     ;;
-  replicator)
-    build_app replicator-orchestrator
-    build_app replicator-agent
+  parom)
+    build_app parom-orchestrator
+    build_app parom-agent
     ;;
   all)
     build_app artel
     build_app sklad
     build_app tolmach
     build_app iskra
-    build_app replicator-orchestrator
-    build_app replicator-agent
+    build_app parom-orchestrator
+    build_app parom-agent
     echo "=========================================="
     echo "🎉 Все контейнеры платформы успешно собраны!"
     echo "=========================================="
     ;;
   *)
-    echo "Использование: $0 [all|artel|sklad|tolmach|iskra|replicator]"
+    echo "Использование: $0 [all|artel|sklad|tolmach|iskra|parom]"
     exit 1
     ;;
 esac

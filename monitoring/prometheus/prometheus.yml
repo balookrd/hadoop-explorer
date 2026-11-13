@@ -22,7 +22,7 @@ scrape_configs:
           env: 'production'
 
   - job_name: 'hadoop-replicator'
-    # GET /metrics needs authentication: HTTP Basic prometheus:<REPLICATOR_METRICS_SCRAPE_TOKEN>
+    # GET /metrics needs authentication: HTTP Basic prometheus:<PAROM_METRICS_SCRAPE_TOKEN>
     metrics_path: '/metrics'
     scrape_interval: 5s
     honor_labels: true

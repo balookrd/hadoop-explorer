@@ -1,0 +1,398 @@
+package io.github.balookrd.pristan.parom.agent;
+
+import java.net.InetAddress;
+import java.util.UUID;
+
+/**
+ * Конфигурация Replicator Agent на Java.
+ * Загружает параметры из переменных окружения с разумными значениями по умолчанию.
+ */
+public class ParomAgentConfig {
+
+    private String agentId;
+    private String clusterId;
+    private String mode;
+    private String orchestratorUrl;
+    private String orchestratorGrpcAddress;
+    private java.util.List<String> orchestratorGrpcAddresses = new java.util.ArrayList<>();
+    private String receiverHost;
+    private int receiverPort;
+    private String stagingDir;
+    private String localSandboxDir;
+    private String defaultFsUri;
+    private String targetDefaultFsUri;
+    private String federationMappings;
+    private String fallbackTargetAddress;
+    private String advertisedGrpcAddress;
+    private String agentSecret;
+    private Double maxBandwidthMbS;
+    private double pollIntervalSec;
+    // Значения по умолчанию нужны и конфигурации, собранной сеттерами, а не из окружения
+    private boolean hmsDataBarrierEnabled = true;
+    private long hmsDataBarrierTimeoutSec = 21600;
+    private int hmsBootstrapConcurrency = 8;
+    private int hmsPartitionBatchSize = 1000;
+    private boolean enableDynamicRegistration;
+    private String keytabPath;
+    private String principal;
+    private int chunkSize;
+    private boolean grpcTlsEnabled;
+    private String grpcCertChainPath;
+    private String grpcPrivateKeyPath;
+    private String grpcTrustCertCollectionPath;
+    private String grpcClientAuth = "none";
+    private boolean grpcInsecureSkipVerify;
+    private boolean orchestratorInsecureSkipVerify;
+    private String hmsThriftUris;
+    private String hmsKerberosPrincipal;
+    private String hmsMode = "auto"; // "thrift" (боевой режим), "demo-http" (стенд), "mock" (unit-тесты)
+    private String hiveVersion = "3.1.3";
+    private long smallFileThresholdBytes = 1024 * 1024L; // 1 MB
+    private long bundleTargetSizeBytes = 16 * 1024 * 1024L; // 16 MB
+    private int maxBundleFiles = 500;
+    private int bundleCommitConcurrency = 8;
+    private int analyzerConcurrency = 8;
+    private int maxConcurrentTarStreams = 16;
+    private int tarPipeBufferBytes = 2 * 1024 * 1024;
+    private boolean stagingCleanupEnabled = true;
+    private long stagingCleanupIntervalMinutes = 15;
+    private long stagingTtlMinutes = 30;
+    private boolean enforceTaskAttestation = true;
+    /**
+     * Refuse a transfer whose checksum the other side did not send or confirm. Switch off only
+     * while agents of a release without transfer checksums are still running.
+     */
+    private boolean requireChecksum = true;
+    private io.github.balookrd.pristan.parom.generated.CompressionCodec wireCompressionCodec = io.github.balookrd.pristan.parom.generated.CompressionCodec.COMPRESSION_ZSTD;
+    private int wireCompressionLevel = 3;
+    private int inotifyQueueCapacity = 10000;
+    private double inotifyHighWatermark = 0.8;
+    private double inotifyLowWatermark = 0.3;
+    private int inotifyMaxBatchSize = 500;
+    private long inotifyFlushIntervalMs = 200L;
+    private long inotifyBackpressureMaxDelayMs = 5000L;
+    private int orchestratorMaxPendingTasksThreshold = 5000;
+    private long tokenBatchMinBytes = 2 * 1024 * 1024L; // 2 MB (PERF-05)
+    private long tokenBatchMaxBytes = 16 * 1024 * 1024L; // 16 MB (PERF-05)
+
+    public static ParomAgentConfig fromEnv() {
+        ParomAgentConfig config = new ParomAgentConfig();
+
+        String envId = getEnv("AGENT_ID", getEnv("WORKER_ID", null));
+        config.agentId = (envId != null && !envId.isBlank()) ? envId : "agent-" + UUID.randomUUID().toString().substring(0, 8);
+
+        config.clusterId = getEnv("AGENT_CLUSTER_ID", getEnv("CLUSTER_ID", null));
+        config.mode = getEnv("AGENT_MODE", "all").toLowerCase();
+        config.orchestratorUrl = getEnv("ORCHESTRATOR_URL", "http://localhost:8005");
+        String envAddresses = getEnv("ORCHESTRATOR_GRPC_ADDRESSES", null);
+        String envSingle = getEnv("ORCHESTRATOR_GRPC_ADDRESS", getEnv("ORCHESTRATOR_GRPC_URL", null));
+        String rawAddress = (envAddresses != null && !envAddresses.isBlank())
+                ? envAddresses
+                : envSingle;
+
+        if (rawAddress != null && !rawAddress.isBlank()) {
+            config.orchestratorGrpcAddress = rawAddress;
+            config.orchestratorGrpcAddresses = io.github.balookrd.pristan.parom.client.OrchestratorGrpcClient.parseEndpoints(rawAddress);
+        } else if (config.orchestratorUrl != null && config.orchestratorUrl.contains("orchestrator")) {
+            config.orchestratorGrpcAddress = "orchestrator:50050";
+            config.orchestratorGrpcAddresses = java.util.List.of("orchestrator:50050");
+        } else {
+            config.orchestratorGrpcAddress = "localhost:50050";
+            config.orchestratorGrpcAddresses = java.util.List.of("localhost:50050");
+        }
+        config.receiverHost = getEnv("RECEIVER_HOST", "0.0.0.0");
+        config.receiverPort = Integer.parseInt(getEnv("RECEIVER_PORT", "50051"));
+        config.stagingDir = getEnv("PAROM_STAGING_DIR", "/tmp/staging");
+
+        String hdfsNamenode = getEnv("PAROM_HDFS_NAMENODE", null);
+        String hdfsPort = getEnv("PAROM_HDFS_PORT", "8020");
+        String defaultFs = getEnv("HDFS_DEFAULT_FS", null);
+        if (defaultFs != null && !defaultFs.isBlank()) {
+            config.defaultFsUri = defaultFs;
+        } else if (hdfsNamenode != null && !hdfsNamenode.isBlank()) {
+            config.defaultFsUri = "hdfs://" + hdfsNamenode + ":" + hdfsPort;
+        }
+
+        config.targetDefaultFsUri = getEnv("TARGET_HDFS_DEFAULT_FS", getEnv("HDFS_TARGET_FS", null));
+        config.federationMappings = getEnv("PAROM_FEDERATION_MAPPINGS", getEnv("HDFS_FEDERATION_MAPPINGS", null));
+
+        config.fallbackTargetAddress = getEnv("FALLBACK_TARGET_ADDRESS", getEnv("RECEIVER_ADDRESS", "localhost:50051"));
+
+        String adv = getEnv("AGENT_ADVERTISED_ADDRESS", getEnv("RECEIVER_ADVERTISED_ADDRESS", null));
+        if (adv != null && !adv.isBlank()) {
+            config.advertisedGrpcAddress = adv;
+        } else {
+            String host = "localhost";
+            try {
+                host = InetAddress.getLocalHost().getHostName();
+            } catch (Exception ignored) {}
+            config.advertisedGrpcAddress = host + ":" + config.receiverPort;
+        }
+
+        // Секрета по умолчанию нет: зашитый в код ключ был единым публично известным
+        // значением для всех установок. Без секрета gRPC-серверы агента работают
+        // в режиме Fail-Closed.
+        config.agentSecret = getEnv("PAROM_AGENT_SECRET", getEnv("AGENT_SECRET", null));
+
+        String bw = getEnv("AGENT_MAX_BANDWIDTH_MB_S", null);
+        if (bw != null && !bw.isBlank()) {
+            try {
+                config.maxBandwidthMbS = Double.parseDouble(bw);
+            } catch (NumberFormatException ignored) {}
+        }
+
+        config.pollIntervalSec = Double.parseDouble(getEnv("POLL_INTERVAL_SEC", "3.0"));
+        // Барьер «данные раньше DDL»: копия таблицы на терабайты идет часами, поэтому таймаут
+        // по умолчанию — 6 часов, а не минута
+        config.hmsDataBarrierEnabled = Boolean.parseBoolean(getEnv("PAROM_HMS_DATA_BARRIER_ENABLED", "true"));
+        config.hmsDataBarrierTimeoutSec = Long.parseLong(getEnv("PAROM_HMS_DATA_BARRIER_TIMEOUT_SEC", "21600"));
+        config.hmsBootstrapConcurrency = Integer.parseInt(getEnv("PAROM_HMS_BOOTSTRAP_CONCURRENCY", "8"));
+        config.hmsPartitionBatchSize = Integer.parseInt(getEnv("PAROM_HMS_PARTITION_BATCH_SIZE", "1000"));
+        config.enableDynamicRegistration = Boolean.parseBoolean(getEnv("AGENT_ENABLE_REGISTRATION", "true"));
+        config.keytabPath = getEnv("KRB5_KEYTAB", getEnv("PAROM_KEYTAB_PATH", null));
+        config.principal = getEnv("KRB5_PRINCIPAL", getEnv("PAROM_EXECUTION_PRINCIPAL", null));
+        config.chunkSize = Integer.parseInt(getEnv("CHUNK_SIZE_BYTES", String.valueOf(64 * 1024)));
+
+        config.grpcTlsEnabled = Boolean.parseBoolean(getEnv("PAROM_GRPC_TLS_ENABLED", getEnv("GRPC_TLS_ENABLED", "false")));
+        config.grpcCertChainPath = getEnv("PAROM_GRPC_CERT_CHAIN_PATH", getEnv("GRPC_CERT_PATH", null));
+        config.grpcPrivateKeyPath = getEnv("PAROM_GRPC_PRIVATE_KEY_PATH", getEnv("GRPC_KEY_PATH", null));
+        config.grpcTrustCertCollectionPath = getEnv("PAROM_GRPC_TRUST_CERT_COLLECTION_PATH", getEnv("GRPC_CA_PATH", null));
+        config.grpcClientAuth = getEnv("PAROM_GRPC_CLIENT_AUTH", "none");
+        config.grpcInsecureSkipVerify = Boolean.parseBoolean(getEnv("PAROM_GRPC_INSECURE_SKIP_VERIFY", getEnv("GRPC_INSECURE_SKIP_VERIFY", "false")));
+        config.orchestratorInsecureSkipVerify = Boolean.parseBoolean(getEnv("ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY", getEnv("PAROM_TLS_INSECURE", "false")));
+
+        config.hmsThriftUris = getEnv("HMS_THRIFT_URIS", getEnv("HIVE_METASTORE_URIS", null));
+        config.hmsKerberosPrincipal = getEnv("HMS_KERBEROS_PRINCIPAL", getEnv("HIVE_METASTORE_KERBEROS_PRINCIPAL", null));
+        config.hmsMode = getEnv("PAROM_HMS_MODE", (config.hmsThriftUris != null && !config.hmsThriftUris.isBlank()) ? "thrift" : "auto");
+        config.hiveVersion = getEnv("HIVE_VERSION", "3.1.3");
+
+        config.smallFileThresholdBytes = Long.parseLong(getEnv("PAROM_SMALL_FILE_THRESHOLD_BYTES", String.valueOf(1024 * 1024L)));
+        config.bundleTargetSizeBytes = Long.parseLong(getEnv("PAROM_BUNDLE_TARGET_SIZE_BYTES", String.valueOf(16 * 1024 * 1024L)));
+        config.maxBundleFiles = Integer.parseInt(getEnv("PAROM_MAX_BUNDLE_FILES", "500"));
+        config.bundleCommitConcurrency = Integer.parseInt(getEnv("PAROM_BUNDLE_COMMIT_CONCURRENCY", "8"));
+        config.analyzerConcurrency = Integer.parseInt(getEnv("ANALYZER_CONCURRENCY", "8"));
+        config.maxConcurrentTarStreams = Integer.parseInt(getEnv("PAROM_MAX_CONCURRENT_TAR_STREAMS", "16"));
+        config.tarPipeBufferBytes = Integer.parseInt(getEnv("PAROM_TAR_PIPE_BUFFER_BYTES", String.valueOf(2 * 1024 * 1024)));
+
+        config.stagingCleanupEnabled = Boolean.parseBoolean(getEnv("PAROM_STAGING_CLEANUP_ENABLED", "true"));
+        config.stagingCleanupIntervalMinutes = Long.parseLong(getEnv("PAROM_STAGING_CLEANUP_INTERVAL_MINUTES", "15"));
+        config.stagingTtlMinutes = Long.parseLong(getEnv("PAROM_STAGING_TTL_MINUTES", "30"));
+
+        config.wireCompressionCodec = io.github.balookrd.pristan.parom.compression.WireCompressor.parseCodec(
+                getEnv("PAROM_WIRE_COMPRESSION", getEnv("WIRE_COMPRESSION", "zstd"))
+        );
+        config.wireCompressionLevel = Integer.parseInt(getEnv("PAROM_WIRE_COMPRESSION_LEVEL", "3"));
+
+        config.inotifyQueueCapacity = Integer.parseInt(getEnv("INOTIFY_QUEUE_CAPACITY", "10000"));
+        config.inotifyHighWatermark = Double.parseDouble(getEnv("INOTIFY_HIGH_WATERMARK", "0.8"));
+        config.inotifyLowWatermark = Double.parseDouble(getEnv("INOTIFY_LOW_WATERMARK", "0.3"));
+        config.inotifyMaxBatchSize = Integer.parseInt(getEnv("INOTIFY_MAX_BATCH_SIZE", "500"));
+        config.inotifyFlushIntervalMs = Long.parseLong(getEnv("INOTIFY_FLUSH_INTERVAL_MS", "200"));
+        config.inotifyBackpressureMaxDelayMs = Long.parseLong(getEnv("INOTIFY_BACKPRESSURE_MAX_DELAY_MS", "5000"));
+        config.orchestratorMaxPendingTasksThreshold = Integer.parseInt(getEnv("ORCHESTRATOR_MAX_PENDING_TASKS", "5000"));
+        config.enforceTaskAttestation = Boolean.parseBoolean(getEnv("PAROM_ENFORCE_TASK_ATTESTATION", "true"));
+        config.requireChecksum = Boolean.parseBoolean(getEnv("PAROM_REQUIRE_CHECKSUM", "true"));
+        config.localSandboxDir = getEnv("PAROM_LOCAL_SANDBOX", getEnv("LOCAL_SANDBOX_DIR", null));
+
+        String minBatch = getEnv("PAROM_TOKEN_BATCH_MIN_BYTES", null);
+        if (minBatch != null && !minBatch.isBlank()) {
+            try {
+                config.tokenBatchMinBytes = Long.parseLong(minBatch);
+            } catch (NumberFormatException ignored) {}
+        }
+        String maxBatch = getEnv("PAROM_TOKEN_BATCH_MAX_BYTES", null);
+        if (maxBatch != null && !maxBatch.isBlank()) {
+            try {
+                config.tokenBatchMaxBytes = Long.parseLong(maxBatch);
+            } catch (NumberFormatException ignored) {}
+        }
+
+        return config;
+    }
+
+    private static String getEnv(String name, String def) {
+        String val = System.getenv(name);
+        return (val != null && !val.isBlank()) ? val : def;
+    }
+
+    public String getAgentId() { return agentId; }
+    public void setAgentId(String agentId) { this.agentId = agentId; }
+
+    public String getClusterId() { return clusterId; }
+    public void setClusterId(String clusterId) { this.clusterId = clusterId; }
+
+    public String getMode() { return mode; }
+    public void setMode(String mode) { this.mode = mode; }
+
+    public String getOrchestratorUrl() { return orchestratorUrl; }
+    public void setOrchestratorUrl(String orchestratorUrl) { this.orchestratorUrl = orchestratorUrl; }
+
+    public String getOrchestratorGrpcAddress() { return orchestratorGrpcAddress; }
+    public void setOrchestratorGrpcAddress(String orchestratorGrpcAddress) {
+        this.orchestratorGrpcAddress = orchestratorGrpcAddress;
+        if (orchestratorGrpcAddress != null && !orchestratorGrpcAddress.isBlank()) {
+            this.orchestratorGrpcAddresses = io.github.balookrd.pristan.parom.client.OrchestratorGrpcClient.parseEndpoints(orchestratorGrpcAddress);
+        }
+    }
+
+    public java.util.List<String> getOrchestratorGrpcAddresses() { return orchestratorGrpcAddresses; }
+    public void setOrchestratorGrpcAddresses(java.util.List<String> orchestratorGrpcAddresses) {
+        this.orchestratorGrpcAddresses = orchestratorGrpcAddresses != null ? orchestratorGrpcAddresses : new java.util.ArrayList<>();
+        if (!this.orchestratorGrpcAddresses.isEmpty()) {
+            this.orchestratorGrpcAddress = String.join(",", this.orchestratorGrpcAddresses);
+        }
+    }
+
+    public String getReceiverHost() { return receiverHost; }
+    public void setReceiverHost(String receiverHost) { this.receiverHost = receiverHost; }
+
+    public int getReceiverPort() { return receiverPort; }
+    public void setReceiverPort(int receiverPort) { this.receiverPort = receiverPort; }
+
+    public String getStagingDir() { return stagingDir; }
+    public void setStagingDir(String stagingDir) { this.stagingDir = stagingDir; }
+
+    public String getDefaultFsUri() { return defaultFsUri; }
+    public void setDefaultFsUri(String defaultFsUri) { this.defaultFsUri = defaultFsUri; }
+
+    public String getTargetDefaultFsUri() { return targetDefaultFsUri; }
+    public void setTargetDefaultFsUri(String targetDefaultFsUri) { this.targetDefaultFsUri = targetDefaultFsUri; }
+
+    public String getFederationMappings() { return federationMappings; }
+    public void setFederationMappings(String federationMappings) { this.federationMappings = federationMappings; }
+
+    public String getFallbackTargetAddress() { return fallbackTargetAddress; }
+    public void setFallbackTargetAddress(String fallbackTargetAddress) { this.fallbackTargetAddress = fallbackTargetAddress; }
+
+    public String getAdvertisedGrpcAddress() { return advertisedGrpcAddress; }
+    public void setAdvertisedGrpcAddress(String advertisedGrpcAddress) { this.advertisedGrpcAddress = advertisedGrpcAddress; }
+
+    public String getAgentSecret() { return agentSecret; }
+    public void setAgentSecret(String agentSecret) { this.agentSecret = agentSecret; }
+
+    public Double getMaxBandwidthMbS() { return maxBandwidthMbS; }
+    public void setMaxBandwidthMbS(Double maxBandwidthMbS) { this.maxBandwidthMbS = maxBandwidthMbS; }
+
+    public double getPollIntervalSec() { return pollIntervalSec; }
+    public boolean isHmsDataBarrierEnabled() { return hmsDataBarrierEnabled; }
+    public long getHmsDataBarrierTimeoutSec() { return hmsDataBarrierTimeoutSec; }
+    public int getHmsBootstrapConcurrency() { return hmsBootstrapConcurrency; }
+    public int getHmsPartitionBatchSize() { return hmsPartitionBatchSize; }
+    public void setPollIntervalSec(double pollIntervalSec) { this.pollIntervalSec = pollIntervalSec; }
+
+    public boolean isEnableDynamicRegistration() { return enableDynamicRegistration; }
+    public void setEnableDynamicRegistration(boolean enableDynamicRegistration) { this.enableDynamicRegistration = enableDynamicRegistration; }
+
+    public String getKeytabPath() { return keytabPath; }
+    public void setKeytabPath(String keytabPath) { this.keytabPath = keytabPath; }
+
+    public String getPrincipal() { return principal; }
+    public void setPrincipal(String principal) { this.principal = principal; }
+
+    public int getChunkSize() { return chunkSize; }
+    public void setChunkSize(int chunkSize) { this.chunkSize = chunkSize; }
+
+    public boolean isGrpcTlsEnabled() { return grpcTlsEnabled; }
+    public void setGrpcTlsEnabled(boolean grpcTlsEnabled) { this.grpcTlsEnabled = grpcTlsEnabled; }
+
+    public String getGrpcCertChainPath() { return grpcCertChainPath; }
+    public void setGrpcCertChainPath(String grpcCertChainPath) { this.grpcCertChainPath = grpcCertChainPath; }
+
+    public String getGrpcPrivateKeyPath() { return grpcPrivateKeyPath; }
+    public void setGrpcPrivateKeyPath(String grpcPrivateKeyPath) { this.grpcPrivateKeyPath = grpcPrivateKeyPath; }
+
+    public String getGrpcTrustCertCollectionPath() { return grpcTrustCertCollectionPath; }
+    public void setGrpcTrustCertCollectionPath(String grpcTrustCertCollectionPath) { this.grpcTrustCertCollectionPath = grpcTrustCertCollectionPath; }
+
+    public String getGrpcClientAuth() { return grpcClientAuth; }
+    public void setGrpcClientAuth(String grpcClientAuth) { this.grpcClientAuth = grpcClientAuth; }
+
+    public boolean isGrpcInsecureSkipVerify() { return grpcInsecureSkipVerify; }
+    public void setGrpcInsecureSkipVerify(boolean grpcInsecureSkipVerify) { this.grpcInsecureSkipVerify = grpcInsecureSkipVerify; }
+
+    public boolean isOrchestratorInsecureSkipVerify() { return orchestratorInsecureSkipVerify; }
+    public void setOrchestratorInsecureSkipVerify(boolean orchestratorInsecureSkipVerify) { this.orchestratorInsecureSkipVerify = orchestratorInsecureSkipVerify; }
+
+    public String getHmsThriftUris() { return hmsThriftUris; }
+    public void setHmsThriftUris(String hmsThriftUris) { this.hmsThriftUris = hmsThriftUris; }
+
+    public String getHiveVersion() { return hiveVersion; }
+    public void setHiveVersion(String hiveVersion) { this.hiveVersion = hiveVersion; }
+
+    public long getSmallFileThresholdBytes() { return smallFileThresholdBytes; }
+    public void setSmallFileThresholdBytes(long smallFileThresholdBytes) { this.smallFileThresholdBytes = smallFileThresholdBytes; }
+
+    public long getBundleTargetSizeBytes() { return bundleTargetSizeBytes; }
+    public void setBundleTargetSizeBytes(long bundleTargetSizeBytes) { this.bundleTargetSizeBytes = bundleTargetSizeBytes; }
+
+    public int getMaxBundleFiles() { return maxBundleFiles; }
+    public void setMaxBundleFiles(int maxBundleFiles) { this.maxBundleFiles = maxBundleFiles; }
+
+    public int getBundleCommitConcurrency() { return bundleCommitConcurrency; }
+    public int getAnalyzerConcurrency() { return analyzerConcurrency; }
+    public void setAnalyzerConcurrency(int analyzerConcurrency) { this.analyzerConcurrency = analyzerConcurrency; }
+    public void setBundleCommitConcurrency(int bundleCommitConcurrency) { this.bundleCommitConcurrency = bundleCommitConcurrency; }
+
+    public boolean isStagingCleanupEnabled() { return stagingCleanupEnabled; }
+    public void setStagingCleanupEnabled(boolean stagingCleanupEnabled) { this.stagingCleanupEnabled = stagingCleanupEnabled; }
+
+    public long getStagingCleanupIntervalMinutes() { return stagingCleanupIntervalMinutes; }
+    public void setStagingCleanupIntervalMinutes(long stagingCleanupIntervalMinutes) { this.stagingCleanupIntervalMinutes = stagingCleanupIntervalMinutes; }
+
+    public long getStagingTtlMinutes() { return stagingTtlMinutes; }
+    public void setStagingTtlMinutes(long stagingTtlMinutes) { this.stagingTtlMinutes = stagingTtlMinutes; }
+
+    public io.github.balookrd.pristan.parom.generated.CompressionCodec getWireCompressionCodec() { return wireCompressionCodec; }
+    public void setWireCompressionCodec(io.github.balookrd.pristan.parom.generated.CompressionCodec wireCompressionCodec) { this.wireCompressionCodec = wireCompressionCodec; }
+
+    public int getWireCompressionLevel() { return wireCompressionLevel; }
+    public void setWireCompressionLevel(int wireCompressionLevel) { this.wireCompressionLevel = wireCompressionLevel; }
+
+    public String getHmsMode() { return hmsMode; }
+    public void setHmsMode(String hmsMode) { this.hmsMode = hmsMode; }
+
+    public String getHmsKerberosPrincipal() { return hmsKerberosPrincipal; }
+    public void setHmsKerberosPrincipal(String hmsKerberosPrincipal) { this.hmsKerberosPrincipal = hmsKerberosPrincipal; }
+
+    public int getInotifyQueueCapacity() { return inotifyQueueCapacity; }
+    public void setInotifyQueueCapacity(int inotifyQueueCapacity) { this.inotifyQueueCapacity = inotifyQueueCapacity; }
+
+    public double getInotifyHighWatermark() { return inotifyHighWatermark; }
+    public void setInotifyHighWatermark(double inotifyHighWatermark) { this.inotifyHighWatermark = inotifyHighWatermark; }
+
+    public double getInotifyLowWatermark() { return inotifyLowWatermark; }
+    public void setInotifyLowWatermark(double inotifyLowWatermark) { this.inotifyLowWatermark = inotifyLowWatermark; }
+
+    public int getInotifyMaxBatchSize() { return inotifyMaxBatchSize; }
+    public void setInotifyMaxBatchSize(int inotifyMaxBatchSize) { this.inotifyMaxBatchSize = inotifyMaxBatchSize; }
+
+    public long getInotifyFlushIntervalMs() { return inotifyFlushIntervalMs; }
+    public void setInotifyFlushIntervalMs(long inotifyFlushIntervalMs) { this.inotifyFlushIntervalMs = inotifyFlushIntervalMs; }
+
+    public long getInotifyBackpressureMaxDelayMs() { return inotifyBackpressureMaxDelayMs; }
+    public void setInotifyBackpressureMaxDelayMs(long inotifyBackpressureMaxDelayMs) { this.inotifyBackpressureMaxDelayMs = inotifyBackpressureMaxDelayMs; }
+
+    public int getOrchestratorMaxPendingTasksThreshold() { return orchestratorMaxPendingTasksThreshold; }
+    public void setOrchestratorMaxPendingTasksThreshold(int orchestratorMaxPendingTasksThreshold) { this.orchestratorMaxPendingTasksThreshold = orchestratorMaxPendingTasksThreshold; }
+
+    public int getMaxConcurrentTarStreams() { return maxConcurrentTarStreams; }
+    public void setMaxConcurrentTarStreams(int maxConcurrentTarStreams) { this.maxConcurrentTarStreams = maxConcurrentTarStreams; }
+
+    public int getTarPipeBufferBytes() { return tarPipeBufferBytes; }
+    public void setTarPipeBufferBytes(int tarPipeBufferBytes) { this.tarPipeBufferBytes = tarPipeBufferBytes; }
+
+    public boolean isEnforceTaskAttestation() { return enforceTaskAttestation; }
+    public boolean isRequireChecksum() { return requireChecksum; }
+    public void setRequireChecksum(boolean requireChecksum) { this.requireChecksum = requireChecksum; }
+    public void setEnforceTaskAttestation(boolean enforceTaskAttestation) { this.enforceTaskAttestation = enforceTaskAttestation; }
+
+    public String getLocalSandboxDir() { return localSandboxDir; }
+    public void setLocalSandboxDir(String localSandboxDir) { this.localSandboxDir = localSandboxDir; }
+
+    public long getTokenBatchMinBytes() { return tokenBatchMinBytes; }
+    public void setTokenBatchMinBytes(long tokenBatchMinBytes) { this.tokenBatchMinBytes = tokenBatchMinBytes; }
+
+    public long getTokenBatchMaxBytes() { return tokenBatchMaxBytes; }
+    public void setTokenBatchMaxBytes(long tokenBatchMaxBytes) { this.tokenBatchMaxBytes = tokenBatchMaxBytes; }
+}
+

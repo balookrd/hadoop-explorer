@@ -1,0 +1,164 @@
+package io.github.balookrd.pristan.parom.kafka.security;
+
+import io.github.balookrd.pristan.parom.fs.HadoopFsManager;
+import org.ietf.jgss.GSSContext;
+import org.ietf.jgss.GSSException;
+import org.ietf.jgss.GSSManager;
+import org.ietf.jgss.GSSName;
+import org.ietf.jgss.Oid;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+
+import javax.security.auth.Subject;
+import javax.security.auth.login.AppConfigurationEntry;
+import javax.security.auth.login.Configuration;
+import javax.security.auth.login.LoginContext;
+import javax.security.auth.login.LoginException;
+import java.io.File;
+import java.net.URI;
+import java.util.Base64;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.concurrent.CompletionException;
+
+/**
+ * Реализация SPNEGO Negotiate аутентификатора для Schema Registry на базе GSS-API и JAAS (Krb5LoginModule).
+ */
+public class KerberosSpnegoAuthenticator implements SpnegoAuthenticator {
+
+    private static final Logger log = LoggerFactory.getLogger(KerberosSpnegoAuthenticator.class);
+    private static final String SPNEGO_OID = "1.3.6.1.5.5.2";
+
+    private final KafkaKerberosConfig config;
+    private final String servicePrefix;
+
+    /** Замок логина: под ним идет обращение к KDC по сети. */
+    private final java.util.concurrent.locks.ReentrantLock loginLock =
+            new java.util.concurrent.locks.ReentrantLock();
+    private Subject subject;
+    private long loginTimestamp = 0;
+    private static final long TICKET_REFRESH_INTERVAL_MS = 6 * 3600 * 1000L; // 6 часов
+
+    public KerberosSpnegoAuthenticator(KafkaKerberosConfig config) {
+        this(config, (config != null && config.getSrServiceName() != null) ? config.getSrServiceName() : "HTTP");
+    }
+
+    public KerberosSpnegoAuthenticator(KafkaKerberosConfig config, String servicePrefix) {
+        this.config = config;
+        this.servicePrefix = (servicePrefix != null && !servicePrefix.isBlank()) ? servicePrefix : "HTTP";
+    }
+
+    @Override
+    public String generateNegotiateHeader(URI targetUri) {
+        if (config == null || (!config.isSrKerberosEnabled() && !config.isEnabled())) {
+            return null;
+        }
+
+        String principal = config.getPrincipal();
+        String keytabPath = config.getKeytabPath();
+        if (principal == null || principal.isBlank() || keytabPath == null || keytabPath.isBlank()) {
+            log.warn("Kerberos SPNEGO включен, но principal или keytabPath не заданы");
+            return null;
+        }
+
+        HadoopFsManager.validatePrincipalSafety(principal);
+        KafkaSecurityConfigBuilder.validateKerberosPathSafety(keytabPath, "keytabPath");
+
+        File keytabFile = new File(keytabPath);
+        if (!keytabFile.exists() || !keytabFile.canRead()) {
+            log.warn("Keytab файл не найден или недоступен для чтения: {}", keytabPath);
+            return null;
+        }
+
+        if (config.getKrb5ConfPath() != null && !config.getKrb5ConfPath().isBlank()) {
+            KafkaSecurityConfigBuilder.initializeKrb5ConfSafely(config.getKrb5ConfPath());
+        }
+
+        try {
+            ensureLoggedIn();
+            final String host = (targetUri.getHost() != null && !targetUri.getHost().isBlank())
+                    ? targetUri.getHost()
+                    : "localhost";
+
+            return Subject.callAs(subject, () -> {
+                GSSManager manager = GSSManager.getInstance();
+                Oid spnegoOid = new Oid(SPNEGO_OID);
+                String spn = servicePrefix + "@" + host;
+                GSSName serverName = manager.createName(spn, GSSName.NT_HOSTBASED_SERVICE);
+                GSSContext context = manager.createContext(
+                        serverName,
+                        spnegoOid,
+                        null,
+                        GSSContext.DEFAULT_LIFETIME
+                );
+                try {
+                    context.requestMutualAuth(config.isSrMutualAuth());
+                    context.requestCredDeleg(false);
+                    byte[] token = context.initSecContext(new byte[0], 0, 0);
+                    return "Negotiate " + Base64.getEncoder().encodeToString(token);
+                } finally {
+                    try {
+                        context.dispose();
+                    } catch (GSSException ignored) {
+                    }
+                }
+            });
+        } catch (CompletionException ce) {
+            Throwable cause = ce.getCause() != null ? ce.getCause() : ce;
+            log.error("Ошибка формирования SPNEGO билета для {}: {}", targetUri, cause.getMessage());
+            return null;
+        } catch (Exception e) {
+            log.error("Ошибка аутентификации Kerberos SPNEGO для {}: {}", targetUri, e.getMessage());
+            return null;
+        }
+    }
+
+    private void ensureLoggedIn() throws LoginException {
+        loginLock.lock();
+        try {
+            ensureLoggedInLocked();
+        } finally {
+            loginLock.unlock();
+        }
+    }
+
+    /**
+     * Логин по keytab: вызывается под {@link #loginLock}.
+     *
+     * <p>Логин обращается к KDC по сети, и монитор на этом месте пиннил бы несущий поток
+     * виртуального потока Java 21: аутентификация вызывается из пути обращения к Schema Registry.
+     */
+    private void ensureLoggedInLocked() throws LoginException {
+        long now = System.currentTimeMillis();
+        if (subject != null && (now - loginTimestamp) < TICKET_REFRESH_INTERVAL_MS) {
+            return;
+        }
+
+        Configuration jaasConfig = new Configuration() {
+            @Override
+            public AppConfigurationEntry[] getAppConfigurationEntry(String name) {
+                Map<String, Object> options = new HashMap<>();
+                options.put("useKeyTab", "true");
+                options.put("keyTab", config.getKeytabPath());
+                options.put("principal", config.getPrincipal());
+                options.put("storeKey", "true");
+                options.put("doNotPrompt", "true");
+                options.put("isInitiator", "true");
+                options.put("refreshKrb5Config", "true");
+                return new AppConfigurationEntry[]{
+                        new AppConfigurationEntry(
+                                "com.sun.security.auth.module.Krb5LoginModule",
+                                AppConfigurationEntry.LoginModuleControlFlag.REQUIRED,
+                                options
+                        )
+                };
+            }
+        };
+
+        LoginContext lc = new LoginContext("ParomKafkaSpnegoClient", null, null, jaasConfig);
+        lc.login();
+        this.subject = lc.getSubject();
+        this.loginTimestamp = now;
+        log.info("Успешный вход JAAS для Kerberos SPNEGO: principal={}", config.getPrincipal());
+    }
+}

@@ -5,7 +5,7 @@ Pristan — веб-платформа для работы с экосистем�
 2. Sklad — файловый менеджер HDFS.
 3. Tolmach — редактор запросов к Trino и Hive с ИИ-ассистентом (при `mock-storage: true` движки работают на встроенных демонстрационных данных, ассистент без LLM — на встроенных правилах, см. 5.3).
 4. Iskra — интерактивные вычисления на PySpark, Scala Spark и Spark SQL.
-5. Hadoop gRPC Replicator — репликация данных HDFS, метаданных Hive Metastore (HMS CDC) и топиков Apache Kafka между изолированными ЦОД с общим ограничением полосы (Hierarchical Token Bucket), Fencing Tokens и Kerberos-изоляцией.
+5. Parom — репликация данных HDFS, метаданных Hive Metastore (HMS CDC) и топиков Apache Kafka между изолированными ЦОД с общим ограничением полосы (Hierarchical Token Bucket), Fencing Tokens и Kerberos-изоляцией.
 
 Документ описывает устройство платформы для разработчиков и администраторов: общий стартер безопасности, сервисы, хранилище, развертывание и тесты.
 
@@ -103,7 +103,7 @@ Pristan — веб-платформа для работы с экосистем�
 - Content-Security-Policy бэкенд не выставляет. CSP задана тегом `<meta http-equiv="Content-Security-Policy">` в `frontend/apps/<app>/index.html`:
   - YARN и Sklad: `default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self' data:; img-src 'self' data:; connect-src 'self'; frame-ancestors 'none'; object-src 'none'; base-uri 'self'; form-action 'self'`.
   - SQL и Iskra (Monaco Editor и Web Workers): дополнительно `script-src ... 'unsafe-eval' blob:`, `img-src ... blob:`, `connect-src 'self' ws: wss: http: https:`, `worker-src 'self' blob:`.
-  - В `frontend/apps/replicator/index.html` CSP нет.
+  - В `frontend/apps/parom/index.html` CSP нет.
   - Директиву `frame-ancestors` браузеры в `<meta>` игнорируют; от встраивания во фрейм защищает только заголовок `X-Frame-Options`.
 - Остальные заголовки выставляет Spring Security со значениями по умолчанию: `SecurityFilterChain` стартера блок `headers()` не настраивает.
   - `X-Frame-Options: DENY` — страницу нельзя встроить во фрейм (защита от clickjacking).
@@ -131,8 +131,8 @@ Pristan — веб-платформа для работы с экосистем�
    - Протоколы TLSv1.3 и TLSv1.2, настраиваемый список шифров, взаимная аутентификация (mTLS) через `client-auth: REQUIRE`.
    - Исходящие HTTP-клиенты (`HttpClient` в `NativeYarnClient`, `AwxClientService`, `OrchestratorClient`) получают TLS-контекст из `TlsContextFactory`: доверенные CA и флаг `insecureSkipVerify` для тестовых стендов.
 2. gRPC-каналы репликации:
-   - Приемник `DataTransferServiceImpl` в `backend/replicator/agent` настраивается через `NettyServerBuilder` и `SslContextBuilder`: X.509-сертификаты, приватные ключи, цепочки CA и `clientAuth: REQUIRE` (mTLS).
-   - Отправитель `ReplicationSender` открывает TLS-сессию через `NettyChannelBuilder.forTarget(...)` при схеме `grpcs://` или `REPLICATOR_GRPC_TLS_ENABLED=true`.
+   - Приемник `DataTransferServiceImpl` в `backend/parom/agent` настраивается через `NettyServerBuilder` и `SslContextBuilder`: X.509-сертификаты, приватные ключи, цепочки CA и `clientAuth: REQUIRE` (mTLS).
+   - Отправитель `ReplicationSender` открывает TLS-сессию через `NettyChannelBuilder.forTarget(...)` при схеме `grpcs://` или `PAROM_GRPC_TLS_ENABLED=true`.
    - В dev- и демо-окружениях сертификаты генерируются через `SelfSignedCertificate` и `BouncyCastle`.
 
 ---
@@ -142,7 +142,7 @@ Pristan — веб-платформа для работы с экосистем�
 ### 4.1 Метрики Prometheus
 - YARN, HDFS, SQL и Iskra подключают `micrometer-registry-prometheus` и публикуют `/actuator/prometheus` (`management.endpoints.web.exposure.include: health,prometheus`); у всех метрик есть лейбл `app` (`management.metrics.tags.app`). Бизнес-метрики: `MeteredHdfsClient` (HDFS), `ChangeRequestMetrics` (YARN), `SqlQueryMetrics` (SQL), `SparkMetrics` (Spark). Стартер считает ответы 429 `RateLimitFilter` в `hadoop_rate_limit_blocks_total{tier}` (`login`, `api`).
 - `zastava` открывает `/actuator/health/**`, `/actuator/info` и `/actuator/prometheus`, остальной `/actuator/**` — только ADMIN, как в оркестраторе Replicator.
-- Оркестратор Replicator отдает `/actuator/prometheus` и `/metrics` (`ReplicatorMetricsController`: метрики Micrometer плюс метрики задач и агентов из `ReplicatorMetricsService`, см. 7.2). `/metrics` требует аутентификации.
+- Оркестратор Replicator отдает `/actuator/prometheus` и `/metrics` (`ParomMetricsController`: метрики Micrometer плюс метрики задач и агентов из `ParomMetricsService`, см. 7.2). `/metrics` требует аутентификации.
 - Дашборды Grafana и конфигурация автоматической загрузки лежат в [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/) и [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](../monitoring/grafana/provisioning/dashboards/dashboards.yaml), описание метрик — в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 
 ### 4.2 Circuit Breaker
@@ -233,7 +233,7 @@ Pristan — веб-платформа для работы с экосистем�
 - Буферы результатов по языкам: каждая вкладка хранит отдельно буферы кода (`codeBuffers`) и результатов (`resultBuffers`), поэтому при переключении языка результаты не теряются и не смешиваются.
 - Вкладки и их состояние хранятся в БД (`SparkUserWorkspace`).
 
-### 5.5 Hadoop gRPC Replicator
+### 5.5 Parom
 - Назначение: репликация данных между HDFS-кластерами в разных ЦОД (DC1 → DC2 → DC3) с защитой сетевого периметра и ограничением полосы на нескольких уровнях.
 - Топология ЦОД и кластеров HDFS:
   - Площадки и привязка каждого HDFS-кластера к ЦОД задаются в конфигурации (на стенде 2 ЦОД — Москва и Санкт-Петербург; в DC1 два кластера, в DC2 один). Подробнее — в [руководстве по конфигурации](CONFIGURATION.md#7-настройка-hadoop-grpc-replicator-dc-dc-wan-sync--throttling).
@@ -242,11 +242,11 @@ Pristan — веб-платформа для работы с экосистем�
     2. HDFS-HDFS: квоты между парами кластеров (`demo ➔ backup`: 60 МБ/с, `analytics ➔ backup`: 40 МБ/с, внутри DC1: 80 МБ/с).
     3. Global WAN Cap: общий предел для всей инфраструктуры (120 МБ/с).
 - Многоуровневый Token Bucket (Hierarchical Token Bucket):
-  - Потокобезопасный контроллер квот `TokenBucketThrottler` (`backend/replicator/orchestrator/src/main/java/.../TokenBucketThrottler.java`).
+  - Потокобезопасный контроллер квот `TokenBucketThrottler` (`backend/parom/orchestrator/src/main/java/.../TokenBucketThrottler.java`).
   - Перед передачей чанка проверяются все применимые бакеты; задержка воркера определяется самым узким из них: `max(wait_global, wait_dc_dc, wait_hdfs_hdfs)`.
   - Любой лимит меняется во время работы через REST API и веб-консоль.
 - gRPC-транспорт (DC1 Worker → DC2 Receiver):
-  - Потоковый контракт Protobuf (`replicator.proto` -> `DataTransferService.TransferFile` и `TransferTarStream`).
+  - Потоковый контракт Protobuf (`parom.proto` -> `DataTransferService.TransferFile` и `TransferTarStream`).
   - Передача чанками фиксированного размера (по умолчанию 4 МБ) с подсчетом SHA-256 по ходу передачи.
   - Пакетирование мелких файлов (Small Files Bundling / Tar-Streaming): файлы меньше 1 МБ упаковываются в TAR-поток на лету, на приемнике распаковываются параллельно и пишутся прямо в целевой HDFS, без промежуточного диска.
   - Запись без промежуточного каталога и атомарная фиксация: одиночный файл пишется прямо в целевой HDFS во временный файл (`targetPath + "._staging_" + jobId`), затем атомарно переименовывается через `fs.rename()`.
@@ -254,14 +254,14 @@ Pristan — веб-платформа для работы с экосистем�
 - Очистка staging-файлов на HDFS в четыре уровня:
   1. В gRPC-потоке: при ошибке сети (`onError`) или неудачном переименовании временные staging-файлы сразу удаляются из целевой HDFS.
   2. Перед повтором задачи: незавершенные staging-файлы предыдущей попытки удаляются до начала синхронизации (`cleanStagingFiles`).
-  3. Фоновая очистка: демон `hdfs-staging-cleaner` в `ReplicatorAgent` каждые 15 минут удаляет staging-файлы старше 30 минут по всем известным целевым путям.
+  3. Фоновая очистка: демон `hdfs-staging-cleaner` в `ParomAgent` каждые 15 минут удаляет staging-файлы старше 30 минут по всем известным целевым путям.
   4. Исключение из манифестов и diff: предикат `HadoopFsManager.isIgnoredFile` убирает staging-файлы (`._staging_`, `.staging.`, `_staging_`) из манифестов каталогов, чтобы они не реплицировались.
 - Аутентификация и роли (RBAC):
   - Kerberos SPNEGO SSO, LDAP и тестовые профили (`admin_user`, `de_user`, `analyst_user`).
   - Администратор (`admin_user`) видит и управляет задачами репликации всех пользователей.
   - Пользователь (`USER`) видит только свои задачи (`created_by == current_user.username`) и системные фоновые процессы.
 - Планировщик задач (cron):
-  - `ReplicationScheduler` раз в 5 секунд ставит в очередь задачи с наступившим `next_run_at`. Следующее время считает `CronSchedule`: интервальные макросы `@every_<N>s|m|h` и календарные выражения через Spring `CronExpression` (5 полей, `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`) в поясе `hadoop.replicator.scheduler.time-zone`. Задача с невалидным выражением теряет расписание и получает статус `STOPPED`.
+  - `ReplicationScheduler` раз в 5 секунд ставит в очередь задачи с наступившим `next_run_at`. Следующее время считает `CronSchedule`: интервальные макросы `@every_<N>s|m|h` и календарные выражения через Spring `CronExpression` (5 полей, `@hourly`, `@daily`, `@weekly`, `@monthly`, `@yearly`) в поясе `parom.scheduler.time-zone`. Задача с невалидным выражением теряет расписание и получает статус `STOPPED`.
   - Время следующего запуска пишется в `next_run_at`.
 - Инкрементальная репликация каталогов и Snapshot Diff:
   - Синхронизация без снимков (Batch Manifest Diff, основной режим): к HDFS обращаются только агенты в своих ЦОД, оркестратор в HDFS не ходит. Агент-источник одним gRPC-вызовом `GetDirectoryManifest` получает манифест целевого каталога, сравнивает деревья в памяти (O(N), поиск по map), пропускает совпадающие файлы (0 байт трафика WAN) и передает только разницу.
@@ -295,7 +295,7 @@ Pristan — веб-платформа для работы с экосистем�
     - Replicator Agent (Data и Metadata Plane): агенты работают в локальных сетях своих ЦОД (DC1 и DC2). Source Agent читает метаданные из локального HMS по Thrift (порт 9083) в LAN, Target Agent применяет DDL в целевом HMS по Thrift в своей LAN, а между собой агенты обмениваются по WAN через gRPC-контракт `HmsTransferService` (порт 50051) с TLS.
     - Виртуальные потоки Java 21 и Netty: gRPC-приемник агента работает на виртуальных потоках (`Executors.newVirtualThreadPerTaskExecutor()`), распаковка входящих TAR-пакетов мелких файлов вынесена в отдельный пул виртуальных потоков (`tarUnpackExecutor`), чтобы не блокировать потоки EventLoop.
     - Аттестация задач (HMAC-SHA256 Task Attestation): `TaskAttestationService` подписывает параметры задачи при назначении (`v1|taskId|jobId|targetPath|executionPrincipal|runAsServiceAccount|expiresAt`), агент проверяет подпись через `TaskAttestationValidator` перед открытием HDFS OutputStream. Подменить целевой путь или Kerberos-principal без ключа нельзя.
-    - Chroot-песочница и защита системных путей ОС: локальные файловые операции ограничены каталогом `localSandboxDir` (`REPLICATOR_LOCAL_SANDBOX`); пути приводятся к каноническому виду через `File.getCanonicalFile()`; блокируются symlink traversal, null byte injection, системные каталоги (`FORBIDDEN_OS_PREFIXES`) и конфиденциальные файлы хоста (`SENSITIVE_PATH_PATTERNS`). Проверки не зависят от формы URI (`scheme://host/path`, `scheme:/path`, `scheme:path`), а явная схема `file:` считается локальной ФС независимо от `fs.defaultFS`; read-пробы `checkFile` и `getDirectoryManifest` отвечают на запрещенный путь статусом `PERMISSION_DENIED`.
+    - Chroot-песочница и защита системных путей ОС: локальные файловые операции ограничены каталогом `localSandboxDir` (`PAROM_LOCAL_SANDBOX`); пути приводятся к каноническому виду через `File.getCanonicalFile()`; блокируются symlink traversal, null byte injection, системные каталоги (`FORBIDDEN_OS_PREFIXES`) и конфиденциальные файлы хоста (`SENSITIVE_PATH_PATTERNS`). Проверки не зависят от формы URI (`scheme://host/path`, `scheme:/path`, `scheme:path`), а явная схема `file:` считается локальной ФС независимо от `fs.defaultFS`; read-пробы `checkFile` и `getDirectoryManifest` отвечают на запрещенный путь статусом `PERMISSION_DENIED`.
     - Оптимизации Data Plane:
       - Кэш каталогов HDFS и двухфазная фиксация через staging: `HadoopFsManager` кэширует уже проверенные каталоги, что снижает число RPC к NameNode до 90% при распаковке миллионов мелких файлов; по временным суффиксам `.staging` сборщик `HdfsStagingReaper` находит и удаляет осиротевшие файлы в фоне.
       - Кэш Schema Registry без блокировок и транскодирование без лишних аллокаций: кэш схем на `ConcurrentHashMap` с single-flight разрешением не дает параллельным запросам одновременно обращаться к Schema Registry за одной схемой; `ZeroCopyWireTranscoder` заменяет Schema ID без лишних аллокаций и по умолчанию не изменяет исходный буфер.
@@ -342,11 +342,11 @@ Pristan — веб-платформа для работы с экосистем�
     - `KafkaTopicProvisioner` создает топики в целевом кластере с тем же числом партиций, фактором репликации и параметрами (`min.insync.replicas`, `cleanup.policy`, `retention.ms`).
     - Синхронизация Schema Registry (Confluent / Aiven, порт 8081): `ZeroCopyWireTranscoder` заменяет Magic Byte и Schema ID в заголовках Avro/Protobuf без аллокаций в памяти, со single-flight разрешением в `ConcurrentHashMap`.
 - Модули и сборка:
-  - Оркестратор на Java 21 / Spring Boot 3 (`backend/replicator/orchestrator`): мультиплексированный gRPC Control Plane (`OrchestratorControlPlaneService`, порт 50050), стартер `zastava`, Spring Data JPA, потокобезопасный `TokenBucketThrottler`, `AgentRegistry` с защитой от SSRF, cron-планировщик и раздача собранного Svelte 5 SPA.
-  - Агент на Java 21 (`backend/replicator/agent`): воркер для DataNode и контейнеров Apache Hadoop YARN с сервисами HDFS (`DataTransferService`), Hive Metastore (`HmsTransferService`) и Kafka (`KafkaDataTransferService`); с оркестратором связывается через `OrchestratorGrpcClient`. Циклы `replicator-hms-loop` и потоки Kafka отделены от `replicator-sender-loop`, поэтому передача больших блоков данных не блокирует HMS и Kafka.
+  - Оркестратор на Java 21 / Spring Boot 3 (`backend/parom/orchestrator`): мультиплексированный gRPC Control Plane (`OrchestratorControlPlaneService`, порт 50050), стартер `zastava`, Spring Data JPA, потокобезопасный `TokenBucketThrottler`, `AgentRegistry` с защитой от SSRF, cron-планировщик и раздача собранного Svelte 5 SPA.
+  - Агент на Java 21 (`backend/parom/agent`): воркер для DataNode и контейнеров Apache Hadoop YARN с сервисами HDFS (`DataTransferService`), Hive Metastore (`HmsTransferService`) и Kafka (`KafkaDataTransferService`); с оркестратором связывается через `OrchestratorGrpcClient`. Циклы `replicator-hms-loop` и потоки Kafka отделены от `replicator-sender-loop`, поэтому передача больших блоков данных не блокирует HMS и Kafka.
   - Схема БД как миграции (Flyway): DDL живет в `db/migration/common` (базовая схема, выгруженная из модели JPA) и `db/migration/{vendor}` (специфика PostgreSQL: частичные индексы по активным статусам, `fillfactor` и параметры autovacuum горячих таблиц). `ddl-auto` во всех профилях стоит в `validate`, поэтому расхождение модели и схемы ломает старт, а не правится молча; существующие базы подхватываются через `baseline-on-migrate`.
-  - Мультимодульный Maven-проект (`backend/replicator/pom.xml`) объединяет `proto`, `model`, `agent` и `orchestrator` в общий цикл компиляции и тестирования (`make test-replicator`).
-  - Общие контракты в отдельных модулях (`replicator-proto`, `replicator-model`): схемы `.proto` со сгенерированными gRPC-стабами вынесены в `backend/replicator/proto`, а общие DTO, HMS-модель, HMAC-аттестация задач и gRPC-перехватчик агента — в `backend/replicator/model`. Модуль `model` держится тонким (Jackson, SLF4J, `grpc-api`): ни Hadoop, ни Hive Thrift, ни Kafka-клиента в нем нет, поэтому control plane больше не наследует стек данных агента. Запрет закреплен в сборке правилом `bannedDependencies` (`maven-enforcer-plugin`) в `orchestrator/pom.xml`: попытка вернуть зависимость на `replicator-agent` ломает сборку оркестратора.
+  - Мультимодульный Maven-проект (`backend/parom/pom.xml`) объединяет `proto`, `model`, `agent` и `orchestrator` в общий цикл компиляции и тестирования (`make test-parom`).
+  - Общие контракты в отдельных модулях (`parom-proto`, `parom-model`): схемы `.proto` со сгенерированными gRPC-стабами вынесены в `backend/parom/proto`, а общие DTO, HMS-модель, HMAC-аттестация задач и gRPC-перехватчик агента — в `backend/parom/model`. Модуль `model` держится тонким (Jackson, SLF4J, `grpc-api`): ни Hadoop, ни Hive Thrift, ни Kafka-клиента в нем нет, поэтому control plane больше не наследует стек данных агента. Запрет закреплен в сборке правилом `bannedDependencies` (`maven-enforcer-plugin`) в `orchestrator/pom.xml`: попытка вернуть зависимость на `replicator-agent` ломает сборку оркестратора.
 
 ### 5.6 Фронтенд (Svelte 5 и Tailwind 4)
 Все приложения написаны на Svelte 5 с реактивностью на рунах (`$state`, `$derived`, `$effect`):
@@ -418,12 +418,12 @@ SQL и Iskra отправляют обновления по Server-Sent Events (
 Трассировка есть только в Replicator (7.1.1). В YARN, HDFS, SQL и Iskra и в `zastava` нет ни зависимостей OpenTelemetry / micrometer-tracing, ни обработки `traceparent` или `X-Request-ID`.
 
 #### 7.1.1 Трассировка и health-пробы Replicator (оркестратор и агенты)
-- Сквозной trace через gRPC (`GrpcTracing` в `replicator-model`): клиентский перехватчик кладет в метаданные вызова W3C `traceparent`, серверный поднимает его и продолжает тот же trace, выставляя `trace_id`/`span_id` в MDC. Перехватчики стоят на всех вызовах: агент → оркестратор (`OrchestratorGrpcClient`), агент → агент для файлов (`ReplicationSender`), схем Hive (`HmsPipelineSender`) и батчей Kafka (`KafkaReplicationClient`), а на серверной стороне — в Control Plane, приемнике агента и приемнике Kafka-батчей. Серверный перехватчик добавляется последним, поэтому выполняется первым: в трассу попадают и вызовы, отклоненные аутентификацией.
+- Сквозной trace через gRPC (`GrpcTracing` в `parom-model`): клиентский перехватчик кладет в метаданные вызова W3C `traceparent`, серверный поднимает его и продолжает тот же trace, выставляя `trace_id`/`span_id` в MDC. Перехватчики стоят на всех вызовах: агент → оркестратор (`OrchestratorGrpcClient`), агент → агент для файлов (`ReplicationSender`), схем Hive (`HmsPipelineSender`) и батчей Kafka (`KafkaReplicationClient`), а на серверной стороне — в Control Plane, приемнике агента и приемнике Kafka-батчей. Серверный перехватчик добавляется последним, поэтому выполняется первым: в трассу попадают и вызовы, отклоненные аутентификацией.
 - Экспорт по OTLP включается отдельно: оркестратор использует micrometer-tracing на OpenTelemetry и начинает экспортировать спаны при заданном `MANAGEMENT_OTLP_TRACING_ENDPOINT`; агент (обычный Java-процесс без Spring) собирает SDK сам в `AgentTelemetry` при заданном `OTEL_EXPORTER_OTLP_ENDPOINT`. Пока адрес не задан, API работает как no-op: накладных расходов нет, но корреляция по `trace_id` в логах сохраняется.
 - Стандартный health-протокол (`grpc.health.v1.Health`): статус выставляется по серверу в целом и по подсистемам отдельно, а при остановке переводится в терминальное состояние до закрытия порта. Проба освобождена от `x-agent-secret` (оркестратор контейнеров секрета агента не знает), остальные вызовы остаются закрытыми. HEALTHCHECK контейнера агента выполняется классом `GrpcHealthProbeMain` из того же jar-а и заменил прежнюю проверку открытого TCP-порта, которую проходил агент с остановленным приемником.
 
 ### 7.2 Метрики Prometheus по сервисам и дашборды Grafana
-YARN, HDFS, SQL и Iskra публикуют метрики на `/actuator/prometheus` (см. 4.1). Метрики Replicator отдает оркестратор на `/metrics`: `ReplicatorMetricsService.renderReplicatorPrometheusMetrics()` формирует их текстом при каждом опросе из состояния БД и реестра агентов:
+YARN, HDFS, SQL и Iskra публикуют метрики на `/actuator/prometheus` (см. 4.1). Метрики Replicator отдает оркестратор на `/metrics`: `ParomMetricsService.renderParomPrometheusMetrics()` формирует их текстом при каждом опросе из состояния БД и реестра агентов:
 - `replicator_bytes_total`, `replicator_jobs_total`, `replicator_tasks_total`, `replicator_active_workers`, `replicator_active_agents`, `replicator_throttling_delay_seconds_total`, `replicator_file_size_bytes`, `replicator_hms_jobs_total`, `replicator_hms_tables_total`, `replicator_hms_partitions_total`, `replicator_hms_speed_bytes_per_second`, `replicator_dr_cluster_fenced`, `replicator_dr_reverse_jobs_total`, `replicator_agent_status`, `replicator_agent_active_transfers`, `replicator_agent_transferred_bytes_total`, `replicator_agent_errors_total`, `replicator_agent_heartbeat_age_seconds`, `replicator_agent_max_bandwidth_mb_s`.
 - Дашборды Grafana с автоматической загрузкой (provisioning) в `monitoring/grafana/dashboards/`:
   - `pristan_overview.json` — HTTP golden signals YARN, HDFS, SQL и Iskra, входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Replicator.
@@ -447,7 +447,7 @@ YARN, HDFS, SQL и Iskra публикуют метрики на `/actuator/prome
 | Sklad | `jdbc:h2:mem:hdfs;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, SQLite, PostgreSQL | JPA-сущностей нет; только таблицы `SessionStore` |
 | Tolmach | `jdbc:h2:mem:tolmach;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL | JPA, `ddl-auto: update` (`sql_user_workspaces`, `query_history`, `saved_queries`) |
 | Iskra | `jdbc:h2:mem:iskra;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL | JPA, `ddl-auto: update` (`spark_sessions`, `spark_execution_history`, `spark_user_workspaces`) |
-| Replicator Orchestrator | `jdbc:h2:mem:replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL, SQLite | миграции Flyway, `ddl-auto: validate` (см. 5.5) |
+| Replicator Orchestrator | `jdbc:h2:mem:parom;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL, SQLite | миграции Flyway, `ddl-auto: validate` (см. 5.5) |
 
 - Драйвер PostgreSQL (`org.postgresql:postgresql`, версия из Spring Boot 3.3.4 — 42.7.4) объявлен в `zastava` со `scope` `runtime` и попадает в JAR всех сервисов на стартере (`BOOT-INF/lib/postgresql-42.7.4.jar`). Явного `driver-class-name` в упакованных `application.yml` нет: Spring Boot выбирает драйвер по `spring.datasource.url`, поэтому для перехода на PostgreSQL задайте `SPRING_DATASOURCE_URL=jdbc:postgresql://...`, а также `SPRING_DATASOURCE_USERNAME` и `SPRING_DATASOURCE_PASSWORD`: упакованные `sa` и пустой пароль рассчитаны на H2. В Artel вместо `SPRING_DATASOURCE_*` можно задать `ARTEL_DB_URL`, `ARTEL_DB_USER` и `ARTEL_DB_PASSWORD`. Для двух и более экземпляров сервиса задайте также `zastava.session-store.type: jdbc` и привязку клиента к экземпляру для SQL, Spark и Sklad: [production-database.md](production-database.md).
 - In-memory H2 теряет данные (воркспейсы, историю, заявки) при каждом перезапуске сервиса.
@@ -464,11 +464,11 @@ YARN, HDFS, SQL и Iskra публикуют метрики на `/actuator/prome
 
 1. Docker-образы на базе Eclipse Temurin 21 JRE:
    - Базовый образ `eclipse-temurin:21-jre-jammy` с утилитами Kerberos (`krb5-user`) и `curl` для healthcheck.
-   - В образ кладется собранный Spring Boot fat JAR (`backend/<service>/target/*.jar` или `backend/replicator/*/target/*.jar`) со статическими бандлами Svelte 5 SPA.
+   - В образ кладется собранный Spring Boot fat JAR (`backend/<service>/target/*.jar` или `backend/parom/*/target/*.jar`) со статическими бандлами Svelte 5 SPA.
    - Процесс запускается под непривилегированным пользователем `appuser (UID 10001)`.
    - Параметры памяти JVM: `-Xms256m -Xmx1024m`.
 2. Логирование:
-   - Сервисы пишут логи в stdout текстом в формате Logback по умолчанию Spring Boot 3.3: Logstash-энкодера и `logback-spring.xml` в YARN, HDFS, SQL, Iskra и оркестраторе нет. Агент Replicator использует `backend/replicator/agent/src/main/resources/logback.xml` с текстовым шаблоном `%d [%thread] %-5level %logger{36} - %msg%n`.
+   - Сервисы пишут логи в stdout текстом в формате Logback по умолчанию Spring Boot 3.3: Logstash-энкодера и `logback-spring.xml` в YARN, HDFS, SQL, Iskra и оркестраторе нет. Агент Replicator использует `backend/parom/agent/src/main/resources/logback.xml` с текстовым шаблоном `%d [%thread] %-5level %logger{36} - %msg%n`.
    - JSON в логах есть только у записей аудита (`AUDIT_EVENT: {...}`, см. 3.4).
 3. Пробы, метрики и остановка:
    - Liveness-проба `/healthz` (`HealthController`, ответ 200 без проверки зависимостей) и readiness-проба `/actuator/health/readiness` (группа readiness Spring Boot Actuator: 503 до `ApplicationReadyEvent` и с начала остановки контекста). Доступность БД и хранилища сессий пробы не проверяют.
@@ -519,7 +519,7 @@ YARN, HDFS, SQL и Iskra публикуют метрики на `/actuator/prome
 | Sklad | 16 тестов (Java 21) | NameNode HA failover при `StandbyException`, Kerberos proxy user doAs, API операций, предпросмотр Parquet/ORC с чтением схемы из footer, MockHdfsClient, Circuit Breaker, Rate Limiter |
 | Tolmach | 128 тестов (Java 21) | MockMvc API (каталог, запросы, воркспейс, ИИ-ассистент), ИИ-ассистент с LLM на WireMock (ответ модели, откат на правила при HTTP-ошибке, не-JSON, таймауте, зависшем и слишком большом теле ответа и превышении лимита одновременных вызовов, маскирование ключа, проверка конфигурации при старте), `JdbcQueryRunner` на H2 (пакеты строк, усечение, отмена, таймаут), `QueryEventHub` (повтор событий), `TrinoConnectionFactory`, Trino 484 в Testcontainers (метаданные, `sessionUser`, отмена на координаторе), `HiveConnectionFactory`, HiveServer2 4.0.0 в Testcontainers (`hive.server2.proxy.user`, метаданные, отмена, запрос дольше `socketTimeout`), `LoggingBindingTest` |
 | Iskra | 168 тестов по отчету surefire (Java 21; 128 методов `@Test`, остальное — случаи параметризованных тестов; 2 выполняются только при заданной `TEST_POSTGRES_URL`) | MockMvc API (кластеры, сессии, statements, пайплайны, воркспейс), статусы `FAILED`/`CANCELLED`, условная отмена в `spark_execution_history`, метрики Prometheus, клиент Livy на WireMock (сессии, `proxyUser`, ожидание `idle`, statements `pyspark`/`spark`/`sql`, отмена, ошибки), разбор вывода Livy, SPNEGO-токен против KDC Kerby, жизненный цикл сессий (состояние из Livy, остановка, TTL, выход, `dead` по 409/404), каталог через сессию |
-| Hadoop gRPC Replicator | 78+ тестов (Java 21) | Hierarchical Token Bucket, Stateless Active-Active Orchestration, Persistent Agent Registry, Fencing Tokens, Task Attestation HMAC, Chroot Sandbox, DataTransfer и HmsTransfer gRPC, Direct TAR commit и Directory Cache, Schema Registry Single-Flight, smoke-тесты Prometheus и Kafka Active-Active Mirroring |
+| Parom | 78+ тестов (Java 21) | Hierarchical Token Bucket, Stateless Active-Active Orchestration, Persistent Agent Registry, Fencing Tokens, Task Attestation HMAC, Chroot Sandbox, DataTransfer и HmsTransfer gRPC, Direct TAR commit и Directory Cache, Schema Registry Single-Flight, smoke-тесты Prometheus и Kafka Active-Active Mirroring |
 | Frontend UI | 95 тестов (Vitest) | Компонентные тесты Svelte 5 на Vitest и `@testing-library/svelte` во всех 5 SPA и общем пакете: HDFS, YARN, SQL, Spark, Replicator, Common (Header, LoginModal, Modal, StatusBadge, NotificationToast); проверка типов `svelte-check` |
 
 ### 11.2 Тесты отказоустойчивости
@@ -555,6 +555,6 @@ YARN, HDFS, SQL и Iskra публикуют метрики на `/actuator/prome
 - [Руководство администратора Sklad (hdfs-admin-guide.md)](hdfs-admin-guide.md)
 - [Руководство администратора Tolmach (sql-admin-guide.md)](sql-admin-guide.md)
 - [Руководство администратора Iskra (spark-admin-guide.md)](spark-admin-guide.md)
-- [Руководство администратора Hadoop gRPC Replicator (replicator-admin-guide.md)](replicator-admin-guide.md)
+- [Руководство администратора Parom (replicator-admin-guide.md)](replicator-admin-guide.md)
 - [Руководство по Disaster Recovery и защите от split-brain (replicator-disaster-recovery-guide.md)](replicator-disaster-recovery-guide.md)
 - [Руководство по отказоустойчивости Replicator (replicator-fault-tolerance.md)](replicator-fault-tolerance.md)

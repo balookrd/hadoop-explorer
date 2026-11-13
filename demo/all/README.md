@@ -62,7 +62,7 @@ cd demo/all && ./start-all-demo.sh
 - Sklad: [http://localhost:8002](http://localhost:8002)
 - Tolmach: [http://localhost:8003](http://localhost:8003)
 - Iskra: [http://localhost:8004](http://localhost:8004)
-- Hadoop gRPC Replicator: [http://localhost:8005](http://localhost:8005)
+- Parom: [http://localhost:8005](http://localhost:8005)
 - Grafana: [http://localhost:3000](http://localhost:3000) (Дашборды YARN, HDFS, Replicator, Kafka, HMS DR)
 - Prometheus: [http://localhost:9090](http://localhost:9090)
 

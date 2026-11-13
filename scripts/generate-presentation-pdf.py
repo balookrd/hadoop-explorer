@@ -115,7 +115,7 @@ def main():
           <div class="cover-logo">
             <img src="file://{os.path.join(docs_dir, 'images', 'logo_white.png')}" alt="Pristan Logo" />
           </div>
-          <h1 class="cover-title">Hadoop gRPC Replicator</h1>
+          <h1 class="cover-title">Parom</h1>
           <div class="cover-subtitle">Системная архитектура, сетевые протоколы, шейпинг и Disaster Recovery</div>
           <div class="cover-divider"></div>
           <p class="cover-lead">Полный инженерный регламент для системных архитекторов, DevOps-инженеров и SRE администраторов кластеров Big Data</p>
@@ -154,7 +154,7 @@ def main():
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Hadoop gRPC Replicator: Архитектурная спецификация</title>
+  <title>Parom: Архитектурная спецификация</title>
   <style>
     @page {{
       size: A4 portrait;

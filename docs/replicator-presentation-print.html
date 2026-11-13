@@ -2,7 +2,7 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <title>Hadoop gRPC Replicator: Архитектурная спецификация</title>
+  <title>Parom: Архитектурная спецификация</title>
   <style>
     @page {
       size: A4 portrait;
@@ -463,7 +463,7 @@
           <div class="cover-logo">
             <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/logo_white.png" alt="Pristan Logo" />
           </div>
-          <h1 class="cover-title">Hadoop gRPC Replicator</h1>
+          <h1 class="cover-title">Parom</h1>
           <div class="cover-subtitle">Системная архитектура, сетевые протоколы, шейпинг и Disaster Recovery</div>
           <div class="cover-divider"></div>
           <p class="cover-lead">Полный инженерный регламент для системных архитекторов, DevOps-инженеров и SRE администраторов кластеров Big Data</p>
@@ -511,7 +511,7 @@
 <div class="page-break"></div>
 <div class="slide-header-block"><div class="slide-section-badge">СЕКЦИЯ 1 / 13 • ТЕХНИЧЕСКИЙ РЕГЛАМЕНТ</div><h2 class="slide-h2">Слайд 1: Генеральная схема развертывания: Что где располагается (Топология и сетевые потоки)</h2></div>
 <div align="center">
-  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/replicator/architecture_deployment_traffic.png" alt="Архитектура развертывания и сетевые потоки Hadoop gRPC Replicator" width="100%" />
+  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/parom/architecture_deployment_traffic.png" alt="Архитектура развертывания и сетевые потоки Parom" width="100%" />
   <p><em>Генеральная архитектура: порты Control Plane (TCP :8005 / :50050), межЦОДного WAN Data Plane (TCP :50051 / :50052) и кластерного LAN</em></p>
 </div><h3>Разбор физических контуров и направлений трафика</h3>
 <ol>
@@ -523,7 +523,7 @@
 </li>
 <li><strong>Контур управления (Management Zone / Control Plane)</strong>:<ul>
 <li>Развертывается на выделенной виртуальной машине (VM) или в Kubernetes Pod в управляющем сегменте сети (Management VLAN).</li>
-<li><strong>Устанавливается</strong>: <code>hadoop-grpc-replicator-orchestrator.jar</code> (Spring Boot 3.3.4, Java 21, <code>TCP :8005</code> и <code>TCP :50050</code>).</li>
+<li><strong>Устанавливается</strong>: <code>hadoop-grpc-parom-orchestrator.jar</code> (Spring Boot 3.3.4, Java 21, <code>TCP :8005</code> и <code>TCP :50050</code>).</li>
 <li>Предоставляет REST API и Web-консоль управления на порту <code>:8005</code> (Kerberos SPNEGO SSO, LDAP, RBAC), а также высокоскоростной gRPC Control Plane на порту <code>:50050</code> (<code>orchestrator_control_plane.proto</code>).</li>
 <li>Хранилище состояния: PostgreSQL 14+ (<code>TCP :5432</code> / Patroni HA) с персистентным реестром агентов <code>agent_registry</code> (<code>AgentEntity</code>), таблицей лимитов <code>bandwidth_limits</code> и блокировками <code>cluster_locks</code> с монотонными fencing tokens.</li>
 <li><strong>Stateless Active-Active кластер</strong>: несколько реплик оркестратора работают совместно без локального in-memory состояния; квоты Token Bucket автоматически распределяются координатором <code>OrchestratorClusterCoordinator</code>.</li>
@@ -532,7 +532,7 @@
 </ul>
 </li>
 <li><strong>Контур ЦОД-1 Primary (Москва)</strong>:<ul>
-<li><strong>Устанавливается</strong>: демоны <code>hadoop-grpc-replicator-agent.jar</code> (HDFS/HMS) и <code>kafka-replicator-agent</code> (Kafka Streaming Data Plane).</li>
+<li><strong>Устанавливается</strong>: демоны <code>hadoop-grpc-parom-agent.jar</code> (HDFS/HMS) и <code>kafka-replicator-agent</code> (Kafka Streaming Data Plane).</li>
 <li>Варианты размещения: Colocated на узлах Hadoop DataNode и брокерах Kafka либо на выделенных серверах Edge Gateway.</li>
 <li>Локально в LAN ЦОД-1 (10/25 Gbps) взаимодействуют со штатными сервисами:<ul>
 <li><strong>NameNode</strong> (<code>TCP :8020/:9000</code>) — получение структуры директорий, списков файлов и снапшотов (<code>SnapshotDiffReport</code>);</li>
@@ -543,7 +543,7 @@
 <li><strong>Kerberos KDC</strong> (<code>TCP/UDP :88</code>) — билетная аутентификация по ключевому файлу (<code>keytab</code>).</li>
 </ul>
 </li>
-<li><strong>Безопасность и песочница</strong>: локальные файловые пути изолированы в Chroot-песочнице <code>localSandboxDir</code> (<code>REPLICATOR_LOCAL_SANDBOX</code>) с блокировкой системных каталогов ОС (<code>FORBIDDEN_OS_PREFIXES</code>).</li>
+<li><strong>Безопасность и песочница</strong>: локальные файловые пути изолированы в Chroot-песочнице <code>localSandboxDir</code> (<code>PAROM_LOCAL_SANDBOX</code>) с блокировкой системных каталогов ОС (<code>FORBIDDEN_OS_PREFIXES</code>).</li>
 </ul>
 </li>
 <li><strong>МежЦОДная магистраль WAN (Москва ➔ Санкт-Петербург)</strong>:<ul>
@@ -554,7 +554,7 @@
 </ul>
 </li>
 <li><strong>Контур ЦОД-2 Standby / DR (Санкт-Петербург)</strong>:<ul>
-<li><strong>Устанавливается</strong>: демоны <code>hadoop-grpc-replicator-agent.jar</code> (приемник HDFS/HMS на <code>:50051</code>) и <code>kafka-replicator-agent</code> (приемник Kafka на <code>:50052</code>).</li>
+<li><strong>Устанавливается</strong>: демоны <code>hadoop-grpc-parom-agent.jar</code> (приемник HDFS/HMS на <code>:50051</code>) и <code>kafka-replicator-agent</code> (приемник Kafka на <code>:50052</code>).</li>
 <li>Слушают входящие порты <code>TCP :50051</code> и <code>TCP :50052</code>. Серверы Netty переведены на виртуальные потоки Java 21 (<code>Executors.newVirtualThreadPerTaskExecutor()</code>).</li>
 <li>Валидируют криптографическую подпись HMAC-SHA256 задачи (<code>TaskAttestationValidator</code>) перед созданием целевых файлов.</li>
 <li>Принимают чанки HDFS данных по 4 МБ, рассчитывают SHA-256 хеш на лету и пишут во временные файлы <code>._staging_&lt;jobId&gt;</code> локальной HDFS (<code>TCP :9866</code>).</li>
@@ -569,7 +569,7 @@
 <div class="page-break"></div>
 <div class="slide-header-block"><div class="slide-section-badge">СЕКЦИЯ 2 / 13 • ТЕХНИЧЕСКИЙ РЕГЛАМЕНТ</div><h2 class="slide-h2">Слайд 2: Спецификация компонентов платформы, роли хостов и инварианты</h2></div>
 <h3>Назначение и стек технологий</h3>
-<p><code>Hadoop gRPC Replicator</code> — специализированный сервис межкластерной репликации файлов HDFS, метаданных Hive Metastore (HMS CDC) и очередей Apache Kafka между изолированными дата-центрами (On-Premises, Private Cloud, Hybrid Cloud) с аппаратным контролем полосы WAN и защитой от Split-Brain.</p>
+<p><code>Parom</code> — специализированный сервис межкластерной репликации файлов HDFS, метаданных Hive Metastore (HMS CDC) и очередей Apache Kafka между изолированными дата-центрами (On-Premises, Private Cloud, Hybrid Cloud) с аппаратным контролем полосы WAN и защитой от Split-Brain.</p>
 <div class="table-wrapper"><table>
 <thead>
 <tr>
@@ -580,8 +580,8 @@
 </thead>
 <tbody><tr>
 <td align="left"><strong>Бинарный пакет</strong></td>
-<td align="left"><code>hadoop-grpc-replicator-orchestrator.jar</code></td>
-<td align="left"><code>hadoop-grpc-replicator-agent.jar</code></td>
+<td align="left"><code>hadoop-grpc-parom-orchestrator.jar</code></td>
+<td align="left"><code>hadoop-grpc-parom-agent.jar</code></td>
 </tr>
 <tr>
 <td align="left"><strong>Среда исполнения</strong></td>
@@ -634,7 +634,7 @@
 </ul>
 </li>
 <li><strong>Chroot Sandbox и защита ОС</strong>:<ul>
-<li>Локальные файловые пути проверяются относительно <code>localSandboxDir</code> (<code>REPLICATOR_LOCAL_SANDBOX</code>) с блокировкой Symlink Traversal, Null Bytes и системных путей Linux/macOS.</li>
+<li>Локальные файловые пути проверяются относительно <code>localSandboxDir</code> (<code>PAROM_LOCAL_SANDBOX</code>) с блокировкой Symlink Traversal, Null Bytes и системных путей Linux/macOS.</li>
 </ul>
 </li>
 </ol>
@@ -648,10 +648,10 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
   -Dspring.datasource.url=jdbc:postgresql://postgres.infra:5432/replicator_db \
   -Dspring.datasource.username=replicator_app \
   -Dspring.datasource.password=${DB_PASSWORD} \
-  -jar replicator-orchestrator.jar
+  -jar parom-orchestrator.jar
 </code></pre>
 <h3>Параметры запуска процесса Replicator Agent (CLI Options)</h3>
-<p>Точка входа: <code>io.github.balookrd.pristan.replicator.agent.ReplicatorAgentMain</code>.</p>
+<p>Точка входа: <code>io.github.balookrd.pristan.parom.agent.ParomAgentMain</code>.</p>
 <div class="table-wrapper"><table>
 <thead>
 <tr>
@@ -717,19 +717,19 @@ java -Xms4g -Xmx8g -XX:+UseG1GC \
 </tr>
 <tr>
 <td align="left">—</td>
-<td align="left"><code>REPLICATOR_AGENT_SECRET</code></td>
+<td align="left"><code>PAROM_AGENT_SECRET</code></td>
 <td align="left">—</td>
 <td align="left">Общий секрет взаимной аутентификации агента и оркестратора (токен x-agent-secret)</td>
 </tr>
 <tr>
 <td align="left">—</td>
-<td align="left"><code>REPLICATOR_LOCAL_SANDBOX</code></td>
+<td align="left"><code>PAROM_LOCAL_SANDBOX</code></td>
 <td align="left"><code>/tmp/sandbox</code></td>
 <td align="left">Корневой каталог Chroot-песочницы локальной ФС с защитой системных путей ОС (SEC-10)</td>
 </tr>
 <tr>
 <td align="left">—</td>
-<td align="left"><code>REPLICATOR_ENFORCE_TASK_ATTESTATION</code></td>
+<td align="left"><code>PAROM_ENFORCE_TASK_ATTESTATION</code></td>
 <td align="left"><code>true</code></td>
 <td align="left">Обязательная криптографическая проверка HMAC токена задачи перед записью в HDFS</td>
 </tr>
@@ -1205,7 +1205,7 @@ sequenceDiagram
 </ul>
 </li>
 <li><strong>Chroot-песочница локальных путей и защита системных каталогов ОС (SEC-10)</strong>:<ul>
-<li>Все локальные файловые пути проверяются относительно <code>localSandboxDir</code> (<code>REPLICATOR_LOCAL_SANDBOX</code>) через <code>File.getCanonicalFile()</code>.</li>
+<li>Все локальные файловые пути проверяются относительно <code>localSandboxDir</code> (<code>PAROM_LOCAL_SANDBOX</code>) через <code>File.getCanonicalFile()</code>.</li>
 <li>Блокируются Symlink Traversal, Null Byte Injection, системные каталоги (<code>/bin</code>, <code>/sbin</code>, <code>/etc</code>, <code>/usr</code>, <code>/proc</code>, <code>/sys</code>) и приватные файлы хоста (<code>.ssh</code>, <code>.gnupg</code>, <code>.env</code>, <code>crontab</code>).</li>
 </ul>
 </li>
@@ -1281,17 +1281,17 @@ sequenceDiagram
 <h3>Рабочие экраны администратора и инженера данных</h3>
 <div class="screen-card"><h4>1. Управление топологией дата-центров и шейпером полосы</h4>
 <div align="center">
-  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/replicator/04_topology_bandwidth.png" alt="Управление топологией дата-центров и шейпером полосы" width="850" />
+  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/parom/04_topology_bandwidth.png" alt="Управление топологией дата-центров и шейпером полосы" width="850" />
 </div>
 *Конфигурация глобальных лимитов WAN, порогов каналов между ЦОД и приоритетных очередей без перезапуска демонов.*</div><hr>
 <div class="screen-card"><h4>2. Главная панель задач и мониторинг передачи в реальном времени</h4>
 <div align="center">
-  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/replicator/02_main_dashboard.png" alt="Главный экран задач репликации и статистика производительности" width="850" />
+  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/parom/02_main_dashboard.png" alt="Главный экран задач репликации и статистика производительности" width="850" />
 </div>
 *Контроль активных потоков данных, мгновенной сетевой утилизации в МБ/с, переданных байт и прогноза времени завершения (ETA).*</div><hr>
 <div class="screen-card"><h4>3. Консоль потоковой CDC репликации Hive Metastore</h4>
 <div align="center">
-  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/replicator/06_hms_replication_dashboard.png" alt="Консоль потоковой CDC репликации Hive Metastore" width="850" />
+  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/parom/06_hms_replication_dashboard.png" alt="Консоль потоковой CDC репликации Hive Metastore" width="850" />
 </div>
 *Мониторинг отставания событий (Lag), статуса распределенной аренды Inotify Lease HA и журнала трансляции DDL.*</div><hr>
 <h4>4. Консоль потоковой репликации Apache Kafka</h4>
@@ -1299,12 +1299,12 @@ sequenceDiagram
 <hr>
 <div class="screen-card"><h4>5. Центр катастрофоустойчивости DR Hub в режиме изоляции Kill-Switch</h4>
 <div align="center">
-  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/replicator/10_disaster_recovery_fenced_state.png" alt="Центр катастрофоустойчивости DR Hub и режим изоляции Kill-Switch" width="850" />
+  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/parom/10_disaster_recovery_fenced_state.png" alt="Центр катастрофоустойчивости DR Hub и режим изоляции Kill-Switch" width="850" />
 </div>
 *Яркая индикация сетевого барьера (0 МБ/с), заморозка прямых задач и защита кластера от Split-Brain.*</div><hr>
 <div class="screen-card"><h4>6. Мастер безопасного снятия изоляции и 1-Click Reverse Replication</h4>
 <div align="center">
-  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/replicator/12_reverse_replication_modal.png" alt="Снятие изоляции и мастер 1-Click Reverse Replication" width="850" />
+  <img src="file:///Users/mvmalykh/IdeaProjects/hadoop-explorer/docs/images/parom/12_reverse_replication_modal.png" alt="Снятие изоляции и мастер 1-Click Reverse Replication" width="850" />
 </div>
 *Безопасный Unfence без автоматического старта прямых задач и запуск обратного потока DC2 ➔ DC1 для догона дельты.*</div><hr>
 <div class="page-break"></div>
@@ -1392,7 +1392,7 @@ sequenceDiagram
 <pre><code class="language-yaml">groups:
   - name: replicator-alerts
     rules:
-      - alert: ReplicatorAgentOffline
+      - alert: ParomAgentOffline
         expr: time() - replicator_agent_heartbeat_timestamp &gt; 30
         for: 1m
         labels:

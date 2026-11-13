@@ -1,0 +1,223 @@
+package io.github.balookrd.pristan.parom.orchestrator.grpc;
+
+import io.grpc.Server;
+import io.grpc.netty.shaded.io.grpc.netty.GrpcSslContexts;
+import io.grpc.netty.shaded.io.grpc.netty.NettyServerBuilder;
+import io.grpc.netty.shaded.io.netty.handler.ssl.ClientAuth;
+import io.grpc.netty.shaded.io.netty.handler.ssl.SslContextBuilder;
+import io.grpc.netty.shaded.io.netty.handler.ssl.util.SelfSignedCertificate;
+import io.github.balookrd.pristan.parom.orchestrator.config.ParomProperties;
+import io.opentelemetry.api.OpenTelemetry;
+import io.github.balookrd.pristan.parom.security.AgentGrpcAuthInterceptor;
+import io.github.balookrd.pristan.parom.telemetry.GrpcHealth;
+import io.github.balookrd.pristan.parom.telemetry.GrpcTracing;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.context.SmartLifecycle;
+import org.springframework.stereotype.Component;
+
+import java.io.File;
+import java.io.IOException;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicBoolean;
+import java.util.concurrent.atomic.AtomicInteger;
+
+/**
+ * Управление жизненным циклом (SmartLifecycle) gRPC сервера Control Plane в Оркестраторе.
+ *
+ * <p>Поддерживает выделенный пул платформенных потоков (предотвращающий Carrier Thread Pinning
+ * при транзакциях JPA / H2), L7-аутентификацию по X-Agent-Secret и конфигурируемый TLS.
+ */
+@Component
+public class OrchestratorGrpcServer implements SmartLifecycle {
+
+    private static final Logger log = LoggerFactory.getLogger(OrchestratorGrpcServer.class);
+
+    private final ParomProperties properties;
+    private final OrchestratorControlPlaneServiceImpl service;
+    private final org.springframework.beans.factory.ObjectProvider<OpenTelemetry> openTelemetryProvider;
+
+    /** Статус для стандартной health-пробы gRPC: балансировщику и контейнеру. */
+    private final GrpcHealth health = new GrpcHealth();
+
+    private Server grpcServer;
+    private ExecutorService grpcExecutor;
+    private final AtomicBoolean isRunning = new AtomicBoolean(false);
+
+    public OrchestratorGrpcServer(ParomProperties properties,
+                                  OrchestratorControlPlaneServiceImpl service,
+                                  org.springframework.beans.factory.ObjectProvider<OpenTelemetry> openTelemetryProvider) {
+        this.properties = properties;
+        this.service = service;
+        this.openTelemetryProvider = openTelemetryProvider;
+    }
+
+    @Override
+    public void start() {
+        var grpcConfig = properties.getGrpc();
+        if (grpcConfig == null || !grpcConfig.isEnabled()) {
+            log.info("gRPC Control Plane отключен в конфигурации");
+            return;
+        }
+
+        int port = grpcConfig.getPort();
+        log.info("Инициализация Orchestrator gRPC Control Plane на порту {}...", port);
+
+        this.grpcExecutor = createGrpcExecutor();
+
+        // Перехватчики gRPC работают с тем же экземпляром OpenTelemetry, что и HTTP-слой,
+        // иначе вызовы агентов попали бы в отдельную трассу
+        OpenTelemetry openTelemetry = openTelemetryProvider != null
+                ? openTelemetryProvider.getIfAvailable() : null;
+        if (openTelemetry != null) {
+            GrpcTracing.setOpenTelemetry(openTelemetry);
+        }
+
+        try {
+            NettyServerBuilder builder = NettyServerBuilder.forPort(port)
+                    .executor(grpcExecutor)
+                    .addService(service)
+                    .addService(health.service())
+                    .maxInboundMessageSize(grpcConfig.getMaxInboundMessageSize())
+                    .keepAliveTime(30, TimeUnit.SECONDS)
+                    .keepAliveTimeout(10, TimeUnit.SECONDS)
+                    // Агенты пингуют каждые 30 с и без активных вызовов. По умолчанию сервер
+                    // разрешает пинг раз в 5 минут и только при вызовах, а на чаще отвечает
+                    // GOAWAY (too_many_pings): соединение рвалось, вызовы на нем падали, и у
+                    // десятков HMS-задач разом истекала аренда
+                    .permitKeepAliveTime(20, TimeUnit.SECONDS)
+                    .permitKeepAliveWithoutCalls(true);
+
+            // Аутентификация по X-Agent-Secret: интерцептор ставится всегда (fail-closed).
+            // При незаданном секрете все вызовы отклоняются, иначе control plane был бы
+            // полностью открыт анонимным агентам.
+            String secret = properties.getAgentSecret();
+            builder.intercept(AgentGrpcAuthInterceptor.forServer(secret));
+            // Добавляется последним, поэтому выполняется первым: в трассу попадают и
+            // отклоненные аутентификацией вызовы
+            builder.intercept(GrpcTracing.serverInterceptor());
+            if (secret != null && !secret.isBlank()) {
+                log.info("Включена gRPC L7 аутентификация по X-Agent-Secret в Control Plane");
+            } else {
+                log.error("X-Agent-Secret не сконфигурирован: Control Plane запущен в режиме Fail-Closed, "
+                        + "все вызовы агентов будут отклоняться");
+            }
+
+            // TLS конфигурация (опционально)
+            if (grpcConfig.isTlsEnabled()) {
+                SslContextBuilder sslBuilder;
+                if (grpcConfig.getCertChainPath() != null && grpcConfig.getPrivateKeyPath() != null) {
+                    sslBuilder = SslContextBuilder.forServer(
+                            new File(grpcConfig.getCertChainPath()),
+                            new File(grpcConfig.getPrivateKeyPath())
+                    );
+                } else {
+                    log.info("gRPC TLS включен без путей к сертификатам: генерация временного SelfSignedCertificate");
+                    SelfSignedCertificate ssc = new SelfSignedCertificate("localhost");
+                    sslBuilder = SslContextBuilder.forServer(ssc.certificate(), ssc.privateKey());
+                }
+
+                if (grpcConfig.getTrustCertCollectionPath() != null && !grpcConfig.getTrustCertCollectionPath().isBlank()) {
+                    sslBuilder.trustManager(new File(grpcConfig.getTrustCertCollectionPath()));
+                }
+
+                String clientAuth = grpcConfig.getClientAuth();
+                if ("REQUIRE".equalsIgnoreCase(clientAuth) || "REQUIRED".equalsIgnoreCase(clientAuth)) {
+                    sslBuilder.clientAuth(ClientAuth.REQUIRE);
+                } else if ("OPTIONAL".equalsIgnoreCase(clientAuth)) {
+                    sslBuilder.clientAuth(ClientAuth.OPTIONAL);
+                } else {
+                    sslBuilder.clientAuth(ClientAuth.NONE);
+                }
+
+                builder.sslContext(GrpcSslContexts.configure(sslBuilder).build());
+                log.info("gRPC TLS активирован на Control Plane (mTLS: {})", clientAuth);
+            }
+
+            this.grpcServer = builder.build().start();
+            health.serving();
+            isRunning.set(true);
+            log.info("==========================================================================");
+            log.info("🚀 Orchestrator gRPC Control Plane успешно запущен и слушает порт {}", grpcServer.getPort());
+            log.info("==========================================================================");
+
+        } catch (IOException e) {
+            log.error("КРИТИЧЕСКАЯ ОШИБКА старта Orchestrator gRPC Control Plane: {}", e.getMessage(), e);
+            throw new IllegalStateException("Не удалось запустить gRPC Control Plane на порту " + port, e);
+        } catch (Exception e) {
+            log.error("Сбой инициализации TLS для gRPC сервера: {}", e.getMessage(), e);
+            throw new IllegalStateException("Сбой TLS для gRPC Control Plane", e);
+        }
+    }
+
+    @Override
+    public void stop() {
+        if (grpcServer != null) {
+            log.info("Остановка Orchestrator gRPC Control Plane...");
+            // Проба обязана узнать об остановке до закрытия порта, иначе балансировщик
+            // продолжит отправлять вызовы агентов на останавливающийся узел
+            health.shutdown();
+            try {
+                grpcServer.shutdown().awaitTermination(5, TimeUnit.SECONDS);
+            } catch (InterruptedException e) {
+                log.warn("Принудительная остановка gRPC сервера (Interrupted)");
+                grpcServer.shutdownNow();
+                Thread.currentThread().interrupt();
+            } finally {
+                if (grpcExecutor != null) {
+                    grpcExecutor.shutdown();
+                }
+                isRunning.set(false);
+                log.info("Orchestrator gRPC Control Plane остановлен");
+            }
+        }
+    }
+
+    @Override
+    public boolean isRunning() {
+        return isRunning.get();
+    }
+
+    @Override
+    public int getPhase() {
+        // Запуск после подъема JPA и core сервисов
+        return Integer.MAX_VALUE - 100;
+    }
+
+    @Override
+    public boolean isAutoStartup() {
+        return true;
+    }
+
+    public int getPort() {
+        return grpcServer != null ? grpcServer.getPort() : properties.getGrpc().getPort();
+    }
+
+    /**
+     * Пул обработки вызовов Control Plane.
+     *
+     * <p>Политика отказа важнее размера пула: с {@code CallerRunsPolicy} переполнение очереди
+     * приводило к исполнению вызова в потоке Netty event loop, то есть к остановке транспорта
+     * для всех остальных агентов. Отказ ({@code AbortPolicy}) превращает перегрузку в честный
+     * {@code UNAVAILABLE} конкретному вызывающему, который повторит запрос.
+     */
+    static ThreadPoolExecutor createGrpcExecutor() {
+        int poolSize = Math.max(16, Runtime.getRuntime().availableProcessors() * 4);
+        return new ThreadPoolExecutor(
+                poolSize,
+                Math.max(64, poolSize * 2),
+                60L, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(1000),
+                new ThreadFactory() {
+                    private final AtomicInteger counter = new AtomicInteger(1);
+                    @Override
+                    public Thread newThread(Runnable r) {
+                        Thread t = new Thread(r, "grpc-orchestrator-" + counter.getAndIncrement());
+                        t.setDaemon(true);
+                        return t;
+                    }
+                },
+                new ThreadPoolExecutor.AbortPolicy()
+        );
+    }
+}

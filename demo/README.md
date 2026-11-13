@@ -6,7 +6,7 @@
 - `demo/sklad` — стенд Sklad (:8002) с двумя кластерами DataLake (WebHDFS + Kerberos).
 - `demo/tolmach` — стенд Tolmach (:8003) с PostgreSQL, Apache Hive (Metastore + HiveServer2) и Trino.
 - `demo/iskra` — стенд Iskra (:8004) с Apache Livy, Hive Metastore, YARN и HDFS.
-- `demo/replicator` — стенд Hadoop gRPC Replicator (:8005) с межкластерной репликацией HDFS и Hive Metastore (2 HMS, 2 HDFS, 2 агента, KDC).
+- `demo/parom` — стенд Parom (:8005) с межкластерной репликацией HDFS и Hive Metastore (2 HMS, 2 HDFS, 2 агента, KDC).
 - `demo/monitoring` — Prometheus (:9090) и Grafana (:3000) с подключенным дашбордом.
 - `demo/all` — все 5 сервисов, KDC, LDAP, Prometheus и Grafana в одном Compose-проекте; общие контейнеры запускаются один раз.
 
@@ -25,7 +25,7 @@ make demo-all
 - Sklad: [http://localhost:8002](http://localhost:8002)
 - Tolmach: [http://localhost:8003](http://localhost:8003)
 - Iskra: [http://localhost:8004](http://localhost:8004)
-- Hadoop gRPC Replicator: [http://localhost:8005](http://localhost:8005)
+- Parom: [http://localhost:8005](http://localhost:8005)
 - Grafana: [http://localhost:3000](http://localhost:3000) (анонимный вход с ролью admin)
 - Prometheus: [http://localhost:9090](http://localhost:9090)
 
@@ -39,7 +39,7 @@ make demo-all-stop
 - Sklad: `make demo-sklad` (остановка: `make demo-sklad-stop`)
 - Tolmach: `make demo-tolmach` (остановка: `make demo-tolmach-stop`)
 - Iskra: `make demo-iskra` (остановка: `make demo-iskra-stop`)
-- Replicator: `make demo-replicator` (остановка: `make demo-replicator-stop`)
+- Replicator: `make demo-parom` (остановка: `make demo-parom-stop`)
 - Стек мониторинга: `make demo-monitoring` (остановка: `make demo-monitoring-stop`)
 
 ---

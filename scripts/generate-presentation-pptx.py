@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
 Скрипт генерации архитектурной презентации PowerPoint (.pptx)
-для сервиса Hadoop gRPC Replicator с фокусом на:
+для сервиса Parom с фокусом на:
 - «Что ставится куда» (Deployment Topology)
 - «Как ходит трафик» (Network Flows & Protocols)
 """
@@ -194,7 +194,7 @@ def generate_presentation(output_pptx_path):
     prs.slide_height = Inches(7.5)
 
     base_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    img_dir = os.path.join(base_dir, "docs", "images", "replicator")
+    img_dir = os.path.join(base_dir, "docs", "images", "parom")
     logo_path = os.path.join(base_dir, "images", "logo_white.png")
     arch_img_path = os.path.join(img_dir, "architecture_deployment_traffic.png")
 
@@ -220,7 +220,7 @@ def generate_presentation(output_pptx_path):
     p.font.color.rgb = ACCENT_CYAN
 
     p = tf1.add_paragraph()
-    p.text = "Hadoop gRPC Replicator"
+    p.text = "Parom"
     p.font.size = Pt(32)
     p.font.bold = True
     p.font.color.rgb = TEXT_WHITE

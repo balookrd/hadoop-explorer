@@ -3,10 +3,10 @@ message: "Монитор вокруг сетевого или файлового
 severity: error
 language: java
 files:
-  - "backend/replicator/agent/src/main/java/io/github/balookrd/pristan/replicator/inotify/InotifyBatchProcessor.java"
-  - "backend/replicator/agent/src/main/java/io/github/balookrd/pristan/replicator/kafka/security/KerberosSpnegoAuthenticator.java"
-  - "backend/replicator/agent/src/main/java/io/github/balookrd/pristan/replicator/sender/ReplicationSender.java"
-  - "backend/replicator/agent/src/main/java/io/github/balookrd/pristan/replicator/client/OrchestratorGrpcClient.java"
+  - "backend/parom/agent/src/main/java/io/github/balookrd/pristan/parom/inotify/InotifyBatchProcessor.java"
+  - "backend/parom/agent/src/main/java/io/github/balookrd/pristan/parom/kafka/security/KerberosSpnegoAuthenticator.java"
+  - "backend/parom/agent/src/main/java/io/github/balookrd/pristan/parom/sender/ReplicationSender.java"
+  - "backend/parom/agent/src/main/java/io/github/balookrd/pristan/parom/client/OrchestratorGrpcClient.java"
 rule:
   any:
     - pattern: synchronized ($LOCK) { $$$BODY }

@@ -14,7 +14,7 @@
       }
     ]
   },
-  "description": "Мониторинг платформы Pristan: HTTP golden signals сервисов YARN, HDFS, SQL и Spark (Micrometer http_server_requests), входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Hadoop gRPC Replicator",
+  "description": "Мониторинг платформы Pristan: HTTP golden signals сервисов YARN, HDFS, SQL и Spark (Micrometer http_server_requests), входы, ответы 429 ограничителя частоты и ответы 5xx, сводка Parom",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 1,
@@ -857,7 +857,7 @@
         "y": 28
       },
       "id": 500,
-      "title": "🔄 Межкластерная репликация данных (Hadoop gRPC Replicator QoS & Throttling)",
+      "title": "🔄 Межкластерная репликация данных (Parom QoS & Throttling)",
       "type": "row"
     },
     {

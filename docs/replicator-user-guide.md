@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="../images/logo_white.png" alt="Pristan — Hadoop gRPC Replicator" width="380" />
+<img src="../images/logo_white.png" alt="Pristan — Parom" width="380" />
 
-# Руководство пользователя: Hadoop gRPC Replicator
+# Руководство пользователя: Parom
 
 <p>Межкластерная репликация HDFS через WAN с ограничением полосы (Hierarchical Token Bucket), Kerberos-изоляцией и планировщиком</p>
 
@@ -10,7 +10,7 @@
 
 ---
 
-Hadoop gRPC Replicator — сервис Pristan для репликации данных HDFS между кластерами в разных ЦОД (DC1 ➔ DC2 ➔ DC3) через WAN-каналы. Руководство описывает архитектуру, ролевую модель, режимы синхронизации и работу в веб-интерфейсе; оно рассчитано на операторов, инженеров данных и администраторов платформы.
+Parom — сервис Pristan для репликации данных HDFS между кластерами в разных ЦОД (DC1 ➔ DC2 ➔ DC3) через WAN-каналы. Руководство описывает архитектуру, ролевую модель, режимы синхронизации и работу в веб-интерфейсе; оно рассчитано на операторов, инженеров данных и администраторов платформы.
 
 Полосу WAN ограничивает трехуровневый Hierarchical Token Bucket, поэтому репликация не занимает канал сверх заданных квот. Перед коммитом файла приемник сверяет SHA-256 и только затем атомарно переименовывает staging-файл в целевой. Задачи запускаются вручную или по расписанию (Cron Scheduler), в том числе от сервисной учетной записи.
 
@@ -55,7 +55,7 @@ Hadoop gRPC Replicator — сервис Pristan для репликации да
 
 ## 1. Архитектура и потоки данных
 
-Hadoop gRPC Replicator состоит из трех компонентов:
+Parom состоит из трех компонентов:
 
 ```mermaid
 flowchart TD
@@ -209,7 +209,7 @@ topology:
 - Демо-профили — кнопки быстрого входа под `admin_user` (ADM), `writer_user` (RW) и `reader_user` (RO) и вкладки фильтрации профилей по сервисам платформы («Универсальные», «Replicator», «HDFS», «YARN», «SQL», «Spark») для проверки разграничения ролей.
 
 <div align="center">
-  <img src="images/replicator/01_login_screen.png" alt="Экран аутентификации Hadoop gRPC Replicator" width="850" />
+  <img src="images/parom/01_login_screen.png" alt="Экран аутентификации Parom" width="850" />
   <p><em>Рисунок 1: Экран аутентификации LDAP & Kerberos Single Sign-On (SPNEGO) с профилями быстрого переключения ролей</em></p>
 </div>
 
@@ -229,9 +229,9 @@ topology:
 Задача, запущенная от сервисной учетной записи, не прерывается, когда у пользователя истекает билет Kerberos или он закрывает браузер.
 
 При создании задачи доступна опция **«Запускать от сервисной учетной записи»** (`run_as_service_account=True`):
-1. Принципал по умолчанию — `hdfs-replicator@REALM.LOCAL`, задается переменной `REPLICATOR_SERVICE_PRINCIPAL`.
+1. Принципал по умолчанию — `hdfs-replicator@REALM.LOCAL`, задается переменной `PAROM_SERVICE_PRINCIPAL`.
 2. Вход по keytab и имперсонация (`KerberosUgiProvider` агента):
-   - при старте агент один раз выполняет `UserGroupInformation.loginUserFromKeytab(<principal>, <keytab>)`; путь к keytab берется из `REPLICATOR_KEYTAB_PATH`, если она не задана — из `KRB5_KEYTAB`;
+   - при старте агент один раз выполняет `UserGroupInformation.loginUserFromKeytab(<principal>, <keytab>)`; путь к keytab берется из `PAROM_KEYTAB_PATH`, если она не задана — из `KRB5_KEYTAB`;
    - с `run_as_service_account=True` операции HDFS выполняются в `doAs` от UGI сервисной учетной записи;
    - без этой опции агент создает proxy-UGI пользователя-автора задачи (`UserGroupInformation.createProxyUser`) поверх UGI сервисной учетной записи. Proxy-UGI кэшируется по имени пользователя и сбрасывается при перелогине сервисной учетной записи. Для имперсонации на NameNode должны быть настроены `hadoop.proxyuser.<service_user>.hosts` и `hadoop.proxyuser.<service_user>.groups`, где `<service_user>` — короткое имя сервисного принципала;
    - билет пользователя агент не использует, поэтому параллельные задачи разных пользователей работают в общем Kerberos-контексте агента и не зависят от билетов друг друга.
@@ -256,7 +256,7 @@ topology:
 | `@yearly`, `@annually` | 1 января в 00:00 |
 | 5 полей: `минута час день-месяца месяц день-недели` | По календарю: `0 0 * * *` — в 00:00, `*/10 * * * *` — в 00, 10, 20… минут, `30 2 * * 1-5` — в 02:30 по будням |
 
-Время — в часовом поясе оркестратора `hadoop.replicator.scheduler.time-zone`, по умолчанию UTC.
+Время — в часовом поясе оркестратора `parom.scheduler.time-zone`, по умолчанию UTC.
 
 ### Жизненный цикл запланированной задачи
 
@@ -306,7 +306,7 @@ topology:
 
 При создании задачи репликации каталога ничего включать не нужно: инкрементальная передача работает по алгоритму [7.1 In-Memory Manifest Diff](#71-рекурсивная-инкрементальная-синхронизация-каталогов-по-умолчанию-без-снэпшотов), а потоковые изменения в реальном времени передаются через HDFS Inotify CDC.
 
-Описанный ниже Snapshot Diff — низкоуровневый API: методы создания и удаления снимков (`createSnapshot` / `deleteSnapshot`) реализованы в [`HadoopFsManager`](../backend/replicator/agent/src/main/java/io/github/balookrd/pristan/replicator/fs/HadoopFsManager.java). Он предназначен для каталогов с десятками миллионов файлов, где администратор кластера заранее разрешил снимки (`hdfs dfsadmin -allowSnapshot`).
+Описанный ниже Snapshot Diff — низкоуровневый API: методы создания и удаления снимков (`createSnapshot` / `deleteSnapshot`) реализованы в [`HadoopFsManager`](../backend/parom/agent/src/main/java/io/github/balookrd/pristan/parom/fs/HadoopFsManager.java). Он предназначен для каталогов с десятками миллионов файлов, где администратор кластера заранее разрешил снимки (`hdfs dfsadmin -allowSnapshot`).
 
 Как работает Snapshot Diff:
 1. Управление снимками агентом Replicator:
@@ -486,7 +486,7 @@ topology:
 
 ## 8. Веб-интерфейс оператора
 
-Веб-консоль репликатора доступна по адресу `http://<host>:8005`, где `<host>` — хост оркестратора. Это SPA-приложение (`frontend/apps/replicator`) на Svelte 5, использующее общие компоненты платформы [`Header.svelte`](../frontend/common/components/Header.svelte) и [`LoginModal.svelte`](../frontend/common/components/LoginModal.svelte) из `@pristan/common`.
+Веб-консоль репликатора доступна по адресу `http://<host>:8005`, где `<host>` — хост оркестратора. Это SPA-приложение (`frontend/apps/parom`) на Svelte 5, использующее общие компоненты платформы [`Header.svelte`](../frontend/common/components/Header.svelte) и [`LoginModal.svelte`](../frontend/common/components/LoginModal.svelte) из `@pristan/common`.
 
 В верхней панели навигации четыре раздела:
 1. **«HMS Replication»** (открывается по умолчанию) — мониторинг CDC-потоков Hive Metastore, репликация схем, отставание событий (Event Lag) и вложенные задачи синхронизации метаданных.
@@ -495,7 +495,7 @@ topology:
 4. **«Disaster Recovery»** — пульт аварийного переключения (Failover Hub) со схемой маршрутов DC1 ⇄ DC2 и кнопкой экстренной остановки (Kill-Switch).
 
 <div align="center">
-  <img src="images/replicator/02_main_dashboard.png" alt="Главная панель HDFS Replication" width="850" />
+  <img src="images/parom/02_main_dashboard.png" alt="Главная панель HDFS Replication" width="850" />
   <p><em>Рисунок 2: Главная панель HDFS Replication со счетчиками статусов, поиском и таблицей задач</em></p>
 </div>
 
@@ -560,7 +560,7 @@ topology:
 3. Нажмите **«Создать задачу»**. Задача появится в таблице: периодическая — в статусе `SCHEDULED` (индиго), разовая — в статусе `QUEUED`. В колонке создателя отображается бейдж фактического UGI doAs (`user [doAs]`).
 
 <div align="center">
-  <img src="images/replicator/03_create_job_modal.png" alt="Модальное окно создания новой задачи репликации HDFS" width="850" />
+  <img src="images/parom/03_create_job_modal.png" alt="Модальное окно создания новой задачи репликации HDFS" width="850" />
   <p><em>Рисунок 3: Модальное окно создания новой задачи репликации HDFS с выбором кластеров, путей, планировщика и Kerberos doAs</em></p>
 </div>
 
@@ -570,7 +570,7 @@ topology:
 2. Чтобы изменить полосу канала (DC-DC или HDFS-HDFS), введите новое значение в МБ/с в поле ввода и нажмите **«Сохранить»**. Новый лимит применяется ко всем воркерам в течение 1 секунды.
 
 <div align="center">
-  <img src="images/replicator/04_topology_bandwidth.png" alt="Раздел Топология ЦОД и Полоса" width="850" />
+  <img src="images/parom/04_topology_bandwidth.png" alt="Раздел Топология ЦОД и Полоса" width="850" />
   <p><em>Рисунок 4: Раздел «Топология ЦОД и Полоса» с иерархическим шейпером Token Bucket (DC-DC, HDFS-HDFS, Global)</em></p>
 </div>
 
@@ -593,7 +593,7 @@ topology:
 3. Чтобы обновить историю, нажмите кнопку синхронизации.
 
 <div align="center">
-  <img src="images/replicator/05_job_history_modal.png" alt="Модальное окно истории запусков задачи" width="850" />
+  <img src="images/parom/05_job_history_modal.png" alt="Модальное окно истории запусков задачи" width="850" />
   <p><em>Рисунок 5: Модальное окно детальной истории запусков задачи (Job Runs History, Retention, средняя скорость)</em></p>
 </div>
 
@@ -602,7 +602,7 @@ topology:
 Раздел **«HMS Replication»** синхронизирует метаданные баз данных и таблиц Hive между кластерами (например, HDP 3.1 ➔ Apache Hive 3.1.3).
 
 <div align="center">
-  <img src="images/replicator/06_hms_replication_dashboard.png" alt="Раздел HMS Replication" width="850" />
+  <img src="images/parom/06_hms_replication_dashboard.png" alt="Раздел HMS Replication" width="850" />
   <p><em>Рисунок 6: Раздел «HMS Replication» (статус распределенного лизинга Inotify/CDC стримеров, Event Lag и таблица схем)</em></p>
 </div>
 
@@ -650,7 +650,7 @@ topology:
       - Жизненный цикл связанного стримера следует за задачей HMS: пауза, возобновление и каскадное удаление. В интерфейсе отображается индикатор `+ HDFS Inotify`.
 
 <div align="center">
-  <img src="images/replicator/07_create_hms_modal.png" alt="Модальное окно настройки репликации схемы HMS" width="850" />
+  <img src="images/parom/07_create_hms_modal.png" alt="Модальное окно настройки репликации схемы HMS" width="850" />
   <p><em>Рисунок 7: Модальное окно настройки непрерывной потоковой CDC-репликации схемы Hive Metastore</em></p>
 </div>
 
@@ -672,7 +672,7 @@ topology:
      - создание БД и таблицы с данными в DC1;
      - первичную синхронизацию (Bootstrap) в DC2;
      - создание новой таблицы в DC1 и ее потоковую синхронизацию через CDC;
-     - перенос схемы и файлов данных в DC2 (`./demo/replicator/run-smoke-tests.sh`).
+     - перенос схемы и файлов данных в DC2 (`./demo/parom/run-smoke-tests.sh`).
 
 ### 8.7 Консоль аварийного переключения (Disaster Recovery & Failover Hub)
 
@@ -684,7 +684,7 @@ topology:
    - суммарное отставание (Lag): объем непереданных данных HDFS в байтах и число неотправленных DDL/DML-событий Hive Metastore CDC.
 
 <div align="center">
-  <img src="images/replicator/08_disaster_recovery_dashboard.png" alt="Консоль Disaster Recovery & Failover Hub" width="850" />
+  <img src="images/parom/08_disaster_recovery_dashboard.png" alt="Консоль Disaster Recovery & Failover Hub" width="850" />
   <p><em>Рисунок 8: Консоль Disaster Recovery & Failover Hub (Data Flow Canvas, сетевой поток, таблица маршрутов)</em></p>
 </div>
 
@@ -692,7 +692,7 @@ topology:
    - Кнопка **Kill-Switch (Стоп DC1)** открывает окно аварийного останова, в котором указывается причина для аудита.
 
 <div align="center">
-  <img src="images/replicator/09_emergency_kill_switch_modal.png" alt="Модальное окно экстренного останова Kill-Switch" width="850" />
+  <img src="images/parom/09_emergency_kill_switch_modal.png" alt="Модальное окно экстренного останова Kill-Switch" width="850" />
   <p><em>Рисунок 9: Модальное окно экстренного останова (Kill-Switch) с сетевым ограждением Fencing (0 МБ/с)</em></p>
 </div>
 
@@ -704,7 +704,7 @@ topology:
      - окрашивает панель изолированного кластера в красный цвет с пульсирующим бейджем `ПОДАВЛЕН (FENCED)`, а для каждого привязанного HDFS-кластера выводит индикатор `ПОДАВЛЕН`.
 
 <div align="center">
-  <img src="images/replicator/10_disaster_recovery_fenced_state.png" alt="Индикация подавленного кластера при активном Kill-Switch" width="850" />
+  <img src="images/parom/10_disaster_recovery_fenced_state.png" alt="Индикация подавленного кластера при активном Kill-Switch" width="850" />
   <p><em>Рисунок 10: Индикация подавленного кластера при активном Kill-Switch (статус ПОДАВЛЕН и тревожный баннер)</em></p>
 </div>
 
@@ -716,7 +716,7 @@ topology:
      - порядок действий описан в [руководстве по Disaster Recovery](replicator-disaster-recovery-guide.md).
 
 <div align="center">
-  <img src="images/replicator/11_rollback_unfence_modal.png" alt="Модальное окно безопасного снятия изоляции Unfence" width="850" />
+  <img src="images/parom/11_rollback_unfence_modal.png" alt="Модальное окно безопасного снятия изоляции Unfence" width="850" />
   <p><em>Рисунок 11: Модальное окно безопасного снятия изоляции (Unfence) с защитой от Split-Brain и перезаписи данных</em></p>
 </div>
 
@@ -726,7 +726,7 @@ topology:
    - Система создает обратные задачи для всех каталогов HDFS и баз HMS: меняются местами кластеры (`from_cluster_id ➔ to_cluster_id`) и пути HDFS (`sourcePath = direct.getTargetPath()`, `targetPath = direct.getSourcePath()`), поэтому накопленная в резервном хранилище дельта переносится обратно в основной кластер. Воркеры DC2 переводятся в режим отправителей, лимит канала возвращается к штатным 100 МБ/с.
 
 <div align="center">
-  <img src="images/replicator/12_reverse_replication_modal.png" alt="Мастер запуска обратной репликации Reverse Replication" width="850" />
+  <img src="images/parom/12_reverse_replication_modal.png" alt="Мастер запуска обратной репликации Reverse Replication" width="850" />
   <p><em>Рисунок 12: Мастер запуска обратной репликации дельты изменений (Reverse Replication DC2 ➔ DC1)</em></p>
 </div>
 
@@ -829,7 +829,7 @@ topology:
 
 ## 9. Мониторинг и метрики Prometheus
 
-Сервис отдает метрики на эндпоинте `/metrics` (порт 8005). Анонимный доступ к нему закрыт: по метрикам видны топология ЦОД и объемы передач, поэтому сборщику нужны учетные данные: пользователь платформы или HTTP Basic `prometheus:<token>`, где `<token>` — значение `REPLICATOR_METRICS_SCRAPE_TOKEN` (`hadoop.replicator.metrics-scrape-token`) оркестратора. Если переменная пуста, Basic-доступ выключен.
+Сервис отдает метрики на эндпоинте `/metrics` (порт 8005). Анонимный доступ к нему закрыт: по метрикам видны топология ЦОД и объемы передач, поэтому сборщику нужны учетные данные: пользователь платформы или HTTP Basic `prometheus:<token>`, где `<token>` — значение `PAROM_METRICS_SCRAPE_TOKEN` (`parom.metrics-scrape-token`) оркестратора. Если переменная пуста, Basic-доступ выключен.
 
 | Метрика | Тип | Описание |
 |---|---|---|
@@ -858,18 +858,18 @@ topology:
 ### 9.1 Дашборды Grafana
 
 В репозитории есть три дашборда:
-1. [Hadoop gRPC Replicator — Overview](../monitoring/grafana/dashboards/hadoop_replicator_overview.json):
+1. [Parom — Overview](../monitoring/grafana/dashboards/hadoop_replicator_overview.json):
    - общая сводка и Golden Signals межкластерного обмена;
    - текущая и средняя скорость WAN, накопленный объем трафика;
    - очереди пофайловых задач HDFS и статусы репликации HMS;
    - задержки иерархического шейпера Token Bucket Throttler;
    - индикаторы сетевого ограждения Disaster Recovery.
-2. [Hadoop gRPC Replicator — Agents Fleet](../monitoring/grafana/dashboards/hadoop_replicator_agents.json):
+2. [Parom — Agents Fleet](../monitoring/grafana/dashboards/hadoop_replicator_agents.json):
    - статус каждого gRPC-агента в ЦОД (Online/Offline);
    - распределение параллельных потоков передачи файлов (`active_threads`);
    - скорость и объемы в разрезе агентов;
    - задержки heartbeat и динамика сетевых ошибок передачи.
-3. [Hadoop gRPC Replicator — HMS Replication & Disaster Recovery](../monitoring/grafana/dashboards/hadoop_replicator_hms_dr.json):
+3. [Parom — HMS Replication & Disaster Recovery](../monitoring/grafana/dashboards/hadoop_replicator_hms_dr.json):
    - фоновая и потоковая репликация метаданных Hive Metastore (CDC);
    - статус Kill-Switch и сетевого ограждения (Fencing) при инцидентах;
    - жизненный цикл схем и таблиц;
@@ -882,7 +882,7 @@ topology:
 ### Задача зависла в статусе QUEUED
 
 - Причина: не запущен воркер репликации (`worker daemon`) или заняты все слоты передачи.
-- Решение: проверьте логи контейнеров агентов. На демо-стенде `demo/replicator/docker-compose.yml`: `docker logs replicator-agent-dc1` и `docker logs replicator-agent-dc2`.
+- Решение: проверьте логи контейнеров агентов. На демо-стенде `demo/parom/docker-compose.yml`: `docker logs replicator-agent-dc1` и `docker logs replicator-agent-dc2`.
 
 ### Скорость репликации ниже ожидаемой
 
@@ -892,4 +892,4 @@ topology:
 ### Ошибка аутентификации Kerberos (GSSException)
 
 - Причина: истек или не найден keytab системного принципала.
-- Решение: убедитесь, что файл keytab смонтирован в контейнер воркера и доступен по пути из переменной `REPLICATOR_KEYTAB_PATH` (если она не задана, агент читает `KRB5_KEYTAB`).
+- Решение: убедитесь, что файл keytab смонтирован в контейнер воркера и доступен по пути из переменной `PAROM_KEYTAB_PATH` (если она не задана, агент читает `KRB5_KEYTAB`).

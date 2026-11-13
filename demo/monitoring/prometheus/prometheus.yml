@@ -22,8 +22,8 @@ scrape_configs:
           env: 'demo'
 
   - job_name: 'hadoop-replicator'
-    # GET /metrics needs authentication: HTTP Basic prometheus:<REPLICATOR_METRICS_SCRAPE_TOKEN>
-    # (demo value from demo/replicator/docker-compose.yml)
+    # GET /metrics needs authentication: HTTP Basic prometheus:<PAROM_METRICS_SCRAPE_TOKEN>
+    # (demo value from demo/parom/docker-compose.yml)
     metrics_path: '/metrics'
     scrape_interval: 5s
     honor_labels: true
