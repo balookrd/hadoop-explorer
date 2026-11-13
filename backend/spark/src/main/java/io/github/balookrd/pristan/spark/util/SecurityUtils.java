@@ -1,6 +1,6 @@
 package io.github.balookrd.pristan.spark.util;
 
-import io.github.balookrd.pristan.common.model.UserSession;
+import io.github.balookrd.pristan.zastava.model.UserSession;
 import org.springframework.security.core.Authentication;
 import org.springframework.security.core.GrantedAuthority;
 

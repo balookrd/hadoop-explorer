@@ -2,7 +2,7 @@ package io.github.balookrd.pristan.replicator.orchestrator;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.Cookie;
-import io.github.balookrd.pristan.common.model.LoginRequest;
+import io.github.balookrd.pristan.zastava.model.LoginRequest;
 import io.github.balookrd.pristan.replicator.model.AgentRegisterRequest;
 import io.github.balookrd.pristan.replicator.model.TokenRequest;
 import io.github.balookrd.pristan.replicator.model.UpdateJobRequest;
@@ -24,7 +24,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 
 // Logs in several times from one address; the login limiter is covered by RateLimitFilterIntegrationTest in the starter
 @SpringBootTest(classes = ReplicatorOrchestratorApplication.class,
-    properties = "hadoop.security.rate-limiter.enabled=false")
+    properties = "zastava.rate-limiter.enabled=false")
 @AutoConfigureMockMvc
 class OrchestratorIntegrationTest {
 
@@ -85,7 +85,7 @@ class OrchestratorIntegrationTest {
             .andExpect(status().isOk())
             .andExpect(jsonPath("$.status").value("UP"));
 
-        // 2. Аутентификация администратора через common-security-starter
+        // 2. Аутентификация администратора через zastava
         LoginRequest loginRequest = new LoginRequest("admin", "secret");
         MvcResult loginResult = mockMvc.perform(post("/api/v1/auth/login")
                 .contentType(MediaType.APPLICATION_JSON)

@@ -2,8 +2,8 @@ package io.github.balookrd.pristan.yarn.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.balookrd.pristan.common.config.CommonSecurityProperties;
-import io.github.balookrd.pristan.common.security.TlsContextFactory;
+import io.github.balookrd.pristan.zastava.config.ZastavaProperties;
+import io.github.balookrd.pristan.zastava.security.TlsContextFactory;
 import io.github.balookrd.pristan.yarn.model.*;
 import org.apache.hadoop.security.UserGroupInformation;
 import org.apache.hadoop.security.authentication.client.AuthenticatedURL;
@@ -57,7 +57,7 @@ public class NativeYarnClient implements YarnClient {
 
     public NativeYarnClient(ClusterConfig cluster,
                             ObjectMapper objectMapper,
-                            CommonSecurityProperties.TlsProperties tlsProps,
+                            ZastavaProperties.TlsProperties tlsProps,
                             KerberosClientLogin kerberosLogin) {
         this.cluster = cluster;
         this.objectMapper = objectMapper;

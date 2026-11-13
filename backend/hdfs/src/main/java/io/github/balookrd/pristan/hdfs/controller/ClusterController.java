@@ -8,7 +8,7 @@ import io.github.balookrd.pristan.hdfs.service.ClusterAclService;
 import io.github.balookrd.pristan.hdfs.service.ClusterRegistry;
 import io.github.balookrd.pristan.hdfs.service.HdfsFileOperationService;
 import io.github.balookrd.pristan.hdfs.util.SecurityUtils;
-import io.github.balookrd.pristan.common.audit.Audited;
+import io.github.balookrd.pristan.zastava.audit.Audited;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.bind.annotation.*;

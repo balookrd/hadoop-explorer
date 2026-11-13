@@ -16,32 +16,6 @@ spring:
     show-sql: false
 
 hadoop:
-  security:
-    debug: true
-    auth:
-      mode: ldap
-      writer-groups:
-        - "data-engineers"
-        - "dev-leads"
-        - "spark-users"
-    jwt:
-      secret-key: "hdfs-explorer-demo-stand-super-secret-key-2026"
-      expiration-minutes: 480
-    ldap:
-      enabled: true
-      server-uri: "ldap://ldap:389"
-      bind-dn: "cn=admin,dc=company,dc=local"
-      bind-password: "adminpassword"
-      user-base-dn: "ou=users,dc=company,dc=local"
-      user-filter: "(&(objectClass=inetOrgPerson)(|(uid={username})(cn={username})))"
-      group-base-dn: "ou=groups,dc=company,dc=local"
-      group-filter: "(&(objectClass=groupOfNames)(member={user_dn}))"
-    kerberos:
-      enabled: false
-    rate-limit:
-      enabled: false
-    audit:
-      enabled: true
 
   hdfs:
     clusters:
@@ -66,3 +40,29 @@ hadoop:
         auth-type: "kerberos"
         service-principal: "hdfs-explorer/hdfs-explorer@COMPANY.LOCAL"
         keytab-path: "/etc/security/keytabs/hdfs-explorer.keytab"
+zastava:
+  debug: true
+  auth:
+    mode: ldap
+    writer-groups:
+      - "data-engineers"
+      - "dev-leads"
+      - "spark-users"
+  jwt:
+    secret-key: "hdfs-explorer-demo-stand-super-secret-key-2026"
+    expiration-minutes: 480
+  ldap:
+    enabled: true
+    server-uri: "ldap://ldap:389"
+    bind-dn: "cn=admin,dc=company,dc=local"
+    bind-password: "adminpassword"
+    user-base-dn: "ou=users,dc=company,dc=local"
+    user-filter: "(&(objectClass=inetOrgPerson)(|(uid={username})(cn={username})))"
+    group-base-dn: "ou=groups,dc=company,dc=local"
+    group-filter: "(&(objectClass=groupOfNames)(member={user_dn}))"
+  kerberos:
+    enabled: false
+  rate-limit:
+    enabled: false
+  audit:
+    enabled: true

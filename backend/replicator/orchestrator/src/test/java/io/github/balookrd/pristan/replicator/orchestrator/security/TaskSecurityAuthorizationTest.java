@@ -1,8 +1,8 @@
 package io.github.balookrd.pristan.replicator.orchestrator.security;
 
-import io.github.balookrd.pristan.common.model.Role;
-import io.github.balookrd.pristan.common.model.UserSession;
-import io.github.balookrd.pristan.common.security.CommonAuthenticationToken;
+import io.github.balookrd.pristan.zastava.model.Role;
+import io.github.balookrd.pristan.zastava.model.UserSession;
+import io.github.balookrd.pristan.zastava.security.CommonAuthenticationToken;
 import io.github.balookrd.pristan.replicator.model.TaskItemDto;
 import io.github.balookrd.pristan.replicator.orchestrator.controller.TaskController;
 import io.github.balookrd.pristan.replicator.orchestrator.entity.JobEntity;

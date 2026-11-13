@@ -2,32 +2,31 @@
 # фиктивные очереди и симуляция AWX — никогда не включать в продакшене.
 # Включение: SPRING_PROFILES_ACTIVE=mock
 # Настройки общего стартера безопасности платформы
-hadoop:
-  security:
-    debug: true
-    auth:
-      mode: mock
-    jwt:
-      secret-key: "yarn-explorer-test-secret-key-at-least-32-characters"
-      expiration-minutes: 480
-    mock-users:
-      - username: "admin_user"
-        password: "password123"
-        displayName: "Александр Админов"
-        email: "admin@company.local"
-        groups: ["hadoop-admins", "platform-team"]
-      - username: "writer_user"
-        password: "password123"
-        displayName: "Владимир Инженеров"
-        email: "writer@company.local"
-        groups: ["yarn-operators", "dev-leads"]
-      - username: "reader_user"
-        password: "password123"
-        displayName: "Екатерина Наблюдателева"
-        email: "reader@company.local"
-        groups: ["bi-analysts", "junior-devs"]
-    rate-limiter:
-      enabled: false
+zastava:
+  debug: true
+  auth:
+    mode: mock
+  jwt:
+    secret-key: "yarn-explorer-test-secret-key-at-least-32-characters"
+    expiration-minutes: 480
+  mock-users:
+    - username: "admin_user"
+      password: "password123"
+      displayName: "Александр Админов"
+      email: "admin@company.local"
+      groups: ["hadoop-admins", "platform-team"]
+    - username: "writer_user"
+      password: "password123"
+      displayName: "Владимир Инженеров"
+      email: "writer@company.local"
+      groups: ["yarn-operators", "dev-leads"]
+    - username: "reader_user"
+      password: "password123"
+      displayName: "Екатерина Наблюдателева"
+      email: "reader@company.local"
+      groups: ["bi-analysts", "junior-devs"]
+  rate-limiter:
+    enabled: false
 
 # Модуль YARN: встроенное демо-дерево очередей вместо RM и симуляция AWX
 yarn:

@@ -2,7 +2,7 @@ package io.github.balookrd.pristan.spark.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.balookrd.pristan.common.auth.UserLoggedOutEvent;
+import io.github.balookrd.pristan.zastava.auth.UserLoggedOutEvent;
 import io.github.balookrd.pristan.spark.config.SparkProperties;
 import io.github.balookrd.pristan.spark.dto.*;
 import io.github.balookrd.pristan.spark.model.SparkExecutionHistory;

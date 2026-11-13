@@ -2072,7 +2072,7 @@ java -cp /app/replicator-agent.jar \
 
 Hadoop gRPC Replicator — мультимодульный проект Java 21 (`backend/replicator/pom.xml`) из модулей:
 - `agent` (Java 21 LTS / gRPC / Protobuf / Hadoop HDFS Client / YARN Client & ApplicationMaster);
-- `orchestrator` (Java 21 LTS / Spring Boot 3.3.4 / Spring Data JPA / `common-security-starter`).
+- `orchestrator` (Java 21 LTS / Spring Boot 3.3.4 / Spring Data JPA / `zastava`).
 
 ### 6.1 Мультимодульная архитектура Maven
 

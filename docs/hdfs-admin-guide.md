@@ -384,7 +384,7 @@ docker compose logs -f hdfs-explorer
 ## 4. Мониторинг и диагностика
 
 ### 4.1 Метрики Prometheus (`GET /actuator/prometheus`)
-Сервис отдает метрики в текстовом формате Prometheus на `GET /actuator/prometheus` (порт приложения, в контейнере `8000`, в демо-стенде `http://localhost:8002`). Эндпоинт открыт без аутентификации; остальные эндпоинты Actuator, кроме `/actuator/health`, по HTTP не опубликованы, а при публикации требуют роли ADMIN (`common-security-starter`). `GET /metrics` возвращает 404.
+Сервис отдает метрики в текстовом формате Prometheus на `GET /actuator/prometheus` (порт приложения, в контейнере `8000`, в демо-стенде `http://localhost:8002`). Эндпоинт открыт без аутентификации; остальные эндпоинты Actuator, кроме `/actuator/health`, по HTTP не опубликованы, а при публикации требуют роли ADMIN (`zastava`). `GET /metrics` возвращает 404.
 
 | Метрика | Тип | Лейблы | Что считает |
 |---|---|---|---|
@@ -424,7 +424,7 @@ curl -s http://localhost:8002/actuator/prometheus | grep '^hdfs_operations_total
 1. Клиент Hadoop FileSystem: обращается к NameNode напрямую по RPC (`hdfs://`) или HTTP (`webhdfs://`), без промежуточных шлюзов.
 2. HA NameNode: переключение между Active и Standby NameNode через `ConfiguredFailoverProxyProvider`.
 3. Kerberos GSS-API и doAs: операции выполняются от имени пользователя (`UserGroupInformation.createProxyUser`), поэтому политики Apache Ranger применяются к нему, а не к сервисной учетной записи.
-4. Стартер `common-security-starter`: сессии (L1 Caffeine + L2 JDBC), CSRF Guard, ограничение частоты запросов Bucket4j и аудит через AOP `@Audited`.
+4. Стартер `zastava`: сессии (L1 Caffeine + L2 JDBC), CSRF Guard, ограничение частоты запросов Bucket4j и аудит через AOP `@Audited`.
 
 ### 5.2 Сборка и тестирование
 

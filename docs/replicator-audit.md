@@ -63,7 +63,7 @@
 ### 2.3. Защита реализована, но по умолчанию выключена
 | Параметр | Дефолт | Последствие |
 |---|---|---|
-| `hadoop.security.auth.mode` | `mock` + 5 пользователей с `password123` в `application.yml` | прод стартует с mock-аутентификацией, если не переопределить |
+| `zastava.auth.mode` | `mock` + 5 пользователей с `password123` в `application.yml` | прод стартует с mock-аутентификацией, если не переопределить |
 | `agent-secret` | хардкод `replicator-secure-agent-secret-key-12345` (в коде и в yml) | известный публичный секрет |
 | `enforce-agent-secret` | `false` | регистрация агента без секрета (`AgentRegistry.register`: секрет проверяется только если заголовок прислан) |
 | `enforce-cluster-whitelist` | `false` | агент регистрируется в произвольном `clusterId` |

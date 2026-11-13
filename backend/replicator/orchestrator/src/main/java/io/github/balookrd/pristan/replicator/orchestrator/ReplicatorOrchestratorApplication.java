@@ -1,7 +1,7 @@
 package io.github.balookrd.pristan.replicator.orchestrator;
 
-import io.github.balookrd.pristan.common.security.CommonAuthFilter;
-import io.github.balookrd.pristan.common.security.CommonSecurityErrorHandlers;
+import io.github.balookrd.pristan.zastava.security.CommonAuthFilter;
+import io.github.balookrd.pristan.zastava.security.ZastavaErrorHandlers;
 import io.github.balookrd.pristan.replicator.orchestrator.config.ReplicatorProperties;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
@@ -32,7 +32,7 @@ public class ReplicatorOrchestratorApplication {
         CommonAuthFilter authFilter,
         io.github.balookrd.pristan.replicator.orchestrator.security.AgentSecretAuthenticationFilter agentSecretFilter,
         io.github.balookrd.pristan.replicator.orchestrator.security.MetricsScrapeAuthenticationFilter metricsScrapeFilter,
-        CommonSecurityErrorHandlers errorHandlers,
+        ZastavaErrorHandlers errorHandlers,
         CorsConfigurationSource corsConfigurationSource
     ) throws Exception {
 

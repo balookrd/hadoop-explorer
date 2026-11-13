@@ -143,14 +143,14 @@ npm run build --workspace=apps/spark
 cd ..
 
 # Сборка Java 21 бэкенда (Spring Boot Fat JAR)
-mvn clean package -pl backend/common-security-starter,backend/spark -am -DskipTests
+mvn clean package -pl backend/zastava,backend/spark -am -DskipTests
 
 # Копирование собранного JAR в рабочий каталог
 cp backend/spark/target/spark-explorer-java-*.jar /opt/pristan/spark/bin/spark-explorer.jar
 ```
 
 ### Шаг 4: Настройка конфигурационного файла
-Создайте файл `/etc/pristan/spark/application.yml`. Юнит systemd на шаге 5 подключает его через `SPRING_CONFIG_ADDITIONAL_LOCATION` поверх `application.yml` из JAR, поэтому указывайте только ключи, которые меняете. Ключи берутся из `backend/spark/src/main/resources/application.yml`, `SparkProperties` (префикс `spark`) и `CommonSecurityProperties` (префикс `hadoop.security`).
+Создайте файл `/etc/pristan/spark/application.yml`. Юнит systemd на шаге 5 подключает его через `SPRING_CONFIG_ADDITIONAL_LOCATION` поверх `application.yml` из JAR, поэтому указывайте только ключи, которые меняете. Ключи берутся из `backend/spark/src/main/resources/application.yml`, `SparkProperties` (префикс `spark`) и `ZastavaProperties` (префикс `hadoop.security`).
 
 ```yaml
 server:
@@ -337,7 +337,7 @@ docker build -t ghcr.io/company/pristan/spark:latest -f docker/Dockerfile.spark-
 ```
 
 ### 3.3 Запуск одного контейнера (`docker run`)
-Контейнер читает тот же `application.yml`, что на шаге 4 раздела 2: путь к файлу передается в `SPRING_CONFIG_ADDITIONAL_LOCATION`. `SPRING_DATASOURCE_URL` переопределяет `spring.datasource.url` из файла, чтобы база H2 лежала на томе `/app/data`; keytab монтируется по пути из `hadoop.security.kerberos.keytab`. Переменные `CONFIG_PATH`, `LDAP_BIND_PASSWORD`, `KRB5_KEYTAB`, `KRB5_PRINCIPAL` сервис не читает.
+Контейнер читает тот же `application.yml`, что на шаге 4 раздела 2: путь к файлу передается в `SPRING_CONFIG_ADDITIONAL_LOCATION`. `SPRING_DATASOURCE_URL` переопределяет `spring.datasource.url` из файла, чтобы база H2 лежала на томе `/app/data`; keytab монтируется по пути из `zastava.kerberos.keytab`. Переменные `CONFIG_PATH`, `LDAP_BIND_PASSWORD`, `KRB5_KEYTAB`, `KRB5_PRINCIPAL` сервис не читает.
 ```bash
 # <jwt_secret> - вывод `openssl rand -hex 32`; задайте тот же ключ на всех контейнерах сервиса
 docker run -d \
@@ -407,7 +407,7 @@ networks:
 ## 4. Мониторинг и диагностика
 
 ### 4.1 Метрики Prometheus (`GET /actuator/prometheus`)
-Сервис отдает метрики в текстовом формате Prometheus на `GET /actuator/prometheus` (порт приложения `8004`). Эндпоинт открыт без аутентификации; остальные эндпоинты Actuator, кроме `/actuator/health`, по HTTP не опубликованы, а при публикации требуют роли ADMIN (`common-security-starter`). `GET /metrics` возвращает 404.
+Сервис отдает метрики в текстовом формате Prometheus на `GET /actuator/prometheus` (порт приложения `8004`). Эндпоинт открыт без аутентификации; остальные эндпоинты Actuator, кроме `/actuator/health`, по HTTP не опубликованы, а при публикации требуют роли ADMIN (`zastava`). `GET /metrics` возвращает 404.
 
 | Метрика | Тип | Лейблы | Что считает |
 |---|---|---|---|

@@ -5,9 +5,9 @@ import io.github.balookrd.pristan.replicator.orchestrator.dto.CreateKafkaJobRequ
 import io.github.balookrd.pristan.replicator.orchestrator.dto.KafkaReplicationJobDto;
 import io.github.balookrd.pristan.replicator.orchestrator.entity.KafkaReplicationJobEntity;
 import io.github.balookrd.pristan.replicator.orchestrator.repository.KafkaReplicationJobRepository;
-import io.github.balookrd.pristan.common.model.Role;
-import io.github.balookrd.pristan.common.model.UserSession;
-import io.github.balookrd.pristan.common.security.CommonAuthenticationToken;
+import io.github.balookrd.pristan.zastava.model.Role;
+import io.github.balookrd.pristan.zastava.model.UserSession;
+import io.github.balookrd.pristan.zastava.security.CommonAuthenticationToken;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;

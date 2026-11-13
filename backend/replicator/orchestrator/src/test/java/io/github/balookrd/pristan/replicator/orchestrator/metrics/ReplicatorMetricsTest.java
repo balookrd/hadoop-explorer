@@ -2,7 +2,7 @@ package io.github.balookrd.pristan.replicator.orchestrator.metrics;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.servlet.http.Cookie;
-import io.github.balookrd.pristan.common.model.LoginRequest;
+import io.github.balookrd.pristan.zastava.model.LoginRequest;
 import io.github.balookrd.pristan.replicator.model.AgentHeartbeatRequest;
 import io.github.balookrd.pristan.replicator.orchestrator.dto.CreateJobRequest;
 import io.github.balookrd.pristan.replicator.orchestrator.registry.AgentRegistry;

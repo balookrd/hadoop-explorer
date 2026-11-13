@@ -17,7 +17,7 @@ backend/spark/
 └── README.md                 # Документация модуля
 ```
 
-- Безопасность: стартер `common-security-starter` (Java 21) — LDAPS, Kerberos SPNEGO, JWT в cookie, защита от CSRF и проверка прав доступа к очередям YARN.
+- Безопасность: стартер `zastava` (Java 21) — LDAPS, Kerberos SPNEGO, JWT в cookie, защита от CSRF и проверка прав доступа к очередям YARN.
 - Движки исполнения: интерфейс `SparkEngine`, движок кластера выбирает `SparkEngineRegistry`. Кластер с `mock-storage: true` обслуживает `MockSparkEngine` (эмуляция сессий и кода на всех трёх языках), кластер `type: livy` с `mock-storage: false` — `LivySparkEngine` (пакет `service.engine.livy`: REST-клиент Apache Livy, сессии с `proxyUser`, statements, отмена, таймауты). Тесты клиента выполняются против WireMock.
 - Жизненный цикл сессий Livy (`SparkSessionManager`): статус и YARN application ID обновляет фоновая синхронизация (`syncSessions`, один `GET /sessions` на кластер раз в `spark.session-sync-interval-ms`), API сессий читает только БД; остановка, простой дольше `spark.session-ttl-minutes` и выход пользователя (`UserLoggedOutEvent` стартера, `spark.close-sessions-on-logout`) удаляют сессию в Livy. Каталог (`SparkCatalogService`) на кластере Livy выполняет `SHOW DATABASES`, `SHOW TABLES IN` и `DESCRIBE` в активной сессии пользователя, без нее отвечает 409. Тесты — `LivyLifecycleIntegrationTest` (WireMock).
 - Движок DAG-пайплайнов: бэкенд визуального конструктора ETL. Проверяет граф на циклы (алгоритм Кана), выполняет узлы по шагам и пишет лог каждого узла.

@@ -3,7 +3,7 @@ package io.github.balookrd.pristan.hdfs.controller;
 import io.github.balookrd.pristan.hdfs.dto.file.*;
 import io.github.balookrd.pristan.hdfs.service.HdfsFileOperationService;
 import io.github.balookrd.pristan.hdfs.util.SecurityUtils;
-import io.github.balookrd.pristan.common.audit.Audited;
+import io.github.balookrd.pristan.zastava.audit.Audited;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;

@@ -77,7 +77,7 @@
 
 - Оркестратор репликации на Java 21 LTS и Spring Boot 3.3.4.
 - Мультимодульный Maven-проект (`pom.xml`) объединяет общие контракты (`proto`, `model`), агент (`agent`) и оркестратор (`orchestrator`).
-- Использует общий стартер безопасности `common-security-starter` (SPNEGO SSO, LDAP, JWT, CSRF, Rate Limiting, Audit).
+- Использует общий стартер безопасности `zastava` (SPNEGO SSO, LDAP, JWT, CSRF, Rate Limiting, Audit).
 - Шейпинг Hierarchical Token Bucket, реестр агентов с защитой от SSRF и планировщик периодических репликаций.
 - Раздает собранный SPA на Svelte 5.
 - Подробная документация: [`orchestrator/README.md`](orchestrator/README.md).

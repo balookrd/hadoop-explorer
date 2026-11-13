@@ -1,8 +1,8 @@
 package io.github.balookrd.pristan.replicator.orchestrator.controller;
 
 import jakarta.validation.Valid;
-import io.github.balookrd.pristan.common.model.UserSession;
-import io.github.balookrd.pristan.common.security.CommonAuthenticationToken;
+import io.github.balookrd.pristan.zastava.model.UserSession;
+import io.github.balookrd.pristan.zastava.security.CommonAuthenticationToken;
 import io.github.balookrd.pristan.replicator.orchestrator.dto.DrActionResponse;
 import io.github.balookrd.pristan.replicator.orchestrator.dto.DrEmergencyStopRequest;
 import io.github.balookrd.pristan.replicator.orchestrator.dto.DrReverseRequest;
@@ -33,7 +33,7 @@ public class DisasterRecoveryController {
 
     private void requireAdmin(Authentication auth) {
         UserSession session = getSession(auth);
-        if (session != null && (session.isAdmin() || session.systemRole() == io.github.balookrd.pristan.common.model.Role.ADMIN)) {
+        if (session != null && (session.isAdmin() || session.systemRole() == io.github.balookrd.pristan.zastava.model.Role.ADMIN)) {
             return;
         }
         throw new ResponseStatusException(

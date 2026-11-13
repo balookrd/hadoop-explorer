@@ -1,7 +1,7 @@
 package io.github.balookrd.pristan.replicator.orchestrator.controller;
 
-import io.github.balookrd.pristan.common.model.UserSession;
-import io.github.balookrd.pristan.common.security.CommonAuthenticationToken;
+import io.github.balookrd.pristan.zastava.model.UserSession;
+import io.github.balookrd.pristan.zastava.security.CommonAuthenticationToken;
 import io.github.balookrd.pristan.replicator.orchestrator.dto.JobResponse;
 import io.github.balookrd.pristan.replicator.orchestrator.entity.HmsEventLogEntity;
 import io.github.balookrd.pristan.replicator.orchestrator.entity.HmsReplicationJobEntity;
@@ -146,7 +146,7 @@ public class HmsReplicationController {
                 HttpStatus.UNAUTHORIZED, "Требуется аутентификация для создания задачи HMS репликации"
             );
         }
-        if (session.systemRole() == io.github.balookrd.pristan.common.model.Role.READER) {
+        if (session.systemRole() == io.github.balookrd.pristan.zastava.model.Role.READER) {
             throw new org.springframework.web.server.ResponseStatusException(
                 HttpStatus.FORBIDDEN, "Пользователь с правами только для чтения (READER) не имеет права создавать задачи"
             );
@@ -366,7 +366,7 @@ public class HmsReplicationController {
         if (session.isAdmin()) {
             return; // Администратор может управлять любыми существующими задачами
         }
-        if (session.systemRole() == io.github.balookrd.pristan.common.model.Role.READER) {
+        if (session.systemRole() == io.github.balookrd.pristan.zastava.model.Role.READER) {
             throw new org.springframework.web.server.ResponseStatusException(
                 HttpStatus.FORBIDDEN, "Пользователь с ролью только для чтения (READER) не имеет права изменять задачи"
             );

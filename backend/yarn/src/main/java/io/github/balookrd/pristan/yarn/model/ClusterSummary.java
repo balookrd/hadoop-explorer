@@ -1,7 +1,7 @@
 package io.github.balookrd.pristan.yarn.model;
 
 import com.fasterxml.jackson.annotation.JsonProperty;
-import io.github.balookrd.pristan.common.model.Role;
+import io.github.balookrd.pristan.zastava.model.Role;
 
 import java.util.ArrayList;
 import java.util.List;

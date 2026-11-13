@@ -18,41 +18,40 @@ spring:
   jackson:
     property-naming-strategy: SNAKE_CASE
 
-hadoop:
-  security:
-    debug: false
-    auth:
-      mode: ${HADOOP_AUTH_MODE:ldap}
-      admin-groups:
-        - "hadoop-admins"
-        - "platform-admins"
-        - "superusers"
-      writer-groups:
-        - "data-engineers"
-        - "developers"
-    jwt:
-      # Обязателен: при пустом значении сервис откажется стартовать
-      secret-key: ${JWT_SECRET_KEY:}
-      expiration-minutes: 480
-    ldap:
-      enabled: true
-      url: ${LDAP_URL:ldaps://ldap.company.local:636}
-      manager-dn: ${LDAP_MANAGER_DN:}
-      manager-password: ${LDAP_MANAGER_PASSWORD:}
-      user-search-base: ${LDAP_USER_SEARCH_BASE:ou=users,dc=company,dc=local}
-      user-search-filter: "(uid={0})"
-    cors:
-      allowed-origins:
-        - "http://localhost:3000"
-        - "http://localhost:5173"
-        - "http://localhost:8003"
-    cookie:
-      secure: false
-      same-site: "Lax"
-      names:
-        - "access_token"
-        - "sql_explorer_session"
-        - "pristan_session"
+zastava:
+  debug: false
+  auth:
+    mode: ${HADOOP_AUTH_MODE:ldap}
+    admin-groups:
+      - "hadoop-admins"
+      - "platform-admins"
+      - "superusers"
+    writer-groups:
+      - "data-engineers"
+      - "developers"
+  jwt:
+    # Обязателен: при пустом значении сервис откажется стартовать
+    secret-key: ${JWT_SECRET_KEY:}
+    expiration-minutes: 480
+  ldap:
+    enabled: true
+    url: ${LDAP_URL:ldaps://ldap.company.local:636}
+    manager-dn: ${LDAP_MANAGER_DN:}
+    manager-password: ${LDAP_MANAGER_PASSWORD:}
+    user-search-base: ${LDAP_USER_SEARCH_BASE:ou=users,dc=company,dc=local}
+    user-search-filter: "(uid={0})"
+  cors:
+    allowed-origins:
+      - "http://localhost:3000"
+      - "http://localhost:5173"
+      - "http://localhost:8003"
+  cookie:
+    secure: false
+    same-site: "Lax"
+    names:
+      - "access_token"
+      - "sql_explorer_session"
+      - "pristan_session"
 
 sql:
   results-ttl-hours: 24
@@ -100,7 +99,7 @@ management:
   endpoints:
     web:
       exposure:
-        # /actuator/prometheus is public (common-security-starter); nothing else beyond health
+        # /actuator/prometheus is public (zastava); nothing else beyond health
         include: health,prometheus
   prometheus:
     metrics:

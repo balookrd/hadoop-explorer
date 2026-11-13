@@ -1,6 +1,6 @@
 # HDFS Explorer API (Java 21 / Spring Boot 3)
 
-Бэкенд HDFS Explorer на Java 21 LTS и Spring Boot 3.3.4. Работает с HDFS через нативный клиент Apache Hadoop (`hadoop-client`), переключается между NameNode в HA-конфигурации, выполняет операции от имени пользователя через Kerberos doAs и использует стартер безопасности `common-security-starter`.
+Бэкенд HDFS Explorer на Java 21 LTS и Spring Boot 3.3.4. Работает с HDFS через нативный клиент Apache Hadoop (`hadoop-client`), переключается между NameNode в HA-конфигурации, выполняет операции от имени пользователя через Kerberos doAs и использует стартер безопасности `zastava`.
 
 ---
 
@@ -30,7 +30,7 @@ backend/hdfs/
    - Потокобезопасная in-memory файловая система для локальной разработки, демо и юнит-тестов без Hadoop-кластера.
    - Сам создает домашние каталоги пользователей (`/user/{username}`).
 
-3. Стартер безопасности `common-security-starter`:
+3. Стартер безопасности `zastava`:
    - Аутентификация по JWT в cookie (`access_token`, `hdfs_explorer_session`, `pristan_session`).
    - Режимы входа: Kerberos SPNEGO SSO, LDAP / Active Directory, mock-профили.
    - CSRF-проверка изменяющих HTTP-запросов.

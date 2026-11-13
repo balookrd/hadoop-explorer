@@ -71,7 +71,7 @@ Pristan — монорепозиторий из пяти сервисов для
 ```
 pristan/
 ├── backend/                  # Java 21 LTS (Spring Boot 3.3.4, Maven)
-│   ├── common-security-starter/ # Ядро безопасности: SPNEGO, LDAP, JWT, CSRF, RateLimit, L1/L2
+│   ├── zastava/ # Ядро безопасности: SPNEGO, LDAP, JWT, CSRF, RateLimit, L1/L2
 │   ├── yarn/                 # Сервис YARN Explorer (Capacity Scheduler, RM HA Failover)
 │   ├── hdfs/                 # Сервис HDFS Explorer (HA NameNode, Parquet/ORC Preview)
 │   ├── sql/                  # Сервис SQL Explorer (Trino, Hive, AI Assistant)
@@ -126,7 +126,7 @@ pristan/
 
 ## Общие модули
 
-### `backend/common-security-starter`
+### `backend/zastava`
 
 Spring Boot 3 стартер безопасности на Java 21, подключается всеми сервисами.
 
@@ -340,7 +340,7 @@ make frontend-e2e   # E2E тесты Playwright (Chromium)
 
 # Тестирование бэкенда (Java 21 / Spring Boot 3):
 make test-java        # Все Java тесты платформы
-make test-security-starter # Тесты стартера безопасности (common-security-starter)
+make test-zastava # Тесты стартера безопасности (zastava)
 make test-yarn        # Тесты сервиса YARN Explorer (Java 21)
 make test-hdfs        # Тесты сервиса HDFS Explorer (Java 21)
 make test-sql         # Тесты сервиса SQL Explorer (Java 21)
@@ -356,7 +356,7 @@ make test-replicator  # Тесты сервиса Replicator (Java 21)
 |---|---|
 | `make test` | Запуск всех модульных, компонентных и интеграционных тестов (Java + UI) |
 | `make test-java` | Запуск всех тестов Java 21 сервисов бэкенда |
-| `make test-security-starter` | Запуск тестов стартера безопасности `common-security-starter` |
+| `make test-zastava` | Запуск тестов стартера безопасности `zastava` |
 | `make test-yarn` | Запуск тестов сервиса YARN Explorer (Java 21) |
 | `make test-hdfs` | Запуск тестов сервиса HDFS Explorer (Java 21) |
 | `make test-sql` | Запуск тестов сервиса SQL Explorer (Java 21) |
@@ -369,7 +369,7 @@ make test-replicator  # Тесты сервиса Replicator (Java 21)
 | `make frontend-e2e` | Запуск браузерных E2E тестов Playwright |
 | `make frontend-build` | Компиляция всех 5 SPA фронтендов через Vite |
 | `make build-java` | Сборка фронтенда и всех JAR-пакетов платформы (Maven reactor) |
-| `make build-security-starter` | Сборка JAR-пакета `common-security-starter` |
+| `make build-zastava` | Сборка JAR-пакета `zastava` |
 | `make build` | Сборка Docker-образов всех приложений платформы |
 | `make build-yarn` | Сборка фронтенда и JAR-пакета YARN Explorer (`mvn clean package`) |
 | `make build-hdfs` | Сборка фронтенда и JAR-пакета HDFS Explorer (`mvn clean package`) |

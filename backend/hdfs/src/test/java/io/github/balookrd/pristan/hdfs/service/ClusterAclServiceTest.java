@@ -3,7 +3,7 @@ package io.github.balookrd.pristan.hdfs.service;
 import io.github.balookrd.pristan.hdfs.dto.cluster.ClusterAcl;
 import io.github.balookrd.pristan.hdfs.dto.cluster.ClusterConfig;
 import io.github.balookrd.pristan.hdfs.dto.cluster.ClusterPublicInfo;
-import io.github.balookrd.pristan.common.config.CommonSecurityProperties;
+import io.github.balookrd.pristan.zastava.config.ZastavaProperties;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 
@@ -19,7 +19,7 @@ class ClusterAclServiceTest {
 
     @BeforeEach
     void setUp() {
-        CommonSecurityProperties props = new CommonSecurityProperties();
+        ZastavaProperties props = new ZastavaProperties();
         props.getAuth().setAdminGroups(Set.of("hadoop-admins", "superusers"));
 
         aclService = new ClusterAclService(props);

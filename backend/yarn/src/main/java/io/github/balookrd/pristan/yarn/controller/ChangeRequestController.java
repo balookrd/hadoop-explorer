@@ -1,8 +1,8 @@
 package io.github.balookrd.pristan.yarn.controller;
 
 import jakarta.validation.Valid;
-import io.github.balookrd.pristan.common.audit.Audited;
-import io.github.balookrd.pristan.common.model.UserSession;
+import io.github.balookrd.pristan.zastava.audit.Audited;
+import io.github.balookrd.pristan.zastava.model.UserSession;
 import io.github.balookrd.pristan.yarn.model.*;
 import io.github.balookrd.pristan.yarn.service.ChangeRequestService;
 import io.github.balookrd.pristan.yarn.util.SecurityUtils;

@@ -14,7 +14,7 @@
     <description>Корневой Maven Reactor для платформы Pristan</description>
 
     <modules>
-        <module>backend/common-security-starter</module>
+        <module>backend/zastava</module>
         <module>backend/replicator</module>
         <module>backend/yarn</module>
         <module>backend/hdfs</module>

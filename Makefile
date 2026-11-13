@@ -1,6 +1,6 @@
 .PHONY: help test test-yarn test-hdfs test-sql test-spark test-replicator \
-        test-security-starter test-replicator-agent test-replicator-orchestrator test-java test-ui \
-        build build-java build-security-starter build-yarn build-hdfs build-sql build-spark build-replicator \
+        test-zastava test-replicator-agent test-replicator-orchestrator test-java test-ui \
+        build build-java build-zastava build-yarn build-hdfs build-sql build-spark build-replicator \
         frontend-build frontend-install demo-yarn demo-hdfs demo-sql demo-spark demo-all \
         demo-yarn-stop demo-hdfs-stop demo-sql-stop demo-spark-stop demo-all-stop \
         skeleton skeleton-all skeleton-backend java-index java-query check-jdk21
@@ -50,14 +50,14 @@ help:
 	@echo "    make test-sql         - Тесты сервиса SQL Explorer (Java 21)"
 	@echo "    make test-spark       - Тесты сервиса Spark Explorer (Java 21)"
 	@echo "    make test-replicator  - Тесты сервиса Replicator (Java 21)"
-	@echo "    make test-security-starter - Тесты Java 21 common-security-starter"
+	@echo "    make test-zastava - Тесты Java 21 zastava"
 	@echo "    make test-java        - Запуск всех Java тестов платформы"
 	@echo "    make test-ui          - Запуск тестов фронтенда (Vitest / Svelte 5)"
 	@echo "    make check-jdk21      - Проверка, что найден JDK 21 (платформа проекта и CI)"
 	@echo ""
 	@echo "  Сборка JAR-пакетов и Docker-контейнеров:"
 	@echo "    make build-java       - Сборка всех Java JAR-пакетов платформы (Maven Reactor)"
-	@echo "    make build-security-starter - Сборка common-security-starter JAR"
+	@echo "    make build-zastava - Сборка zastava JAR"
 	@echo "    make build            - Сборка всех Docker-образов (yarn, hdfs, sql, spark, replicator)"
 	@echo "    make build-yarn       - Сборка образа YARN Explorer"
 	@echo "    make build-hdfs       - Сборка образа HDFS Explorer"
@@ -116,15 +116,15 @@ test-replicator-agent-java: test-replicator-agent
 test-replicator-orchestrator-java: test-replicator-orchestrator
 test-replicator-java: test-replicator
 
-test-security-starter: check-jdk21
-	$(JAVA21) mvn test -f backend/common-security-starter/pom.xml
+test-zastava: check-jdk21
+	$(JAVA21) mvn test -f backend/zastava/pom.xml
 
 test-hdfs-java: test-hdfs
 test-yarn-java: test-yarn
 test-sql-java: test-sql
 test-spark-java: test-spark
 
-test-java: test-security-starter test-replicator test-hdfs test-yarn test-sql test-spark
+test-java: test-zastava test-replicator test-hdfs test-yarn test-sql test-spark
 
 test-ui:
 	./scripts/run-tests.sh frontend
@@ -132,8 +132,8 @@ test-ui:
 build:
 	TAG=$(TAG) REGISTRY=$(REGISTRY) ./scripts/build-containers.sh all
 
-build-security-starter: check-jdk21
-	$(JAVA21) mvn clean package -DskipTests -f backend/common-security-starter/pom.xml
+build-zastava: check-jdk21
+	$(JAVA21) mvn clean package -DskipTests -f backend/zastava/pom.xml
 
 build-java: check-jdk21 frontend-build
 	$(JAVA21) mvn clean package -DskipTests

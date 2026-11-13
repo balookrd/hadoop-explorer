@@ -3,7 +3,7 @@ package io.github.balookrd.pristan.spark;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.github.tomakehurst.wiremock.WireMockServer;
 import com.github.tomakehurst.wiremock.client.WireMock;
-import io.github.balookrd.pristan.common.auth.UserLoggedOutEvent;
+import io.github.balookrd.pristan.zastava.auth.UserLoggedOutEvent;
 import io.github.balookrd.pristan.spark.dto.CreateSessionRequest;
 import io.github.balookrd.pristan.spark.model.SparkSessionRecord;
 import io.github.balookrd.pristan.spark.repository.SparkSessionRepository;

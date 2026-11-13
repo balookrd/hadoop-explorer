@@ -15,7 +15,7 @@
 
 Независимо от БД в памяти процесса по умолчанию хранятся:
 
-- Сессии и отозванные токены: `hadoop.security.session-store.type` по умолчанию `memory`. Как перенести их в PostgreSQL — в разделе [3.1](#31-хранилище-сессий-в-postgresql).
+- Сессии и отозванные токены: `zastava.session-store.type` по умолчанию `memory`. Как перенести их в PostgreSQL — в разделе [3.1](#31-хранилище-сессий-в-postgresql).
 - Корзины rate limiting (`RateLimiterService`). Он не обращается к БД ни при каком `session-store.type`, подробнее — в разделе [3.4](#34-rate-limiting-при-нескольких-экземплярах).
 
 > **Внимание**
@@ -74,7 +74,7 @@ docker run -d \
   -e SPRING_DATASOURCE_URL="jdbc:postgresql://postgres:5432/sql_explorer" \
   -e SPRING_DATASOURCE_USERNAME="hadoop_explorer" \
   -e SPRING_DATASOURCE_PASSWORD="secret" \
-  -e HADOOP_SECURITY_SESSIONSTORE_TYPE="jdbc" \
+  -e ZASTAVA_SESSIONSTORE_TYPE="jdbc" \
   -e JWT_SECRET_KEY="<jwt_secret>" \
   -p 8003:8003 \
   pristan/sql:latest
@@ -86,7 +86,7 @@ docker run -d \
 
 ### 3.1 Хранилище сессий в PostgreSQL
 
-Для двух и более экземпляров сервиса задайте `hadoop.security.session-store.type: jdbc` (переменная окружения `HADOOP_SECURITY_SESSIONSTORE_TYPE=jdbc`):
+Для двух и более экземпляров сервиса задайте `zastava.session-store.type: jdbc` (переменная окружения `ZASTAVA_SESSIONSTORE_TYPE=jdbc`):
 
 ```yaml
 hadoop:
@@ -97,11 +97,11 @@ hadoop:
 
 При `jdbc` и настроенном `spring.datasource` `DefaultSessionStore` создает при старте таблицы `active_sessions` и `revoked_tokens` (`CREATE TABLE IF NOT EXISTS`) и хранит в них сессии и отозванные токены. Остальные параметры хранилища описаны в [CONFIGURATION.md, раздел 2.5](CONFIGURATION.md#25-хранилище-сессий-токенов-и-rate-limiting-sessionstore--tri-storage).
 
-Что сломается при `memory`: выход пользователя на экземпляре A отзывает токен только в памяти A. Экземпляр B не находит токен в своем списке отозванных, берет сессию из своей памяти или проверяет подпись JWT и принимает токен до истечения его срока: `hadoop.security.jwt.expiration-minutes`, в упакованных `application.yml` 480 минут (8 часов).
+Что сломается при `memory`: выход пользователя на экземпляре A отзывает токен только в памяти A. Экземпляр B не находит токен в своем списке отозванных, берет сессию из своей памяти или проверяет подпись JWT и принимает токен до истечения его срока: `zastava.jwt.expiration-minutes`, в упакованных `application.yml` 480 минут (8 часов).
 
 ### 3.2 Одинаковый `JWT_SECRET_KEY` на всех экземплярах
 
-Задайте один и тот же `JWT_SECRET_KEY` (`hadoop.security.jwt.secret-key`) на всех экземплярах сервиса. Токен подписывает экземпляр, на котором пользователь вошел. Экземпляр, получивший запрос, сначала ищет сессию по хэшу токена в хранилище сессий и только если не нашел, проверяет подпись JWT своим ключом (`CommonAuthFilter`). При разных ключах проверка подписи не проходит, и пользователь получает 401:
+Задайте один и тот же `JWT_SECRET_KEY` (`zastava.jwt.secret-key`) на всех экземплярах сервиса. Токен подписывает экземпляр, на котором пользователь вошел. Экземпляр, получивший запрос, сначала ищет сессию по хэшу токена в хранилище сессий и только если не нашел, проверяет подпись JWT своим ключом (`CommonAuthFilter`). При разных ключах проверка подписи не проходит, и пользователь получает 401:
 
 - при `session-store.type: memory` — на каждом запросе, который балансировщик отправил не на экземпляр входа;
 - при `jdbc` — когда сессии нет в `active_sessions`, например если запись в PostgreSQL при входе не удалась (в логе экземпляра входа `Failed to save session to JDBC, falling back to in-memory`).
@@ -130,7 +130,7 @@ hadoop:
 - Настройте на балансировщике привязку клиента к экземпляру (sticky sessions).
 - Запускайте SQL и Spark Explorer в одном экземпляре. Для HDFS Explorer без привязки не работает только загрузка по частям.
 
-Пример для nginx с привязкой по cookie `access_token`. Стартер выставляет при входе cookie под всеми именами из `hadoop.security.cookie.names`; `access_token` есть в списке по умолчанию и в упакованных `application.yml` SQL и Spark Explorer:
+Пример для nginx с привязкой по cookie `access_token`. Стартер выставляет при входе cookie под всеми именами из `zastava.cookie.names`; `access_token` есть в списке по умолчанию и в упакованных `application.yml` SQL и Spark Explorer:
 
 ```nginx
 upstream sql_explorer {
@@ -144,7 +144,7 @@ upstream sql_explorer {
 
 ### 3.4 Rate limiting при нескольких экземплярах
 
-`RateLimiterService` хранит корзины в памяти процесса (Caffeine) и к БД не обращается, у каждого экземпляра свои корзины. Если балансировщик распределяет запросы одного клиента по N экземплярам, фактический лимит до N раз выше настроенного в `hadoop.security.rate-limiter.*`. При привязке клиента к экземпляру (раздел 3.3) запросы одного клиента попадают в корзины одного экземпляра.
+`RateLimiterService` хранит корзины в памяти процесса (Caffeine) и к БД не обращается, у каждого экземпляра свои корзины. Если балансировщик распределяет запросы одного клиента по N экземплярам, фактический лимит до N раз выше настроенного в `zastava.rate-limiter.*`. При привязке клиента к экземпляру (раздел 3.3) запросы одного клиента попадают в корзины одного экземпляра.
 
 ---
 
@@ -152,7 +152,7 @@ upstream sql_explorer {
 
 - [ ] `SPRING_DATASOURCE_URL` (для YARN Explorer — `SPRING_DATASOURCE_URL` или `YARN_DB_URL`) указывает на `jdbc:postgresql://...`.
 - [ ] Заданы `SPRING_DATASOURCE_USERNAME` и `SPRING_DATASOURCE_PASSWORD` (для YARN Explorer допустимы `YARN_DB_USER` и `YARN_DB_PASSWORD`).
-- [ ] При двух и более экземплярах задан `HADOOP_SECURITY_SESSIONSTORE_TYPE=jdbc` (раздел 3.1).
+- [ ] При двух и более экземплярах задан `ZASTAVA_SESSIONSTORE_TYPE=jdbc` (раздел 3.1).
 - [ ] `JWT_SECRET_KEY` одинаковый на всех экземплярах сервиса (раздел 3.2).
 - [ ] Для SQL, Spark и HDFS Explorer с несколькими экземплярами на балансировщике настроена привязка клиента к экземпляру, либо SQL и Spark Explorer запущены в одном экземпляре (раздел 3.3).
 - [ ] Пароль базы данных не хранится в открытом виде в `application.yml` или `docker-compose.yml`, а передается через переменную окружения из хранилища секретов (например, HashiCorp Vault).

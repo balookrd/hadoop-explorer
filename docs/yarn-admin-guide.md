@@ -239,7 +239,7 @@ yarn:
 
 Сервис откажется запускаться, если конфигурация небезопасна:
 
-- `hadoop.security.auth.mode` не задан или равен `mock` без `hadoop.security.debug: true`. По умолчанию действует именно mock: логин демо-учетками и фиктивные данные очередей. Раньше опечатка в ключе (например, `auth-mode` вместо `auth.mode`) молча включала этот режим;
+- `zastava.auth.mode` не задан или равен `mock` без `zastava.debug: true`. По умолчанию действует именно mock: логин демо-учетками и фиктивные данные очередей. Раньше опечатка в ключе (например, `auth-mode` вместо `auth.mode`) молча включала этот режим;
 - JWT-секрет не задан, короче 32 символов или совпадает со встроенным значением из исходников;
 - `auth.mode: ldap` при `ldap.enabled: false`.
 
@@ -431,7 +431,7 @@ docker compose logs -f yarn-explorer
 ## 4. Мониторинг и диагностика
 
 ### 4.1 Метрики Prometheus (`GET /actuator/prometheus`)
-Сервис отдает метрики в текстовом формате Prometheus на `GET /actuator/prometheus` (порт приложения, в контейнере `8000`, в демо-стенде `http://localhost:8001`). Эндпоинт открыт без аутентификации; остальные эндпоинты Actuator, кроме `/actuator/health`, по HTTP не опубликованы, а при публикации требуют роли ADMIN (`common-security-starter`). `GET /metrics` возвращает 404.
+Сервис отдает метрики в текстовом формате Prometheus на `GET /actuator/prometheus` (порт приложения, в контейнере `8000`, в демо-стенде `http://localhost:8001`). Эндпоинт открыт без аутентификации; остальные эндпоинты Actuator, кроме `/actuator/health`, по HTTP не опубликованы, а при публикации требуют роли ADMIN (`zastava`). `GET /metrics` возвращает 404.
 
 | Метрика | Тип | Лейблы | Что считает |
 |---|---|---|---|
@@ -494,7 +494,7 @@ curl -s http://localhost:8001/actuator/prometheus | grep '^yarn_change_requests_
 2. Capacity Scheduler Engine: валидация веток (правило 100% емкости), расчет diff по долям ресурсов и node labels, формирование правок `capacity-scheduler.xml`; XML разбирается с запретом DOCTYPE (защита от XXE).
 3. Change Requests и принцип четырех глаз: жизненный цикл согласования; попытка автора согласовать свою заявку получает HTTP 403 Forbidden.
 4. Интеграция с Ansible AWX: запуск Job Template через REST API AWX; очереди обновляются командой `yarn rmadmin -refreshQueues` без перезапуска RM.
-5. Общий модуль безопасности `common-security-starter`: аутентификация (Kerberos SPNEGO SSO, LDAP), двухуровневое хранилище сессий (L1 Caffeine + L2 JDBC), защита от CSRF, Bucket4j Rate Limiter, AOP-аудит `@Audited`.
+5. Общий модуль безопасности `zastava`: аутентификация (Kerberos SPNEGO SSO, LDAP), двухуровневое хранилище сессий (L1 Caffeine + L2 JDBC), защита от CSRF, Bucket4j Rate Limiter, AOP-аудит `@Audited`.
 
 ### 6.2 Сборка и тестирование
 

@@ -80,41 +80,6 @@ spring:
     property-naming-strategy: SNAKE_CASE
 
 hadoop:
-  security:
-    debug: false
-    auth:
-      mode: ${HADOOP_AUTH_MODE:ldap}
-      admin-groups:
-        - "hadoop-admins"
-        - "platform-admins"
-        - "superusers"
-      writer-groups:
-        - "data-engineers"
-        - "etl-developers"
-        - "replicator-operators"
-        - "operators"
-    jwt:
-      # Обязателен: при пустом значении сервис откажется стартовать
-      secret-key: ${JWT_SECRET_KEY:}
-      expiration-minutes: 480
-    ldap:
-      enabled: true
-      url: ${LDAP_URL:ldaps://ldap.company.local:636}
-      manager-dn: ${LDAP_MANAGER_DN:}
-      manager-password: ${LDAP_MANAGER_PASSWORD:}
-      user-search-base: ${LDAP_USER_SEARCH_BASE:ou=users,dc=company,dc=local}
-      user-search-filter: "(uid={0})"
-    cors:
-      allowed-origins:
-        - "http://localhost:3000"
-        - "http://localhost:5173"
-        - "http://localhost:8005"
-    cookie:
-      secure: false
-      same-site: "Lax"
-      names:
-        - "access_token"
-        - "pristan_session"
 
   replicator:
     grpc:
@@ -177,3 +142,38 @@ hadoop:
         kafka-bootstrap-servers: "${KAFKA_DC2_BOOTSTRAP:kafka-dc2:9092}"
         schema-registry-url: "${SCHEMA_REGISTRY_DC2_URL:http://schema-registry-2:8082}"
         schema-registry-type: "CONFLUENT"
+zastava:
+  debug: false
+  auth:
+    mode: ${HADOOP_AUTH_MODE:ldap}
+    admin-groups:
+      - "hadoop-admins"
+      - "platform-admins"
+      - "superusers"
+    writer-groups:
+      - "data-engineers"
+      - "etl-developers"
+      - "replicator-operators"
+      - "operators"
+  jwt:
+    # Обязателен: при пустом значении сервис откажется стартовать
+    secret-key: ${JWT_SECRET_KEY:}
+    expiration-minutes: 480
+  ldap:
+    enabled: true
+    url: ${LDAP_URL:ldaps://ldap.company.local:636}
+    manager-dn: ${LDAP_MANAGER_DN:}
+    manager-password: ${LDAP_MANAGER_PASSWORD:}
+    user-search-base: ${LDAP_USER_SEARCH_BASE:ou=users,dc=company,dc=local}
+    user-search-filter: "(uid={0})"
+  cors:
+    allowed-origins:
+      - "http://localhost:3000"
+      - "http://localhost:5173"
+      - "http://localhost:8005"
+  cookie:
+    secure: false
+    same-site: "Lax"
+    names:
+      - "access_token"
+      - "pristan_session"

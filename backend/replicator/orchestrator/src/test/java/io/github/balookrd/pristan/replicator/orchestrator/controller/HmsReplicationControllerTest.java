@@ -1,8 +1,8 @@
 package io.github.balookrd.pristan.replicator.orchestrator.controller;
 
-import io.github.balookrd.pristan.common.model.Role;
-import io.github.balookrd.pristan.common.model.UserSession;
-import io.github.balookrd.pristan.common.security.CommonAuthenticationToken;
+import io.github.balookrd.pristan.zastava.model.Role;
+import io.github.balookrd.pristan.zastava.model.UserSession;
+import io.github.balookrd.pristan.zastava.security.CommonAuthenticationToken;
 import io.github.balookrd.pristan.replicator.orchestrator.entity.HmsReplicationJobEntity;
 import io.github.balookrd.pristan.replicator.orchestrator.hms.service.HmsCoordinatorService;
 import io.github.balookrd.pristan.replicator.orchestrator.repository.HmsEventLogRepository;

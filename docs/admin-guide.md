@@ -6,7 +6,7 @@
 
 ## Сервисы платформы
 
-Платформа состоит из 5 независимых сервисов на Java 21 / Spring Boot 3. Аутентификацию и ролевую модель они берут из общего стартера `backend/common-security-starter`, интерфейс построен на общей дизайн-системе. Руководство по каждому сервису описывает установку в трех режимах: Standalone, Docker, Kubernetes.
+Платформа состоит из 5 независимых сервисов на Java 21 / Spring Boot 3. Аутентификацию и ролевую модель они берут из общего стартера `backend/zastava`, интерфейс построен на общей дизайн-системе. Руководство по каждому сервису описывает установку в трех режимах: Standalone, Docker, Kubernetes.
 
 | Сервис | Порт по умолчанию | Назначение | Руководство администратора |
 |---|---|---|---|
@@ -49,12 +49,12 @@ Replicator Agent, кроме трех режимов выше, запускае�
 ### 1. Kerberos keytab
 - Все сервисы могут работать в кластерах с Kerberos.
 - Монтируйте keytab только на чтение, с правами `chmod 400` и владельцем `appuser` (UID `10001`).
-- В контейнере стартер безопасности (`common-security-starter`) сам выполняет вход в Kerberos через Java GSS-API / UGI и обновляет TGT по расписанию.
+- В контейнере стартер безопасности (`zastava`) сам выполняет вход в Kerberos через Java GSS-API / UGI и обновляет TGT по расписанию.
 - В Kubernetes (манифесты Replicator) монтируйте keytab из `Secret` с `defaultMode: 0400`.
 
 ### 2. Секретный ключ JWT (`JWT_SECRET_KEY`)
 - При `auth.mode`, отличном от `mock`, сервис не запускается, если `JWT_SECRET_KEY` пустой, короче 32 символов или совпадает со встроенным плейсхолдером.
-- При `debug: false` сервис также не запускается с ключом, опубликованным в репозитории: значения из `application-mock.yml`, тестов, демо-стендов, удаленных Helm-чартов и примеров документации (список `SecurityConfigurationValidator.PUBLISHED_SECRET_KEYS`). В логе: `hadoop.security.jwt.secret-key is a value published in the Pristan repository ...`.
+- При `debug: false` сервис также не запускается с ключом, опубликованным в репозитории: значения из `application-mock.yml`, тестов, демо-стендов, удаленных Helm-чартов и примеров документации (список `SecurityConfigurationValidator.PUBLISHED_SECRET_KEYS`). В логе: `zastava.jwt.secret-key is a value published in the Pristan repository ...`.
 - При двух и более экземплярах сервиса задайте одинаковый `JWT_SECRET_KEY` на всех экземплярах.
 - Сгенерируйте ключ:
   ```bash
@@ -62,13 +62,13 @@ Replicator Agent, кроме трех режимов выше, запускае�
   ```
 
 ### 3. База данных и хранилище сессий: H2 или PostgreSQL
-- По умолчанию сервисы используют H2: YARN Explorer — файл `./data/yarn_explorer`, HDFS, SQL и Spark Explorer — in-memory H2, данные которой теряются при перезапуске (таблица по сервисам — в [ARCHITECTURE.md, раздел 8](ARCHITECTURE.md#8-хранение-данных-storage-layer)). Сессии и отозванные токены по умолчанию хранятся в памяти процесса (`hadoop.security.session-store.type: memory`). Такая конфигурация подходит для одного экземпляра сервиса.
+- По умолчанию сервисы используют H2: YARN Explorer — файл `./data/yarn_explorer`, HDFS, SQL и Spark Explorer — in-memory H2, данные которой теряются при перезапуске (таблица по сервисам — в [ARCHITECTURE.md, раздел 8](ARCHITECTURE.md#8-хранение-данных-storage-layer)). Сессии и отозванные токены по умолчанию хранятся в памяти процесса (`zastava.session-store.type: memory`). Такая конфигурация подходит для одного экземпляра сервиса.
 - При двух и более экземплярах сервиса подключите PostgreSQL и перенесите туда хранилище сессий:
   ```bash
   SPRING_DATASOURCE_URL=jdbc:postgresql://<pg_host>:5432/<database>
   SPRING_DATASOURCE_USERNAME=<db_user>
   SPRING_DATASOURCE_PASSWORD=<db_password>
-  HADOOP_SECURITY_SESSIONSTORE_TYPE=jdbc
+  ZASTAVA_SESSIONSTORE_TYPE=jdbc
   ```
   `<pg_host>` — адрес PostgreSQL, `<database>` — база сервиса, `<db_user>` и `<db_password>` — учетная запись с правами владельца базы. Порядок перехода, привязка клиента к экземпляру для SQL, Spark и HDFS Explorer и проверочный список — в [production-database.md](production-database.md).
 

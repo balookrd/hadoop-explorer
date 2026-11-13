@@ -81,8 +81,8 @@ public class TopologyController {
     }
 
     private void requireAdmin(org.springframework.security.core.Authentication auth) {
-        if (auth instanceof io.github.balookrd.pristan.common.security.CommonAuthenticationToken tokenAuth) {
-            io.github.balookrd.pristan.common.model.UserSession session = tokenAuth.getUserSession();
+        if (auth instanceof io.github.balookrd.pristan.zastava.security.CommonAuthenticationToken tokenAuth) {
+            io.github.balookrd.pristan.zastava.model.UserSession session = tokenAuth.getUserSession();
             if (session != null && session.isAdmin()) {
                 return;
             }

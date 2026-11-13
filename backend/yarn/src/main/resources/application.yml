@@ -24,22 +24,21 @@ spring:
       ddl-auto: update
     show-sql: false
 
-hadoop:
-  security:
-    debug: false
-    auth:
-      mode: ${HADOOP_AUTH_MODE:ldap}
-    jwt:
-      # Обязателен: при пустом значении сервис откажется стартовать
-      secret-key: ${JWT_SECRET_KEY:}
-      expiration-minutes: 480
-    ldap:
-      enabled: true
-      url: ${LDAP_URL:ldaps://ldap.company.local:636}
-      manager-dn: ${LDAP_MANAGER_DN:}
-      manager-password: ${LDAP_MANAGER_PASSWORD:}
-      user-search-base: ${LDAP_USER_SEARCH_BASE:ou=users,dc=company,dc=local}
-      user-search-filter: "(uid={0})"
+zastava:
+  debug: false
+  auth:
+    mode: ${HADOOP_AUTH_MODE:ldap}
+  jwt:
+    # Обязателен: при пустом значении сервис откажется стартовать
+    secret-key: ${JWT_SECRET_KEY:}
+    expiration-minutes: 480
+  ldap:
+    enabled: true
+    url: ${LDAP_URL:ldaps://ldap.company.local:636}
+    manager-dn: ${LDAP_MANAGER_DN:}
+    manager-password: ${LDAP_MANAGER_PASSWORD:}
+    user-search-base: ${LDAP_USER_SEARCH_BASE:ou=users,dc=company,dc=local}
+    user-search-filter: "(uid={0})"
 
 yarn:
   # native — ResourceManager REST API; mock — встроенное демо-дерево (только для стендов)
@@ -74,7 +73,7 @@ management:
   endpoints:
     web:
       exposure:
-        # /actuator/prometheus is public (common-security-starter); nothing else beyond health
+        # /actuator/prometheus is public (zastava); nothing else beyond health
         include: health,prometheus
   prometheus:
     metrics:

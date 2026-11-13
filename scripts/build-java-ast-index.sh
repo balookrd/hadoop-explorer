@@ -10,7 +10,7 @@ REPO_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
 # Определение выходной директории
 if [ -n "${1:-}" ]; then
     INDEX_DIR="$1"
-elif [ -f "$REPO_ROOT/pom.xml" ] || [ -d "$REPO_ROOT/backend/common-security-starter" ]; then
+elif [ -f "$REPO_ROOT/pom.xml" ] || [ -d "$REPO_ROOT/backend/zastava" ]; then
     INDEX_DIR="$REPO_ROOT/target/java-ast-index"
 elif [ -f "$REPO_ROOT/build.gradle" ] || [ -f "$REPO_ROOT/build.gradle.kts" ]; then
     INDEX_DIR="$REPO_ROOT/build/java-ast-index"

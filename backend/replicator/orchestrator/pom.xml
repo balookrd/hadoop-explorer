@@ -32,7 +32,7 @@
         <!-- Common Security Starter (Auth, Kerberos, LDAP, JWT, SessionStore) -->
         <dependency>
             <groupId>io.github.balookrd.pristan</groupId>
-            <artifactId>common-security-starter</artifactId>
+            <artifactId>zastava</artifactId>
             <version>1.0.0</version>
         </dependency>
 

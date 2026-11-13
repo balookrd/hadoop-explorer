@@ -1,7 +1,7 @@
 package io.github.balookrd.pristan.yarn.controller;
 
-import io.github.balookrd.pristan.common.model.Role;
-import io.github.balookrd.pristan.common.model.UserSession;
+import io.github.balookrd.pristan.zastava.model.Role;
+import io.github.balookrd.pristan.zastava.model.UserSession;
 import io.github.balookrd.pristan.yarn.config.YarnProperties;
 import io.github.balookrd.pristan.yarn.model.ClusterConfig;
 import io.github.balookrd.pristan.yarn.model.ClusterSummary;

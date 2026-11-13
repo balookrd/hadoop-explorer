@@ -60,7 +60,7 @@ class ProductionProfileTest {
     @Test
     @DisplayName("Mock-аутентификация выключена")
     void testProfileDisablesMockAuth() {
-        String authMode = path(loadProdProfile(), "hadoop", "security", "auth", "mode").toString();
+        String authMode = path(loadProdProfile(), "zastava", "auth", "mode").toString();
         assertNotEquals("mock", authMode, "Mock-аутентификация в продуктиве открывает вход по тестовым паролям");
     }
 
@@ -74,7 +74,7 @@ class ProductionProfileTest {
     @Test
     @DisplayName("Cookie сессии помечены Secure")
     void testProfileMarksCookiesSecure() {
-        String secure = path(loadProdProfile(), "hadoop", "security", "cookie", "secure").toString();
+        String secure = path(loadProdProfile(), "zastava", "cookie", "secure").toString();
         assertTrue(secure.contains("true"), "Cookie аутентификации обязаны передаваться только по HTTPS, получено: " + secure);
     }
 

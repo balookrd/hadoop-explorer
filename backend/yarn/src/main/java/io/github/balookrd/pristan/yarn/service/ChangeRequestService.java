@@ -2,9 +2,9 @@ package io.github.balookrd.pristan.yarn.service;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.balookrd.pristan.common.model.Role;
-import io.github.balookrd.pristan.common.model.UserSession;
-import io.github.balookrd.pristan.common.security.RoleResolver;
+import io.github.balookrd.pristan.zastava.model.Role;
+import io.github.balookrd.pristan.zastava.model.UserSession;
+import io.github.balookrd.pristan.zastava.security.RoleResolver;
 import io.github.balookrd.pristan.yarn.config.YarnProperties;
 import io.github.balookrd.pristan.yarn.entity.ChangeRequestEntity;
 import io.github.balookrd.pristan.yarn.entity.ChangeRequestStatus;

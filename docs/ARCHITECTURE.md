@@ -14,7 +14,7 @@ Pristan — веб-платформа для работы с экосистем�
 ## 1. Принципы архитектуры
 
 - Монорепозиторий с независимой поставкой: каждый сервис собирается в отдельный Docker-образ и не зависит от остальных сервисов платформы.
-- Общий код безопасности (`backend/common-security-starter`, `frontend/common`): аутентификация (Kerberos SPNEGO + LDAPS), сессионный фильтр авторизации, хранилище сессий (L1/L2), защита от CSRF и аудит через AOP. Фильтр `RateLimitFilter` (Bucket4j) ограничивает частоту запросов к `/api/*` во всех сервисах, подключающих стартер (раздел 3.4). Класс `SimpleCircuitBreaker` в стартере есть, но сервисы его не вызывают (раздел 4.2).
+- Общий код безопасности (`backend/zastava`, `frontend/common`): аутентификация (Kerberos SPNEGO + LDAPS), сессионный фильтр авторизации, хранилище сессий (L1/L2), защита от CSRF и аудит через AOP. Фильтр `RateLimitFilter` (Bucket4j) ограничивает частоту запросов к `/api/*` во всех сервисах, подключающих стартер (раздел 3.4). Класс `SimpleCircuitBreaker` в стартере есть, но сервисы его не вызывают (раздел 4.2).
 - Токены только в cookie: токены авторизации передаются в cookie с флагами `HttpOnly`, `SameSite=Lax`, `Secure`. JWT и учетные данные не пишутся в `localStorage` браузера (защита от XSS, CWE-312).
 - Изоляция пользовательских данных (`User Workspace`): вкладки, код и результаты выполнения хранятся отдельно для каждого пользователя в БД (H2 / PostgreSQL).
 - Высокая доступность внешних служб: YARN Explorer выбирает активный ResourceManager по `haState`, HDFS Explorer работает с HA NameNode через `ConfiguredFailoverProxyProvider` (раздел 4.2).
@@ -46,7 +46,7 @@ Pristan — веб-платформа для работы с экосистем�
                                         │
                                         ▼
                    ┌──────────────────────────────────────────────┐
-                   │    Ядро платформы (common-security-starter)  │
+                   │    Ядро платформы (zastava)  │
                    │  - SessionStore & L1 Caffeine / L2 JDBC      │
                    │  - CommonAuthFilter & SecurityFilterChain    │
                    │  - LdapAuthService / KerberosSpnegoService   │
@@ -65,38 +65,38 @@ Pristan — веб-платформа для работы с экосистем�
 
 ---
 
-## 3. Подсистема безопасности (`backend/common-security-starter`)
+## 3. Подсистема безопасности (`backend/zastava`)
 
 ### 3.1 Аутентификация: Kerberos SPNEGO SSO, LDAPS и `AuthController`
-1. `AuthController` (`io.github.balookrd.pristan.common.api.AuthController`):
+1. `AuthController` (`io.github.balookrd.pristan.zastava.api.AuthController`):
    - Регистрирует во всех сервисах одинаковые эндпоинты аутентификации: `POST /api/v1/auth/login`, `GET /api/v1/auth/sso`, `POST /api/v1/auth/logout`, `GET /api/v1/auth/me`.
    - Продлевает сессию при активности пользователя (sliding session), выставляет cookie с `HttpOnly`, поддерживает mock-пользователей и вход через LDAP/Kerberos.
-2. `KerberosSpnegoService` (`io.github.balookrd.pristan.common.auth`):
+2. `KerberosSpnegoService` (`io.github.balookrd.pristan.zastava.auth`):
    - Проверяет SPNEGO-билет браузера из заголовка `Authorization: Negotiate ...` через Java GSS-API (`org.ietf.jgss`) и извлекает principal пользователя (`user@REALM`).
    - Исходящие Kerberos-вызовы стартер не выполняет: их делает каждый сервис сам (YARN Explorer — `KerberosClientLogin` по keytab для SPNEGO-запросов к ResourceManager, HDFS Explorer — клиент Hadoop через UGI).
 3. LDAPS / Active Directory: проверка пароля через `LdapAuthService` с экранированием фильтров (`escapeLdapFilter`, защита от LDAP Injection, CWE-90) и чтением групп из атрибута `memberOf`.
-4. Mock-режим (`hadoop.security.auth.mode: mock`) — только для локальной разработки; демо-стенды входят через OpenLDAP. При `debug: false` mock-провайдер не запускается.
+4. Mock-режим (`zastava.auth.mode: mock`) — только для локальной разработки; демо-стенды входят через OpenLDAP. При `debug: false` mock-провайдер не запускается.
 5. Общая проверка токена: `CommonAuthFilter` во всех сервисах берет токен из `Authorization: Bearer` или cookie (`SecurityTokenExtractor`), отклоняет отозванные токены (`SessionStore.isTokenRevoked`), ищет сессию в `SessionStore`, а если ее нет — проверяет подпись JWT (`JwtTokenService`), повторно проверяет отзыв по `jti` и строит `UserSession`.
 
 ### 3.2 Хранилище сессий (`SessionStore`)
 - Отозванные токены не принимаются (CWE-613).
-- Реализация — `DefaultSessionStore`; режим задает `hadoop.security.session-store.type`: `memory` (по умолчанию, сессии и отзывы в `ConcurrentHashMap` процесса) или JDBC (любое другое значение при наличии `DataSource`). Отдельной реализации для Redis нет.
+- Реализация — `DefaultSessionStore`; режим задает `zastava.session-store.type`: `memory` (по умолчанию, сессии и отзывы в `ConcurrentHashMap` процесса) или JDBC (любое другое значение при наличии `DataSource`). Отдельной реализации для Redis нет.
 - В JDBC-режиме активные сессии хранятся в таблице `active_sessions`, отозванные токены — в `revoked_tokens`; обе таблицы создаются через `CREATE TABLE IF NOT EXISTS` при старте.
 - Проверка отзыва двухуровневая:
   - L1: кэш Caffeine в поле `l1RevokedCache` `DefaultSessionStore` (`session-store.l1-capacity`, по умолчанию 10000 записей; `session-store.l1-ttl-seconds`, по умолчанию 3600 с).
   - L2: таблица `revoked_tokens` (JDBC: H2, PostgreSQL, SQLite); найденный там отзыв кладется в L1.
-- Fail-closed: при `hadoop.security.session-store.fail-closed: true` ошибка запроса к БД считается отзывом и токен отклоняется. По умолчанию параметр `false`: при недоступной БД проверка продолжается по памяти процесса.
+- Fail-closed: при `zastava.session-store.fail-closed: true` ошибка запроса к БД считается отзывом и токен отклоняется. По умолчанию параметр `false`: при недоступной БД проверка продолжается по памяти процесса.
 - Проверка доступности (`ping`): в JDBC-режиме выполняет `SELECT 1`. Readiness-проба `/actuator/health/readiness` этот метод не вызывает (см. раздел 9).
 
 ### 3.3 Защита от CSRF и подмены заголовков
 Проверку выполняет `CsrfProtectionValidator` из `CommonAuthFilter`. Она применяется только к запросам `POST`, `PUT`, `PATCH`, `DELETE`, у которых токен пришел из cookie; запросы с `Authorization: Bearer` не проверяются. Порядок проверки:
 1. `Sec-Fetch-Site: cross-site` — запрос отклоняется с HTTP 403.
 2. `X-Requested-With: XMLHttpRequest` — запрос пропускается.
-3. `Origin`, затем `Referer` — запрос пропускается, если origin входит в `hadoop.security.cors.allowed-origins` или совпадает с адресом самого сервера (схема, `getServerName()` и порт запроса).
+3. `Origin`, затем `Referer` — запрос пропускается, если origin входит в `zastava.cors.allowed-origins` или совпадает с адресом самого сервера (схема, `getServerName()` и порт запроса).
 4. Иначе — HTTP 403.
 
 ### 3.4 Ограничение частоты запросов и аудит
-- Фильтр `RateLimitFilter` стартера ограничивает частоту запросов к `/api/*` (`RateLimiterService`, Token Bucket на `Bucket4j`). `POST /api/v1/auth/login` и `GET /api/v1/auth/sso` считаются по IP клиента (по умолчанию 10 подряд, 30 в минуту), остальные запросы к API — по имени пользователя, анонимные — по IP (100 подряд, 600 в минуту). Сверх лимита — HTTP 429 с `Retry-After`. `X-Forwarded-For` учитывается только от адресов из `hadoop.security.rate-limiter.trusted-proxies`. Фильтр зарегистрирован после `springSecurityFilterChain` и действует и в собственной цепочке оркестратора. Запросы, отклонённые цепочкой (401/403), токены не тратят. Параметры — `docs/CONFIGURATION.md`, раздел 2.5.
+- Фильтр `RateLimitFilter` стартера ограничивает частоту запросов к `/api/*` (`RateLimiterService`, Token Bucket на `Bucket4j`). `POST /api/v1/auth/login` и `GET /api/v1/auth/sso` считаются по IP клиента (по умолчанию 10 подряд, 30 в минуту), остальные запросы к API — по имени пользователя, анонимные — по IP (100 подряд, 600 в минуту). Сверх лимита — HTTP 429 с `Retry-After`. `X-Forwarded-For` учитывается только от адресов из `zastava.rate-limiter.trusted-proxies`. Фильтр зарегистрирован после `springSecurityFilterChain` и действует и в собственной цепочке оркестратора. Запросы, отклонённые цепочкой (401/403), токены не тратят. Параметры — `docs/CONFIGURATION.md`, раздел 2.5.
 - Аудит: `AuditAspect` перехватывает методы с аннотацией `@Audited` и через `AuditLogger` пишет в логгер `AUDIT_LOGGER` строку `AUDIT_EVENT: {...}` с JSON-записью `AuditRecord` (`timestamp`, `service`, `username`, `client_ip`, `action`, `resource`, `status`, `duration_ms`, `details`). Имя события — значение `action` из аннотации, например `APPROVE_CHANGE_REQUEST` в YARN Explorer или `FILE_UPLOAD` в HDFS Explorer. Поле `client_ip` всегда равно `internal`. Вход, выход и отклонения CSRF через `@Audited` не проходят и в журнал аудита не попадают.
 
 ### 3.5 Content-Security-Policy (CSP) и защитные HTTP-заголовки
@@ -113,7 +113,7 @@ Pristan — веб-платформа для работы с экосистем�
   - `Referrer-Policy` не выставляется.
 
 ### 3.6 Состав стартера безопасности
-Все сервисы подключают стартер `io.github.balookrd.pristan:common-security-starter`:
+Все сервисы подключают стартер `io.github.balookrd.pristan:zastava`:
 - Spring Boot 3 AutoConfiguration: `SecurityFilterChain`, `CommonAuthFilter`, CORS, TLS Customizer и контроллеры регистрируются через `org.springframework.boot.autoconfigure.AutoConfiguration.imports`.
 - Kerberos SPNEGO SSO на Java GSS-API (`org.ietf.jgss`) без сторонних библиотек.
 - LDAPS / Active Directory с экранированием фильтров (CWE-90).
@@ -121,13 +121,13 @@ Pristan — веб-платформа для работы с экосистем�
 - CSRF Guard: проверка `Sec-Fetch-Site: cross-site`, `X-Requested-With: XMLHttpRequest` и списка разрешенных `Origin`/`Referer`.
 - JSON-аудит через AOP-аннотацию `@Audited`.
 - `RateLimitFilter` и `RateLimiterService` (`Bucket4j`) ограничивают частоту запросов к API (раздел 3.4); `SimpleCircuitBreaker` в стартере есть, но сервисы его не вызывают (раздел 4.2).
-- JWT подписываются симметрично (`HS256`, `MACSigner` из `nimbus-jose-jwt`) ключом `hadoop.security.jwt.secret-key`.
+- JWT подписываются симметрично (`HS256`, `MACSigner` из `nimbus-jose-jwt`) ключом `zastava.jwt.secret-key`.
 - TLS/HTTPS и mTLS: `TlsWebServerCustomizer` настраивает встроенный Tomcat, поддерживает хранилища PKCS12 / JKS и проверку клиентских сертификатов; фабрика `TlsContextFactory` строит TLS-контекст для исходящих клиентов.
 - Эндпоинты `AuthController`: `/api/v1/auth/login`, `/sso`, `/logout`, `/me`.
 
 ### 3.7 TLS / mTLS для REST и gRPC
 1. REST / HTTP:
-   - Веб-серверы Spring Boot (`yarn`, `hdfs`, `sql`, `spark`, `replicator/orchestrator`) включают HTTPS параметром `hadoop.security.tls.enabled=true`.
+   - Веб-серверы Spring Boot (`yarn`, `hdfs`, `sql`, `spark`, `replicator/orchestrator`) включают HTTPS параметром `zastava.tls.enabled=true`.
    - Протоколы TLSv1.3 и TLSv1.2, настраиваемый список шифров, взаимная аутентификация (mTLS) через `client-auth: REQUIRE`.
    - Исходящие HTTP-клиенты (`HttpClient` в `NativeYarnClient`, `AwxClientService`, `OrchestratorClient`) получают TLS-контекст из `TlsContextFactory`: доверенные CA и флаг `insecureSkipVerify` для тестовых стендов.
 2. gRPC-каналы репликации:
@@ -141,12 +141,12 @@ Pristan — веб-платформа для работы с экосистем�
 
 ### 4.1 Метрики Prometheus
 - YARN, HDFS, SQL и Spark Explorer подключают `micrometer-registry-prometheus` и публикуют `/actuator/prometheus` (`management.endpoints.web.exposure.include: health,prometheus`); у всех метрик есть лейбл `app` (`management.metrics.tags.app`). Бизнес-метрики: `MeteredHdfsClient` (HDFS), `ChangeRequestMetrics` (YARN), `SqlQueryMetrics` (SQL), `SparkMetrics` (Spark). Стартер считает ответы 429 `RateLimitFilter` в `hadoop_rate_limit_blocks_total{tier}` (`login`, `api`).
-- `common-security-starter` открывает `/actuator/health/**`, `/actuator/info` и `/actuator/prometheus`, остальной `/actuator/**` — только ADMIN, как в оркестраторе Replicator.
+- `zastava` открывает `/actuator/health/**`, `/actuator/info` и `/actuator/prometheus`, остальной `/actuator/**` — только ADMIN, как в оркестраторе Replicator.
 - Оркестратор Replicator отдает `/actuator/prometheus` и `/metrics` (`ReplicatorMetricsController`: метрики Micrometer плюс метрики задач и агентов из `ReplicatorMetricsService`, см. 7.2). `/metrics` требует аутентификации.
 - Дашборды Grafana и конфигурация автоматической загрузки лежат в [`monitoring/grafana/dashboards/`](../monitoring/grafana/dashboards/) и [`monitoring/grafana/provisioning/dashboards/dashboards.yaml`](../monitoring/grafana/provisioning/dashboards/dashboards.yaml), описание метрик — в [CONFIGURATION.md, раздел 9](CONFIGURATION.md#9-мониторинг-prometheus-и-дашборды-grafana).
 
 ### 4.2 Circuit Breaker
-- В стартере есть класс `SimpleCircuitBreaker` (`io.github.balookrd.pristan.common.resilience`): состояния `CLOSED` → `OPEN` после `failureThreshold` подряд неудачных вызовов (сбоем считается любое исключение) → `HALF_OPEN` по истечении `recoveryTimeoutMs`. В состоянии `OPEN` вызов сразу возвращает результат `fallback` или бросает `IllegalStateException`.
+- В стартере есть класс `SimpleCircuitBreaker` (`io.github.balookrd.pristan.zastava.resilience`): состояния `CLOSED` → `OPEN` после `failureThreshold` подряд неудачных вызовов (сбоем считается любое исключение) → `HALF_OPEN` по истечении `recoveryTimeoutMs`. В состоянии `OPEN` вызов сразу возвращает результат `fallback` или бросает `IllegalStateException`.
 - Ни один сервис `SimpleCircuitBreaker` не создает: вызовы NameNode, ResourceManager и Livy им не защищены, при недоступности кластера запрос ждет сетевого таймаута клиента.
 - HA failover реализован в клиентах сервисов:
   - YARN Explorer (`NativeYarnClient`) опрашивает адреса ResourceManager и выбирает тот, у которого `clusterInfo.haState == ACTIVE`; редирект от Standby RM считается признаком переключения.
@@ -154,7 +154,7 @@ Pristan — веб-платформа для работы с экосистем�
 - Readiness-проба `/actuator/health/readiness` доступность кластеров не учитывает: она отвечает 200, даже если все кластеры недоступны.
 
 ### 4.3 Обработчики исключений (`@ControllerAdvice`)
-Общего обработчика в стартере нет; ошибки 401 и 403 стартер отдает JSON-ом `{"detail", "status"}` через `CommonSecurityErrorHandlers`. Свои `@RestControllerAdvice` есть в двух сервисах:
+Общего обработчика в стартере нет; ошибки 401 и 403 стартер отдает JSON-ом `{"detail", "status"}` через `ZastavaErrorHandlers`. Свои `@RestControllerAdvice` есть в двух сервисах:
 - YARN Explorer, `ApiExceptionHandler`: `ResponseStatusException` → статус и причина из исключения; `YarnRmException` → HTTP 502; ошибки валидации тела → HTTP 400 со списком полей. Остальные исключения обрабатывает стандартный `/error` Spring Boot.
 - HDFS Explorer, `GlobalHdfsExceptionHandler`: `HdfsLocalizedException` → статус из исключения; любое другое исключение пишется в лог со стеком, а `HdfsErrorTranslator` превращает его в `{"detail", "error_class", "status"}` (например, `StandbyException` → HTTP 503, остальное → HTTP 500 с текстом исключения).
 - В SQL и Spark Explorer собственных обработчиков нет.
@@ -179,7 +179,7 @@ Pristan — веб-платформа для работы с экосистем�
   - Разбор и проверка дерева очередей (сумма емкостей дочерних очередей — 100%), расчет diff изменений RAM/vCPU и node labels.
   - Генерация `capacity-scheduler.xml` и его санитизация с защитой от XXE.
   - Жизненный цикл Change Requests по принципу четырех глаз (Spring Data JPA / H2).
-  - Интеграция с Ansible AWX REST API (`POST /api/v2/job_templates/{id}/launches/`) и стартером `common-security-starter`.
+  - Интеграция с Ansible AWX REST API (`POST /api/v2/job_templates/{id}/launches/`) и стартером `zastava`.
   - `MockYarnClient` для тестов без кластера.
 - Мониторинг очередей: дерево иерархии Capacity Scheduler, загрузка памяти и ядер в реальном времени, с учетом RM HA.
 - Проверка конфигурации: сумма емкостей очередей (100%), минимальные и максимальные лимиты пользователя.
@@ -200,7 +200,7 @@ Pristan — веб-платформа для работы с экосистем�
   - HA NameNode: автоматическая настройка `dfs.nameservices` и `ConfiguredFailoverProxyProvider`.
   - Операции выполняются от имени пользователя через Kerberos proxy user (`doAs`), поэтому Ranger Audit видит конечного пользователя.
   - Предпросмотр Parquet и ORC читает файл потоком, не загружая его в память целиком (`parquet-hadoop`, `orc-core`).
-  - Подключает стартер `common-security-starter`; для тестов без кластера есть in-memory эмулятор `MockHdfsClient`.
+  - Подключает стартер `zastava`; для тестов без кластера есть in-memory эмулятор `MockHdfsClient`.
 - Имперсонация (`doAs`): файловые операции выполняются от имени вошедшего пользователя, если у сервисной учетной записи есть право proxy user.
 - Архивация в ZIP без блокировки запросов: упаковка и распаковка каталогов вынесены в пул рабочих потоков; есть защита от DoS/OOM и нет N+1 запросов к NameNode.
 - Предпросмотр: потоковое чтение CSV/TSV, JSON, текстовых файлов, Apache Parquet и Apache ORC.
@@ -220,7 +220,7 @@ Pristan — веб-платформа для работы с экосистем�
 ### 5.4 Spark Explorer
 - Бэкенд на Java 21 / Spring Boot 3 (`backend/spark/`, порт 8004), кластеры задаются списком `spark.clusters` (`livy-url`, очереди YARN, версии Spark и Python, профили ресурсов).
 - Движок исполнения задает интерфейс `SparkEngine` (создание, обновление и удаление сессии, выполнение кода). `SparkEngineRegistry` выбирает движок кластера: `MockSparkEngine` при `mock-storage: true` или `type`, отличном от `livy`, иначе `LivySparkEngine` (один экземпляр на кластер). Настройки Livy всех таких кластеров (`livy-url`, `livy.auth`, таймауты) проверяются в конструкторе `SparkEngineRegistry`, поэтому ошибка конфигурации останавливает старт сервиса. `LivySparkEngine` работает через JDK `HttpClient` напрямую (HTTP/1.1, `sendAsync`, заголовок `X-Requested-By` для CSRF-защиты Livy, редиректы не выполняются): `livy.connect-timeout-seconds` ограничивает установку соединения, `livy.read-timeout-seconds` — весь ответ на один запрос, заголовки и тело целиком; по истечении обмен отменяется и вызов получает HTTP 504. Ответ больше 4 МиБ (`GET /sessions?size=1000` несет хвосты логов всех сессий) отбрасывается с HTTP 502. Spring `RestClient` здесь не используется: таймаут чтения `JdkClientHttpRequestFactory` в Spring 6.1 заканчивается на заголовках, и Livy, зависший посреди тела, держал бы поток без ограничения. Запросы: `POST /sessions` с `proxyUser`, `queue`, ресурсами профиля и `conf`; перед statement ждет состояния `idle`/`busy`; statement опрашивается каждые `livy.poll-interval-ms`, отмена — `POST /sessions/{id}/statements/{sid}/cancel`. Таблица результата берется из `output.data["application/json"]` (statement `kind: sql`), текстовый вывод PySpark/Scala — в `logs`. Ошибки Livy в синхронных вызовах — HTTP 502 (таймаут — 504), недопустимый запрос сессии — 400 (`SparkEngineExceptionHandler`); ответ 2xx без JSON-объекта и коды вне 2xx/4xx/5xx тоже становятся `LivyException`. Событие `finished` движок не отправляет, только `status` с прогрессом. Значения колонок `decimal(p,s)` передаются точным текстом (ответы Livy читаются с `USE_BIG_DECIMAL_FOR_FLOATS`): в JSON результата это строка, а не число. В UI (`ResultsView.svelte`) таблица не сортируется, ячейки выводятся через `String(cell)`, поиск и экспорт CSV тоже работают со `String(val)`, поэтому строка и число отображаются одинаково; клиент API, который ждет число, должен разбирать строку; в тексте ошибки нет учетных данных из `livy-url` и значений токенов `Negotiate`/`Bearer`/`Basic`, тело ответа Livy обрезается до 500 символов. `proxyUser` — всегда имя вошедшего пользователя; ключи `spark_conf` с префиксами из `spark.denied-spark-conf-prefixes`, а также `livy.`, `spark.yarn.keytab`, `spark.yarn.principal`, `spark.kerberos.`, `spark.master`, `spark.submit.deployMode`, `spark.yarn.dist.`, `spark.yarn.jars`, `spark.yarn.archive`, `spark.jars.ivy`, `spark.jars.repositories`, `spark.yarn.queue` (без учета регистра) и пути со схемой не из `spark.allowed-remote-schemes` (по умолчанию `hdfs`, `viewfs`, `s3a`, `abfs`, `abfss`) в списках файлов отклоняются до обращения к Livy; очередь проверяется по `yarn-queues`.
-- Сессии (`spark_sessions`) создаются через `POST /api/v1/sessions` и останавливаются через `DELETE /api/v1/sessions/{sessionId}`. `GET /api/v1/sessions` и `GET /api/v1/sessions/{id}` читают только БД. Статус и YARN application ID обновляет `SparkSessionManager.syncSessions` (`@Scheduled(fixedDelay = spark.session-sync-interval-ms)`, по умолчанию 5 с): по одной задаче в пуле менеджера на кластер Livy, в задаче сначала читаются нетерминальные записи кластера, затем один `GET /sessions?from=0&size=1000`. Кластер, чья задача еще идет, в следующем проходе пропускается; после любой `LivyException` кластер не опрашивается `spark.session-sync-pause-seconds` (30 с), одно предупреждение в лог за паузу. Запись, которой нет в полном ответе Livy, получает `dead`; запись, чей идентификатор Livy занят сессией без имени, с именем не `hexp-<user>-...` или с другим `proxyUser` (при `livy.proxy-user: true` `proxyUser` обязан совпадать с владельцем), тоже получает `dead` без `DELETE`. Та же проверка владельца выполняется перед statement и запросом каталога (`LivySparkEngine.waitUntilReady`, ответ 409). Все изменения статуса — условные `UPDATE` (только если запись не `dead`/`killed`), поэтому синхронизация на нескольких экземплярах и возврат в `idle` после statement не отменяют принятую остановку. Остановка (`markKilledIfActive`), `cleanupIdleSessions` (раз в минуту выбирает `idle` с `lastActivityAt` старше `spark.session-ttl-minutes` и захватывает каждую условным `UPDATE ... WHERE status = 'idle' AND last_activity_at < порог`) и событие `UserLoggedOutEvent` из `common-security-starter` (публикуется `AuthController` после `POST /api/v1/auth/logout` только на принявшем запрос экземпляре; `@EventListener` отдает удаление в пул менеджера) вызывают `DELETE /sessions/{livyId}` только если захват записи удался; для записи в `dead`/`killed` Livy не вызывается. 404 от Livy считается успешным удалением, другая ошибка пишется в лог, запись остается `killed`. Statement, упавший с `LivyException` 409, переводит запись в `dead`. Пул менеджера останавливается вместе с контекстом (`@PreDestroy`, ожидание 5 с). Сессия, созданная в Livy при таймауте ответа на `POST /sessions`, в `spark_sessions` не попадает и закрывается только по `livy.server.session.timeout`.
+- Сессии (`spark_sessions`) создаются через `POST /api/v1/sessions` и останавливаются через `DELETE /api/v1/sessions/{sessionId}`. `GET /api/v1/sessions` и `GET /api/v1/sessions/{id}` читают только БД. Статус и YARN application ID обновляет `SparkSessionManager.syncSessions` (`@Scheduled(fixedDelay = spark.session-sync-interval-ms)`, по умолчанию 5 с): по одной задаче в пуле менеджера на кластер Livy, в задаче сначала читаются нетерминальные записи кластера, затем один `GET /sessions?from=0&size=1000`. Кластер, чья задача еще идет, в следующем проходе пропускается; после любой `LivyException` кластер не опрашивается `spark.session-sync-pause-seconds` (30 с), одно предупреждение в лог за паузу. Запись, которой нет в полном ответе Livy, получает `dead`; запись, чей идентификатор Livy занят сессией без имени, с именем не `hexp-<user>-...` или с другим `proxyUser` (при `livy.proxy-user: true` `proxyUser` обязан совпадать с владельцем), тоже получает `dead` без `DELETE`. Та же проверка владельца выполняется перед statement и запросом каталога (`LivySparkEngine.waitUntilReady`, ответ 409). Все изменения статуса — условные `UPDATE` (только если запись не `dead`/`killed`), поэтому синхронизация на нескольких экземплярах и возврат в `idle` после statement не отменяют принятую остановку. Остановка (`markKilledIfActive`), `cleanupIdleSessions` (раз в минуту выбирает `idle` с `lastActivityAt` старше `spark.session-ttl-minutes` и захватывает каждую условным `UPDATE ... WHERE status = 'idle' AND last_activity_at < порог`) и событие `UserLoggedOutEvent` из `zastava` (публикуется `AuthController` после `POST /api/v1/auth/logout` только на принявшем запрос экземпляре; `@EventListener` отдает удаление в пул менеджера) вызывают `DELETE /sessions/{livyId}` только если захват записи удался; для записи в `dead`/`killed` Livy не вызывается. 404 от Livy считается успешным удалением, другая ошибка пишется в лог, запись остается `killed`. Statement, упавший с `LivyException` 409, переводит запись в `dead`. Пул менеджера останавливается вместе с контекстом (`@PreDestroy`, ожидание 5 с). Сессия, созданная в Livy при таймауте ответа на `POST /sessions`, в `spark_sessions` не попадает и закрывается только по `livy.server.session.timeout`.
 - Код выполняется асинхронно: `POST /api/v1/statements/execute`, статус по SSE — `GET /api/v1/statements/{executionId}/stream`, результат — `GET /api/v1/statements/{executionId}/result`, история — `spark_execution_history`. Код в сессии `dead` или `killed` не принимается: `StatementController` отвечает HTTP 404. Причина («Сессия … завершена (…), запустите новую») передается в `ResponseStatusException`, но в тело ответа не попадает: `server.error.include-message` в сервисе не задан, а по умолчанию в Spring Boot он `never`. `GET .../result` отдает конечный статус выполнения (`FINISHED`, `FAILED`, `CANCELLED`). Если движок бросил исключение, выполнение получает `FAILED` с текстом ошибки (для `Error` — с именем класса, например `NoClassDefFoundError: ...`; `VirtualMachineError` после записи итога пробрасывается дальше), а подписчики SSE — событие `{"type":"finished","status":"FAILED","error":...}`; статус и событие сохраняются в памяти экземпляра, даже если запись в БД не удалась.
 - Отмена (`POST /api/v1/statements/{executionId}/cancel`) ставит `CANCELLED` условным `UPDATE` только записи в статусе `QUEUED`/`RUNNING`; записи в статусах `FINISHED`, `FAILED`, `CANCELLED` не меняются (ответ 200). Итог выполнения задача пишет тоже условным `UPDATE` (только поверх `QUEUED`/`RUNNING`). Если до этой записи была принята отмена, итог — `CANCELLED` без строк, даже если движок успел вернуть результат; иначе итог — результат движка, а поздняя отмена его не меняет. Событие `finished` от движка подписчикам не пересылается: конечное событие SSE отправляет `SparkSessionManager` после записи итога, поэтому SSE, история, `GET .../result` и метрика `spark_statement_duration_seconds` (одно значение) показывают один и тот же статус. Запись `QUEUED`/`RUNNING`, оставшаяся от прошлого процесса, просто переводится в `CANCELLED`.
 - Компоновка интерфейса совпадает с SQL Explorer:
@@ -342,7 +342,7 @@ Pristan — веб-платформа для работы с экосистем�
     - `KafkaTopicProvisioner` создает топики в целевом кластере с тем же числом партиций, фактором репликации и параметрами (`min.insync.replicas`, `cleanup.policy`, `retention.ms`).
     - Синхронизация Schema Registry (Confluent / Aiven, порт 8081): `ZeroCopyWireTranscoder` заменяет Magic Byte и Schema ID в заголовках Avro/Protobuf без аллокаций в памяти, со single-flight разрешением в `ConcurrentHashMap`.
 - Модули и сборка:
-  - Оркестратор на Java 21 / Spring Boot 3 (`backend/replicator/orchestrator`): мультиплексированный gRPC Control Plane (`OrchestratorControlPlaneService`, порт 50050), стартер `common-security-starter`, Spring Data JPA, потокобезопасный `TokenBucketThrottler`, `AgentRegistry` с защитой от SSRF, cron-планировщик и раздача собранного Svelte 5 SPA.
+  - Оркестратор на Java 21 / Spring Boot 3 (`backend/replicator/orchestrator`): мультиплексированный gRPC Control Plane (`OrchestratorControlPlaneService`, порт 50050), стартер `zastava`, Spring Data JPA, потокобезопасный `TokenBucketThrottler`, `AgentRegistry` с защитой от SSRF, cron-планировщик и раздача собранного Svelte 5 SPA.
   - Агент на Java 21 (`backend/replicator/agent`): воркер для DataNode и контейнеров Apache Hadoop YARN с сервисами HDFS (`DataTransferService`), Hive Metastore (`HmsTransferService`) и Kafka (`KafkaDataTransferService`); с оркестратором связывается через `OrchestratorGrpcClient`. Циклы `replicator-hms-loop` и потоки Kafka отделены от `replicator-sender-loop`, поэтому передача больших блоков данных не блокирует HMS и Kafka.
   - Схема БД как миграции (Flyway): DDL живет в `db/migration/common` (базовая схема, выгруженная из модели JPA) и `db/migration/{vendor}` (специфика PostgreSQL: частичные индексы по активным статусам, `fillfactor` и параметры autovacuum горячих таблиц). `ddl-auto` во всех профилях стоит в `validate`, поэтому расхождение модели и схемы ломает старт, а не правится молча; существующие базы подхватываются через `baseline-on-migrate`.
   - Мультимодульный Maven-проект (`backend/replicator/pom.xml`) объединяет `proto`, `model`, `agent` и `orchestrator` в общий цикл компиляции и тестирования (`make test-replicator`).
@@ -415,7 +415,7 @@ SQL и Spark Explorer отправляют обновления по Server-Sent
 ## 7. Наблюдаемость и мониторинг (observability)
 
 ### 7.1 Распределенная трассировка
-Трассировка есть только в Replicator (7.1.1). В YARN, HDFS, SQL и Spark Explorer и в `common-security-starter` нет ни зависимостей OpenTelemetry / micrometer-tracing, ни обработки `traceparent` или `X-Request-ID`.
+Трассировка есть только в Replicator (7.1.1). В YARN, HDFS, SQL и Spark Explorer и в `zastava` нет ни зависимостей OpenTelemetry / micrometer-tracing, ни обработки `traceparent` или `X-Request-ID`.
 
 #### 7.1.1 Трассировка и health-пробы Replicator (оркестратор и агенты)
 - Сквозной trace через gRPC (`GrpcTracing` в `replicator-model`): клиентский перехватчик кладет в метаданные вызова W3C `traceparent`, серверный поднимает его и продолжает тот же trace, выставляя `trace_id`/`span_id` в MDC. Перехватчики стоят на всех вызовах: агент → оркестратор (`OrchestratorGrpcClient`), агент → агент для файлов (`ReplicationSender`), схем Hive (`HmsPipelineSender`) и батчей Kafka (`KafkaReplicationClient`), а на серверной стороне — в Control Plane, приемнике агента и приемнике Kafka-батчей. Серверный перехватчик добавляется последним, поэтому выполняется первым: в трассу попадают и вызовы, отклоненные аутентификацией.
@@ -449,13 +449,13 @@ YARN, HDFS, SQL и Spark Explorer публикуют метрики на `/actua
 | Spark Explorer | `jdbc:h2:mem:sparkexplorer;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL | JPA, `ddl-auto: update` (`spark_sessions`, `spark_execution_history`, `spark_user_workspaces`) |
 | Replicator Orchestrator | `jdbc:h2:mem:replicator;DB_CLOSE_DELAY=-1;MODE=PostgreSQL` | H2, PostgreSQL, SQLite | миграции Flyway, `ddl-auto: validate` (см. 5.5) |
 
-- Драйвер PostgreSQL (`org.postgresql:postgresql`, версия из Spring Boot 3.3.4 — 42.7.4) объявлен в `common-security-starter` со `scope` `runtime` и попадает в JAR всех сервисов на стартере (`BOOT-INF/lib/postgresql-42.7.4.jar`). Явного `driver-class-name` в упакованных `application.yml` нет: Spring Boot выбирает драйвер по `spring.datasource.url`, поэтому для перехода на PostgreSQL задайте `SPRING_DATASOURCE_URL=jdbc:postgresql://...`, а также `SPRING_DATASOURCE_USERNAME` и `SPRING_DATASOURCE_PASSWORD`: упакованные `sa` и пустой пароль рассчитаны на H2. В YARN Explorer вместо `SPRING_DATASOURCE_*` можно задать `YARN_DB_URL`, `YARN_DB_USER` и `YARN_DB_PASSWORD`. Для двух и более экземпляров сервиса задайте также `hadoop.security.session-store.type: jdbc` и привязку клиента к экземпляру для SQL, Spark и HDFS Explorer: [production-database.md](production-database.md).
+- Драйвер PostgreSQL (`org.postgresql:postgresql`, версия из Spring Boot 3.3.4 — 42.7.4) объявлен в `zastava` со `scope` `runtime` и попадает в JAR всех сервисов на стартере (`BOOT-INF/lib/postgresql-42.7.4.jar`). Явного `driver-class-name` в упакованных `application.yml` нет: Spring Boot выбирает драйвер по `spring.datasource.url`, поэтому для перехода на PostgreSQL задайте `SPRING_DATASOURCE_URL=jdbc:postgresql://...`, а также `SPRING_DATASOURCE_USERNAME` и `SPRING_DATASOURCE_PASSWORD`: упакованные `sa` и пустой пароль рассчитаны на H2. В YARN Explorer вместо `SPRING_DATASOURCE_*` можно задать `YARN_DB_URL`, `YARN_DB_USER` и `YARN_DB_PASSWORD`. Для двух и более экземпляров сервиса задайте также `zastava.session-store.type: jdbc` и привязку клиента к экземпляру для SQL, Spark и HDFS Explorer: [production-database.md](production-database.md).
 - In-memory H2 теряет данные (воркспейсы, историю, заявки) при каждом перезапуске сервиса.
 
 ### 8.1 Инициализация схемы БД
 - `schema.sql` в `backend/` нет. Таблицы JPA-сущностей YARN, SQL и Spark Explorer создает и дополняет Hibernate (`spring.jpa.hibernate.ddl-auto: update`).
 - Длинные строковые поля сущностей SQL и Spark Explorer объявлены как `@Column(length = Length.LONG32)`, а не `@Lob`: Hibernate 6.5 создает для них `text` в PostgreSQL и `CHARACTER LARGE OBJECT` в H2 (тот же тип, что давал `@Lob`, поэтому существующие файлы H2 подходят без миграции). В YARN Explorer (`change_requests`) убран `@Lob`, а `columnDefinition = "TEXT"` оставлен: это `text` в PostgreSQL и неограниченный `CHARACTER VARYING` в H2, как и раньше. `@Lob` в PostgreSQL дает `oid`: чтение вне транзакции падает с `Unable to access lob stream`.
-- Таблицы `SessionStore` (`active_sessions`, `revoked_tokens`) создает `DefaultSessionStore` через `CREATE TABLE IF NOT EXISTS`, если `hadoop.security.session-store.type` не `memory`.
+- Таблицы `SessionStore` (`active_sessions`, `revoked_tokens`) создает `DefaultSessionStore` через `CREATE TABLE IF NOT EXISTS`, если `zastava.session-store.type` не `memory`.
 - Схему Replicator Orchestrator ведут миграции Flyway: `db/migration/common` и `db/migration/{vendor}`, `baseline-on-migrate: true`.
 
 ---

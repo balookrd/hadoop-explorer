@@ -2,8 +2,8 @@ package io.github.balookrd.pristan.yarn.service;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import io.github.balookrd.pristan.common.config.CommonSecurityProperties;
-import io.github.balookrd.pristan.common.security.TlsContextFactory;
+import io.github.balookrd.pristan.zastava.config.ZastavaProperties;
+import io.github.balookrd.pristan.zastava.security.TlsContextFactory;
 import io.github.balookrd.pristan.yarn.config.YarnProperties;
 import io.github.balookrd.pristan.yarn.model.ClusterConfig;
 import io.github.balookrd.pristan.yarn.model.ConfigPatchOp;
@@ -59,7 +59,7 @@ public class AwxClientService {
 
     @Autowired
     public AwxClientService(YarnProperties yarnProperties, ObjectMapper objectMapper,
-                            @Autowired(required = false) CommonSecurityProperties securityProperties) {
+                            @Autowired(required = false) ZastavaProperties securityProperties) {
         this.yarnProperties = yarnProperties;
         this.objectMapper = objectMapper;
         HttpClient.Builder builder = HttpClient.newBuilder()

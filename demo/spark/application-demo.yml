@@ -15,37 +15,36 @@ spring:
       ddl-auto: update
     show-sql: false
 
-hadoop:
-  security:
-    debug: true
-    auth:
-      mode: hybrid
-      admin-groups:
-        - "hadoop-admins"
-        - "platform-admins"
-        - "superusers"
-      writer-groups:
-        - "data-engineers"
-        - "developers"
-    jwt:
-      secret-key: "spark-explorer-demo-secret-jwt-key-32chars-min-safe!"
-      expiration-minutes: 480
-    ldap:
-      enabled: true
-      server-uri: "ldap://ldap:389"
-      bind-dn: "cn=admin,dc=company,dc=local"
-      bind-password: "adminpassword"
-      user-base-dn: "ou=users,dc=company,dc=local"
-      user-filter: "(&(objectClass=inetOrgPerson)(uid={username}))"
-      group-base-dn: "ou=groups,dc=company,dc=local"
-      group-filter: "(&(objectClass=groupOfNames)(member={user_dn}))"
-    cors:
-      allowed-origins:
-        - "http://localhost:3000"
-        - "http://localhost:5173"
-        - "http://localhost:8004"
-    cookie:
-      secure: false
+zastava:
+  debug: true
+  auth:
+    mode: hybrid
+    admin-groups:
+      - "hadoop-admins"
+      - "platform-admins"
+      - "superusers"
+    writer-groups:
+      - "data-engineers"
+      - "developers"
+  jwt:
+    secret-key: "spark-explorer-demo-secret-jwt-key-32chars-min-safe!"
+    expiration-minutes: 480
+  ldap:
+    enabled: true
+    server-uri: "ldap://ldap:389"
+    bind-dn: "cn=admin,dc=company,dc=local"
+    bind-password: "adminpassword"
+    user-base-dn: "ou=users,dc=company,dc=local"
+    user-filter: "(&(objectClass=inetOrgPerson)(uid={username}))"
+    group-base-dn: "ou=groups,dc=company,dc=local"
+    group-filter: "(&(objectClass=groupOfNames)(member={user_dn}))"
+  cors:
+    allowed-origins:
+      - "http://localhost:3000"
+      - "http://localhost:5173"
+      - "http://localhost:8004"
+  cookie:
+    secure: false
 
 spark:
   session-ttl-minutes: 120

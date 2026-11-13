@@ -4,7 +4,7 @@ import io.github.balookrd.pristan.hdfs.dto.cluster.ClusterAcl;
 import io.github.balookrd.pristan.hdfs.dto.cluster.ClusterConfig;
 import io.github.balookrd.pristan.hdfs.dto.cluster.ClusterPublicInfo;
 import io.github.balookrd.pristan.hdfs.exception.HdfsLocalizedException;
-import io.github.balookrd.pristan.common.config.CommonSecurityProperties;
+import io.github.balookrd.pristan.zastava.config.ZastavaProperties;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 
@@ -13,9 +13,9 @@ import java.util.*;
 @Service
 public class ClusterAclService {
 
-    private final CommonSecurityProperties securityProperties;
+    private final ZastavaProperties securityProperties;
 
-    public ClusterAclService(CommonSecurityProperties securityProperties) {
+    public ClusterAclService(ZastavaProperties securityProperties) {
         this.securityProperties = securityProperties;
     }
 

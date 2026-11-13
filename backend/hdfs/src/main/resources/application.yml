@@ -19,40 +19,6 @@ spring:
       max-request-size: 550MB
 
 hadoop:
-  security:
-    debug: false
-    auth:
-      mode: ${HADOOP_AUTH_MODE:ldap}
-      admin-groups:
-        - "hadoop-admins"
-        - "platform-admins"
-        - "superusers"
-      writer-groups:
-        - "data-engineers"
-        - "developers"
-    jwt:
-      # Обязателен: при пустом значении сервис откажется стартовать
-      secret-key: ${JWT_SECRET_KEY:}
-      expiration-minutes: 480
-    ldap:
-      enabled: true
-      url: ${LDAP_URL:ldaps://ldap.company.local:636}
-      manager-dn: ${LDAP_MANAGER_DN:}
-      manager-password: ${LDAP_MANAGER_PASSWORD:}
-      user-search-base: ${LDAP_USER_SEARCH_BASE:ou=users,dc=company,dc=local}
-      user-search-filter: "(uid={0})"
-    cors:
-      allowed-origins:
-        - "http://localhost:3000"
-        - "http://localhost:5173"
-        - "http://localhost:8001"
-    cookie:
-      secure: false
-      same-site: "Lax"
-      names:
-        - "access_token"
-        - "hdfs_explorer_session"
-        - "pristan_session"
 
   hdfs:
     clusters:
@@ -101,6 +67,40 @@ hadoop:
             - "hadoop-admins"
           admin-groups:
             - "hadoop-admins"
+zastava:
+  debug: false
+  auth:
+    mode: ${HADOOP_AUTH_MODE:ldap}
+    admin-groups:
+      - "hadoop-admins"
+      - "platform-admins"
+      - "superusers"
+    writer-groups:
+      - "data-engineers"
+      - "developers"
+  jwt:
+    # Обязателен: при пустом значении сервис откажется стартовать
+    secret-key: ${JWT_SECRET_KEY:}
+    expiration-minutes: 480
+  ldap:
+    enabled: true
+    url: ${LDAP_URL:ldaps://ldap.company.local:636}
+    manager-dn: ${LDAP_MANAGER_DN:}
+    manager-password: ${LDAP_MANAGER_PASSWORD:}
+    user-search-base: ${LDAP_USER_SEARCH_BASE:ou=users,dc=company,dc=local}
+    user-search-filter: "(uid={0})"
+  cors:
+    allowed-origins:
+      - "http://localhost:3000"
+      - "http://localhost:5173"
+      - "http://localhost:8001"
+  cookie:
+    secure: false
+    same-site: "Lax"
+    names:
+      - "access_token"
+      - "hdfs_explorer_session"
+      - "pristan_session"
 
 # Kubernetes probes. Spring Boot enables the liveness/readiness health groups on its own
 # only when it detects Kubernetes (KUBERNETES_SERVICE_HOST); enabling them explicitly keeps
@@ -115,7 +115,7 @@ management:
   endpoints:
     web:
       exposure:
-        # /actuator/prometheus is public (common-security-starter); nothing else beyond health
+        # /actuator/prometheus is public (zastava); nothing else beyond health
         include: health,prometheus
   prometheus:
     metrics:

@@ -1,8 +1,8 @@
 package io.github.balookrd.pristan.replicator.orchestrator.controller;
 
 import jakarta.validation.Valid;
-import io.github.balookrd.pristan.common.model.UserSession;
-import io.github.balookrd.pristan.common.security.CommonAuthenticationToken;
+import io.github.balookrd.pristan.zastava.model.UserSession;
+import io.github.balookrd.pristan.zastava.security.CommonAuthenticationToken;
 import io.github.balookrd.pristan.replicator.model.UpdateJobRequest;
 import io.github.balookrd.pristan.replicator.orchestrator.dto.CreateJobRequest;
 import io.github.balookrd.pristan.replicator.orchestrator.dto.JobResponse;
@@ -48,7 +48,7 @@ public class JobController {
         if (session.isAdmin() || (session.groups() != null && session.groups().contains("replicator-agents"))) {
             return; // Администраторы и доверенные демоны-агенты могут управлять задачами
         }
-        if (session.systemRole() == io.github.balookrd.pristan.common.model.Role.READER) {
+        if (session.systemRole() == io.github.balookrd.pristan.zastava.model.Role.READER) {
             throw new org.springframework.web.server.ResponseStatusException(
                 HttpStatus.FORBIDDEN, "Пользователь с ролью только для чтения (READER) не имеет права изменять задачи"
             );
@@ -75,7 +75,7 @@ public class JobController {
                 HttpStatus.UNAUTHORIZED, "Требуется аутентификация для создания задачи репликации"
             );
         }
-        if (session.systemRole() == io.github.balookrd.pristan.common.model.Role.READER) {
+        if (session.systemRole() == io.github.balookrd.pristan.zastava.model.Role.READER) {
             throw new org.springframework.web.server.ResponseStatusException(
                 HttpStatus.FORBIDDEN, "Пользователь с правами только для чтения (READER) не имеет права создавать задачи"
             );
@@ -116,7 +116,7 @@ public class JobController {
         UserSession session = getSession(auth);
         String username = session != null ? session.username() : null;
         boolean isAdmin = session != null && session.isAdmin();
-        boolean isReader = session != null && session.systemRole() == io.github.balookrd.pristan.common.model.Role.READER;
+        boolean isReader = session != null && session.systemRole() == io.github.balookrd.pristan.zastava.model.Role.READER;
         boolean effectiveIncludeSubjobs = includeSubjobs || (agentSecret != null && !agentSecret.isBlank());
 
         // Обязательная пагинация: с подзадачами метастора список неограничен, и выборка целиком
@@ -148,7 +148,7 @@ public class JobController {
         UserSession session = getSession(auth);
         String username = session != null ? session.username() : null;
         boolean isAdmin = session != null && session.isAdmin();
-        boolean isReader = session != null && session.systemRole() == io.github.balookrd.pristan.common.model.Role.READER;
+        boolean isReader = session != null && session.systemRole() == io.github.balookrd.pristan.zastava.model.Role.READER;
         boolean effectiveIncludeSubjobs = includeSubjobs || (agentSecret != null && !agentSecret.isBlank());
 
         return ResponseEntity.ok(jobService.summarizeJobs(author, search, username, isAdmin, isReader,
@@ -165,7 +165,7 @@ public class JobController {
                 HttpStatus.UNAUTHORIZED, "Требуется аутентификация для просмотра задачи"
             );
         }
-        if (session.isAdmin() || session.systemRole() == io.github.balookrd.pristan.common.model.Role.READER
+        if (session.isAdmin() || session.systemRole() == io.github.balookrd.pristan.zastava.model.Role.READER
                 || (session.groups() != null && session.groups().contains("replicator-agents"))) {
             return;
         }

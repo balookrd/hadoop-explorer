@@ -11,7 +11,7 @@ Pristan — монорепозиторий на **Java 21 LTS (Spring Boot 3)** 
 ```
 pristan/
 ├── backend/                  # Java 21 LTS (Spring Boot 3.3.4, Maven)
-│   ├── common-security-starter/ # Ядро платформы: Spring Boot 3 стартер безопасности (Java 21, SPNEGO, LDAP, JWT, L1/L2)
+│   ├── zastava/ # Ядро платформы: Spring Boot 3 стартер безопасности (Java 21, SPNEGO, LDAP, JWT, L1/L2)
 │   ├── yarn/                 # YARN Explorer API (Java 21 / Spring Boot 3, Capacity Scheduler, RM HA)
 │   ├── hdfs/                 # HDFS Explorer API (Java 21 / Spring Boot 3, WebHDFS, Kerberos, Parquet/ORC Preview)
 │   ├── sql/                  # SQL Explorer API (Java 21 / Spring Boot 3, Trino, Hive Metastore, AI Assistant)
@@ -36,7 +36,7 @@ pristan/
 
 1. **Строгая изоляция сервисов**:
    - При работе над задачей для конкретного сервиса (например, YARN) **никогда не исследовать** директории других сервисов (`hdfs/`, `spark/`, `sql/`).
-   - Использовать только связку `backend/<service>` + `frontend/apps/<service>` + `backend/common-security-starter`.
+   - Использовать только связку `backend/<service>` + `frontend/apps/<service>` + `backend/zastava`.
 
 2. **Запретные для сканирования и чтения директории**:
    - `data/` — бинарные файлы БД (`*.db`, `*.mv.db`, `*.trace.db`). Чтение категорически запрещено (тратит десятки тысяч токенов впустую).
@@ -50,7 +50,7 @@ pristan/
    - При исследовании сложных багов, grep по нескольким модулям или разборе логов запускать субагента `research`. Субагент собирает данные в изолированном контексте и возвращает только краткую выжимку, сохраняя чистым контекст основной сессии.
 
 5. **Структурный AST-поиск в Java (`scripts/java-index-query.sh`)**:
-   - При исследовании и рефакторинге Java-кода (`backend/common-security-starter`, `backend/*/*-java`) **не читать файлы классов целиком**.
+   - При исследовании и рефакторинге Java-кода (`backend/zastava`, `backend/*/*-java`) **не читать файлы классов целиком**.
    - Использовать быстрый потоковый CLI-запрос по AST-индексу:
      ```bash
      ./scripts/java-index-query.sh class <ClassName>     # структура класса, поля, аннотации
@@ -77,7 +77,7 @@ pristan/
   * Единый запуск всех тестов: `./scripts/run-tests.sh all` (или `make test`)
   * Все тесты Java: `make test-java` (или `mvn test`)
   * Сборка всех JAR-пакетов платформы: `make build-java` (или `mvn -DskipTests package`)
-  * Стартер безопасности: `make test-security-starter` (сборка: `make build-security-starter`)
+  * Стартер безопасности: `make test-zastava` (сборка: `make build-zastava`)
   * Сервис YARN: `mvn test -f backend/yarn/pom.xml` (или `make test-yarn`)
   * Сервис HDFS: `mvn test -f backend/hdfs/pom.xml` (или `make test-hdfs`)
   * Сервис SQL: `mvn test -f backend/sql/pom.xml` (или `make test-sql`)

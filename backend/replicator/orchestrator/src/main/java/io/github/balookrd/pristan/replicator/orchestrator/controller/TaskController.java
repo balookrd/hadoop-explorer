@@ -1,7 +1,7 @@
 package io.github.balookrd.pristan.replicator.orchestrator.controller;
 
-import io.github.balookrd.pristan.common.model.UserSession;
-import io.github.balookrd.pristan.common.security.CommonAuthenticationToken;
+import io.github.balookrd.pristan.zastava.model.UserSession;
+import io.github.balookrd.pristan.zastava.security.CommonAuthenticationToken;
 import io.github.balookrd.pristan.replicator.orchestrator.service.JobService;
 import io.github.balookrd.pristan.replicator.orchestrator.service.TaskService;
 import org.springframework.data.domain.PageRequest;
@@ -45,7 +45,7 @@ public class TaskController {
                     HttpStatus.UNAUTHORIZED, "Требуется аутентификация для просмотра задач"
             );
         }
-        if (session.isAdmin() || session.systemRole() == io.github.balookrd.pristan.common.model.Role.READER
+        if (session.isAdmin() || session.systemRole() == io.github.balookrd.pristan.zastava.model.Role.READER
                 || (session.groups() != null && session.groups().contains("replicator-agents"))) {
             return;
         }

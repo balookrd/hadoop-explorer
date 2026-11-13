@@ -37,7 +37,7 @@ backend/yarn/
    - Ожидание завершения задачи (polling) и запись результата в аудит.
 
 5. Безопасность:
-   - Интеграция со стартером `common-security-starter`: JWT-токены, cookie-аутентификация, RBAC (READER, WRITER, ADMIN), ролевой маппинг пользователей и групп по кластерам, аудит-логирование операций, помеченных `@Audited`.
+   - Интеграция со стартером `zastava`: JWT-токены, cookie-аутентификация, RBAC (READER, WRITER, ADMIN), ролевой маппинг пользователей и групп по кластерам, аудит-логирование операций, помеченных `@Audited`.
    - Защита от CSRF, Bucket4j Rate Limiting, защита вызовов RM через `SimpleCircuitBreaker`.
 
 ## Сборка и запуск
@@ -45,7 +45,7 @@ backend/yarn/
 ### Требования
 - JDK 21 LTS (`JAVA_HOME=/opt/homebrew/opt/openjdk` или системный JDK 21)
 - Apache Maven 3.9+
-- Установленный модуль `common-security-starter` в локальном Maven-репозитории
+- Установленный модуль `zastava` в локальном Maven-репозитории
 
 ### Команды
 ```bash

@@ -1,7 +1,7 @@
 # Руководство по конфигурации Pristan
 
 Документ для администраторов платформы Pristan: параметры конфигурации, форматы файлов и переменные окружения компонентов.
-- Общий стартер безопасности (`backend/common-security-starter` — Java 21 / Spring Boot 3, SPNEGO, LDAP/Active Directory, JWT, L1/L2 сессии, Circuit Breaker, Rate Limiter, CSRF Guard).
+- Общий стартер безопасности (`backend/zastava` — Java 21 / Spring Boot 3, SPNEGO, LDAP/Active Directory, JWT, L1/L2 сессии, Circuit Breaker, Rate Limiter, CSRF Guard).
 - YARN Explorer (`backend/yarn` — Java 21 LTS / Spring Boot 3, YARN RM HA, Capacity Scheduler, партиции, Change Requests, Four-Eyes Principle, генерация XML, Ansible AWX).
 - HDFS Explorer (`backend/hdfs` — Java 21 LTS / Spring Boot 3, подключение к HDFS Client, HA NameNode, Kerberos, doAs имперсонация, квоты, превью Parquet/ORC, Circuit Breaker).
 - SQL Explorer (`backend/sql` — Java 21 LTS / Spring Boot 3, Trino DB API, Apache Hive / HiveServer2, AI-ассистент, история и кэширование).
@@ -12,7 +12,7 @@
 
 ## Содержание
 1. [Общие принципы и приоритеты конфигурации](#1-общие-принципы-и-приоритеты-конфигурации)
-2. [Общий стартер безопасности (common-security-starter)](#2-общий-стартер-безопасности-common-security-starter)
+2. [Общий стартер безопасности (zastava)](#2-общий-стартер-безопасности-zastava)
    - [Сервер и безопасность (CORS, CSRF, Cookies, JWT)](#21-сервер-и-безопасность-cors-csrf-cookies-jwt)
    - [Аутентификация: LDAPS / Active Directory](#22-аутентификация-ldaps--active-directory)
    - [Аутентификация: Kerberos SPNEGO SSO](#23-аутентификация-kerberos-spnego-sso)
@@ -56,7 +56,7 @@
 ## 1. Общие принципы и приоритеты конфигурации
 
 Сервисы — приложения Spring Boot 3 и загружают конфигурацию в стандартном порядке Spring Boot (по убыванию приоритета):
-1. Переменные окружения. Ключ получается по правилам relaxed binding: `hadoop.security.jwt.secret-key` → `HADOOP_SECURITY_JWT_SECRET_KEY`. Часть ключей в упакованном `application.yml` дополнительно ссылается на короткие переменные (`JWT_SECRET_KEY`, `HADOOP_AUTH_MODE`, `LDAP_URL` и т. п.).
+1. Переменные окружения. Ключ получается по правилам relaxed binding: `zastava.jwt.secret-key` → `ZASTAVA_JWT_SECRET_KEY`. Часть ключей в упакованном `application.yml` дополнительно ссылается на короткие переменные (`JWT_SECRET_KEY`, `HADOOP_AUTH_MODE`, `LDAP_URL` и т. п.).
 2. Внешний файл `application.yml`, указанный в `SPRING_CONFIG_ADDITIONAL_LOCATION` (или `--spring.config.additional-location`).
 3. `application.yml` (и `application-<profile>.yml` для профилей из `SPRING_PROFILES_ACTIVE`), упакованные в JAR из `backend/<service>/src/main/resources/`.
 
@@ -64,16 +64,16 @@
 
 > [!IMPORTANT]
 > Значения по умолчанию и проверки на старте (все Java-сервисы).
-> Упакованный в JAR `application.yml` каждого сервиса рассчитан на продакшен: `hadoop.security.debug: false`,
+> Упакованный в JAR `application.yml` каждого сервиса рассчитан на продакшен: `zastava.debug: false`,
 > `auth.mode: ${HADOOP_AUTH_MODE:ldap}`, JWT-секрет только из `JWT_SECRET_KEY`. Стартер безопасности
 > не даст сервису запуститься, если:
-> - `auth.mode` равен `mock` без `hadoop.security.debug: true`. В mock-режиме демо-учетки входят без проверки
+> - `auth.mode` равен `mock` без `zastava.debug: true`. В mock-режиме демо-учетки входят без проверки
 >   в каталоге, а для `admin`/`writer` подходит любой пароль;
-> - `hadoop.security.jwt.secret-key` пуст, короче 32 символов или совпадает со встроенным значением из исходников;
+> - `zastava.jwt.secret-key` пуст, короче 32 символов или совпадает со встроенным значением из исходников;
 > - `auth.mode: ldap` задан при `ldap.enabled: false`;
 > - `auth.mode` не входит в `mock | ldap | kerberos | hybrid`.
 >
-> Вне debug (`hadoop.security.debug: false`) сервис также отказывается стартовать с любым JWT-секретом, опубликованным в репозитории (`SecurityConfigurationValidator.PUBLISHED_SECRET_KEYS`: значения из профилей `mock`, демо-стендов, прежних значений чартов и примеров документации), с сообщением `hadoop.security.jwt.secret-key is a value published in the Pristan repository`.
+> Вне debug (`zastava.debug: false`) сервис также отказывается стартовать с любым JWT-секретом, опубликованным в репозитории (`SecurityConfigurationValidator.PUBLISHED_SECRET_KEYS`: значения из профилей `mock`, демо-стендов, прежних значений чартов и примеров документации), с сообщением `zastava.jwt.secret-key is a value published in the Pristan repository`.
 >
 > Локальная разработка без каталога включает профиль `mock` явно (`SPRING_PROFILES_ACTIVE=mock`,
 > файл `application-mock.yml` в ресурсах сервиса). Демо-стенды `demo/*` входят через OpenLDAP стенда:
@@ -84,9 +84,9 @@
 
 ---
 
-## 2. Общий стартер безопасности (common-security-starter)
+## 2. Общий стартер безопасности (zastava)
 
-Параметры раздела читает `CommonSecurityProperties` (`@ConfigurationProperties(prefix = "hadoop.security")`) из `backend/common-security-starter`. Стартер подключают сервисы `yarn`, `hdfs`, `sql`, `spark` и `replicator/orchestrator`, поэтому ключи одинаковы для всех.
+Параметры раздела читает `ZastavaProperties` (`@ConfigurationProperties(prefix = "zastava")`) из `backend/zastava`. Стартер подключают сервисы `yarn`, `hdfs`, `sql`, `spark` и `replicator/orchestrator`, поэтому ключи одинаковы для всех.
 
 ### 2.1 Сервер и безопасность (CORS, CSRF, Cookies, JWT)
 
@@ -126,7 +126,7 @@ hadoop:
 
 #### HTTP-заголовки безопасности и CSP
 
-Отдельной настройки заголовков в коде нет: `SecurityFilterChain` из `CommonSecurityAutoConfiguration` (и `replicatorSecurityFilterChain` в оркестраторе репликатора) не вызывает `http.headers(...)`, поэтому в ответы попадают заголовки Spring Security по умолчанию:
+Отдельной настройки заголовков в коде нет: `SecurityFilterChain` из `ZastavaAutoConfiguration` (и `replicatorSecurityFilterChain` в оркестраторе репликатора) не вызывает `http.headers(...)`, поэтому в ответы попадают заголовки Spring Security по умолчанию:
 - `X-Content-Type-Options: nosniff`: браузер не подменяет MIME-тип ответа.
 - `X-Frame-Options: DENY`: запрет встраивания в iframe (clickjacking).
 - `Cache-Control: no-cache, no-store, max-age=0, must-revalidate`, `Pragma: no-cache`, `Expires: 0`.
@@ -138,12 +138,12 @@ hadoop:
 ### 2.2 Аутентификация: LDAPS / Active Directory
 
 `LdapAuthService` из стартера безопасности проверяет пароль по каталогу LDAP (OpenLDAP, FreeIPA, Microsoft Active Directory) через JNDI:
-1. Подключается к `hadoop.security.ldap.url` от имени `manager-dn` (если `manager-dn` пуст — анонимно).
+1. Подключается к `zastava.ldap.url` от имени `manager-dn` (если `manager-dn` пуст — анонимно).
 2. Ищет пользователя в `user-search-base` (если не задан — в `base-dn`) по фильтру `user-search-filter`, подставляя имя вместо `{0}`. Перед подстановкой символы `\`, `*`, `(`, `)` и NUL экранируются (защита от LDAP injection).
 3. Выполняет bind от DN найденного пользователя с введенным паролем.
 4. Берет группы из атрибута `memberOf` (значение `CN` из DN группы) и по ним вычисляет роль (раздел 2.4).
 
-Ключи `group-search-base` и `group-search-filter` есть в `CommonSecurityProperties`, но `LdapAuthService` их не использует: группы берутся только из `memberOf`. Для `ldaps://` сертификат сервера проверяется по truststore JVM.
+Ключи `group-search-base` и `group-search-filter` есть в `ZastavaProperties`, но `LdapAuthService` их не использует: группы берутся только из `memberOf`. Для `ldaps://` сертификат сервера проверяется по truststore JVM.
 
 ```yaml
 hadoop:
@@ -175,7 +175,7 @@ hadoop:
       enabled: true
 ```
 
-`KerberosSpnegoService` проверяет тикет через Java GSS-API и создает контекст с учетными данными acceptor по умолчанию (`GSSManager.createContext((GSSCredential) null)`). Ключи `hadoop.security.kerberos.keytab`, `service-principal` и `krb5-config` объявлены в `CommonSecurityProperties`, но сервис их не читает: изменение этих ключей на проверку тикета не влияет. Principal `HTTP/<host>@<REALM>` и его keytab JVM берет из JAAS-конфигурации: задайте их в секции `com.sun.security.jgss.accept` файла, переданного через `-Djava.security.auth.login.config=<путь>`, вместе с `-Djavax.security.auth.useSubjectCredsOnly=false` и `-Djava.security.krb5.conf=<путь к krb5.conf>`. Без этого JVM не находит ключ acceptor, и проверка тикета завершается ошибкой GSS.
+`KerberosSpnegoService` проверяет тикет через Java GSS-API и создает контекст с учетными данными acceptor по умолчанию (`GSSManager.createContext((GSSCredential) null)`). Ключи `zastava.kerberos.keytab`, `service-principal` и `krb5-config` объявлены в `ZastavaProperties`, но сервис их не читает: изменение этих ключей на проверку тикета не влияет. Principal `HTTP/<host>@<REALM>` и его keytab JVM берет из JAAS-конфигурации: задайте их в секции `com.sun.security.jgss.accept` файла, переданного через `-Djava.security.auth.login.config=<путь>`, вместе с `-Djavax.security.auth.useSubjectCredsOnly=false` и `-Djava.security.krb5.conf=<путь к krb5.conf>`. Без этого JVM не находит ключ acceptor, и проверка тикета завершается ошибкой GSS.
 
 ### 2.4 Конфигурация ролевой модели и прав доступа (RBAC)
 
@@ -231,9 +231,9 @@ hadoop:
 
 При `fail-closed: false` ошибка JDBC пишется в лог (`Failed to save session to JDBC, falling back to in-memory`, `JDBC isTokenRevoked query failed`), и сервис продолжает работать с памятью процесса.
 
-Фильтр `RateLimitFilter` ограничивает частоту запросов к `/api/*` (Token Bucket на Bucket4j, корзины в памяти процесса, у каждой реплики свои). Запрос сверх лимита получает HTTP 429, заголовок `Retry-After` (секунды до следующего токена) и тело `{"detail": "...", "status": 429}`. На уровне DEBUG логгера `io.github.balookrd.pristan.common.resilience.RateLimiterService` в журнал пишется `Rate limit exceeded: tier=..., key=..., retry_after=...s` — по строке на каждый отклонённый запрос, поэтому по умолчанию (INFO) она не выводится. Веб-интерфейс (`BaseApiClient.request` в `frontend/common/api/client.ts`) при ответе 429 повторяет запрос один раз после паузы из `Retry-After`, если она не больше 5 с; без заголовка или при большей паузе показывает ошибку. Повтор делается для любого метода: 429 выдаётся до обработчика, запрос не выполнялся.
+Фильтр `RateLimitFilter` ограничивает частоту запросов к `/api/*` (Token Bucket на Bucket4j, корзины в памяти процесса, у каждой реплики свои). Запрос сверх лимита получает HTTP 429, заголовок `Retry-After` (секунды до следующего токена) и тело `{"detail": "...", "status": 429}`. На уровне DEBUG логгера `io.github.balookrd.pristan.zastava.resilience.RateLimiterService` в журнал пишется `Rate limit exceeded: tier=..., key=..., retry_after=...s` — по строке на каждый отклонённый запрос, поэтому по умолчанию (INFO) она не выводится. Веб-интерфейс (`BaseApiClient.request` в `frontend/common/api/client.ts`) при ответе 429 повторяет запрос один раз после паузы из `Retry-After`, если она не больше 5 с; без заголовка или при большей паузе показывает ошибку. Повтор делается для любого метода: 429 выдаётся до обработчика, запрос не выполнялся.
 
-| Параметр `hadoop.security.rate-limiter.*` | По умолчанию | Что делает | Когда менять |
+| Параметр `zastava.rate-limiter.*` | По умолчанию | Что делает | Когда менять |
 |---|---|---|---|
 | `enabled` | `true` | `false` пропускает все запросы | Тестовые стенды и нагрузочные прогоны |
 | `requests-per-minute` | `600` | Пополнение корзины API на ключ (пользователь; анонимный запрос — IP) | UI или скрипты получают 429 при штатной работе |
@@ -259,7 +259,7 @@ hadoop:
 
 ### 2.7 Сквозное шифрование TLS/HTTPS и mTLS для REST и gRPC каналов
 
-TLS для встроенного веб-сервера и исходящих REST-клиентов сервисов `yarn`, `hdfs`, `sql`, `spark` и `replicator/orchestrator` настраивается в одном месте — в секции `hadoop.security.tls` стартера `common-security-starter`:
+TLS для встроенного веб-сервера и исходящих REST-клиентов сервисов `yarn`, `hdfs`, `sql`, `spark` и `replicator/orchestrator` настраивается в одном месте — в секции `zastava.tls` стартера `zastava`:
 
 ```yaml
 hadoop:
@@ -282,12 +282,12 @@ hadoop:
 ```
 
 Те же параметры через переменные окружения:
-- `HADOOP_SECURITY_TLS_ENABLED=true`
-- `HADOOP_SECURITY_TLS_KEY_STORE_PATH=/etc/security/tls/keystore.p12`
-- `HADOOP_SECURITY_TLS_KEY_STORE_PASSWORD=secret`
-- `HADOOP_SECURITY_TLS_TRUST_STORE_PATH=/etc/security/tls/truststore.p12`
-- `HADOOP_SECURITY_TLS_CLIENT_AUTH=REQUIRE` (для включения двустороннего mTLS)
-- `HADOOP_SECURITY_TLS_INSECURE_SKIP_VERIFY=true` (только для тестирования)
+- `ZASTAVA_TLS_ENABLED=true`
+- `ZASTAVA_TLS_KEY_STORE_PATH=/etc/security/tls/keystore.p12`
+- `ZASTAVA_TLS_KEY_STORE_PASSWORD=secret`
+- `ZASTAVA_TLS_TRUST_STORE_PATH=/etc/security/tls/truststore.p12`
+- `ZASTAVA_TLS_CLIENT_AUTH=REQUIRE` (для включения двустороннего mTLS)
+- `ZASTAVA_TLS_INSECURE_SKIP_VERIFY=true` (только для тестирования)
 
 ---
 
@@ -585,7 +585,7 @@ sql:
 
 Ответ модели показывается в окне ассистента как текст (без интерпретации HTML) и подставляется в редактор только по кнопке пользователя; сервис его не выполняет. Позиции замечаний `check` приводятся к диапазону 1..1 000 000, `severity` — к `error`/`warning`/`info` (иначе `warning`), `category` — к `syntax`/`performance`/`security`/`style` (иначе `style`), `complexity_score` — к 1..10.
 
-Вызовы ассистента идут через `/api/v1/ai/*` и подпадают под общий ограничитель частоты `hadoop.security.rate-limiter.requests-per-minute` (раздел 2.5); отдельного лимита частоты на обращения к LLM нет, одновременность ограничивает `max-concurrent-requests`. Каждый вызов `check`, `explain`, `optimize`, `fix`, `generate` держит поток обработки до ответа модели, но не дольше `timeout-seconds`.
+Вызовы ассистента идут через `/api/v1/ai/*` и подпадают под общий ограничитель частоты `zastava.rate-limiter.requests-per-minute` (раздел 2.5); отдельного лимита частоты на обращения к LLM нет, одновременность ограничивает `max-concurrent-requests`. Каждый вызов `check`, `explain`, `optimize`, `fix`, `generate` держит поток обработки до ответа модели, но не дольше `timeout-seconds`.
 
 ---
 
@@ -1154,16 +1154,16 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 | `REPLICATOR_WIRE_COMPRESSION_LEVEL` | Уровень сжатия для Zstandard (1–22) | `3` |
 | `ORCHESTRATOR_URL` | Адрес Orchestrator для агентов/воркеров | `http://localhost:8005` |
 | `SPRING_PROFILES_ACTIVE` | Профили Spring Boot (`mock` для локальной разработки, `demo` для демо-стендов и `prod` для оркестратора репликатора) | — |
-| `HADOOP_AUTH_MODE` | `hadoop.security.auth.mode` в сервисах `yarn`, `hdfs`, `sql`, `spark` | `ldap` |
-| `JWT_SECRET_KEY` | `hadoop.security.jwt.secret-key`: ключ подписи JWT, не короче 32 символов | — (без него сервис не стартует вне mock-режима) |
-| `LDAP_URL` | `hadoop.security.ldap.url` | `ldaps://ldap.company.local:636` |
+| `HADOOP_AUTH_MODE` | `zastava.auth.mode` в сервисах `yarn`, `hdfs`, `sql`, `spark` | `ldap` |
+| `JWT_SECRET_KEY` | `zastava.jwt.secret-key`: ключ подписи JWT, не короче 32 символов | — (без него сервис не стартует вне mock-режима) |
+| `LDAP_URL` | `zastava.ldap.url` | `ldaps://ldap.company.local:636` |
 | `LDAP_MANAGER_DN` / `LDAP_MANAGER_PASSWORD` | Учетная запись для поиска пользователей в LDAP | — |
-| `LDAP_USER_SEARCH_BASE` | `hadoop.security.ldap.user-search-base` | `ou=users,dc=company,dc=local` |
+| `LDAP_USER_SEARCH_BASE` | `zastava.ldap.user-search-base` | `ou=users,dc=company,dc=local` |
 | `YARN_DB_URL` / `YARN_DB_DRIVER` / `YARN_DB_USER` / `YARN_DB_PASSWORD` | БД YARN Explorer (Change Requests, аудит) | `jdbc:h2:file:./data/yarn_explorer` / пусто (драйвер по URL) / `sa` / пусто |
 | `YARN_KERBEROS_PRINCIPAL` / `YARN_KERBEROS_KEYTAB` | Учетная запись YARN Explorer для SPNEGO-запросов к ResourceManager | — |
 | `YARN_AWX_BASE_URL` / `YARN_AWX_TOKEN` / `YARN_AWX_JOB_TEMPLATE_ID` | Подключение к AWX (раздел 3.3) | — / — / `101` |
 
-Любой другой ключ задается переменной по правилам relaxed binding (раздел 1), например `SQL_RESULTS_TTL_HOURS=48` или `HADOOP_SECURITY_COOKIE_SECURE=true`.
+Любой другой ключ задается переменной по правилам relaxed binding (раздел 1), например `SQL_RESULTS_TTL_HOURS=48` или `ZASTAVA_COOKIE_SECURE=true`.
 
 ---
 
@@ -1184,7 +1184,7 @@ ORCHESTRATOR_TLS_INSECURE_SKIP_VERIFY=false
 
 Порты задает `SERVER_PORT` в `docker/Dockerfile.<service>-java`. `GET /metrics` у YARN, HDFS, SQL и Spark Explorer возвращает 404.
 
-Доступ к Actuator в YARN, HDFS, SQL и Spark Explorer задает `CommonSecurityAutoConfiguration.securityFilterChain` (`common-security-starter`): `/actuator/health`, `/actuator/health/**`, `/actuator/info` и `/actuator/prometheus` открыты, остальные пути `/actuator/**` требуют роли ADMIN (без токена — 401, с ролью READER или WRITER — 403). Так же устроен оркестратор (`ReplicatorOrchestratorApplication`).
+Доступ к Actuator в YARN, HDFS, SQL и Spark Explorer задает `ZastavaAutoConfiguration.securityFilterChain` (`zastava`): `/actuator/health`, `/actuator/health/**`, `/actuator/info` и `/actuator/prometheus` открыты, остальные пути `/actuator/**` требуют роли ADMIN (без токена — 401, с ролью READER или WRITER — 403). Так же устроен оркестратор (`ReplicatorOrchestratorApplication`).
 
 Внимание: `/actuator/prometheus` отдается без аутентификации. Метрики не содержат имен пользователей, путей HDFS и текстов запросов, но раскрывают идентификаторы кластеров, шаблоны URI API и объем трафика. Если сервис опубликован наружу через обратный прокси или балансировщик, закройте на нем этот путь или разрешите его только адресу Prometheus. Пример для nginx:
 
@@ -1225,7 +1225,7 @@ YARN, HDFS, SQL и Spark Explorer:
 
 Плюс стандартные метрики Spring Boot Actuator (`jvm_*`, `process_*`, `system_*` и др.). Подробности по каждому сервису — в разделе 4.1 руководств администратора: [YARN](yarn-admin-guide.md), [HDFS](hdfs-admin-guide.md), [SQL](sql-admin-guide.md), [Spark](spark-admin-guide.md).
 
-Метрик `hadoop_circuit_breaker_*`, `hadoop_retry_attempts_total`, `hadoop_auth_attempts_total` и `hadoop_exceptions_total` нет: `SimpleCircuitBreaker` из `common-security-starter` сервисы не вызывают, повторы, попытки входа и исключения отдельными счетчиками не считаются. Входы и ответы 5xx считаются по `http_server_requests_seconds_count` (см. 9.6).
+Метрик `hadoop_circuit_breaker_*`, `hadoop_retry_attempts_total`, `hadoop_auth_attempts_total` и `hadoop_exceptions_total` нет: `SimpleCircuitBreaker` из `zastava` сервисы не вызывают, повторы, попытки входа и исключения отдельными счетчиками не считаются. Входы и ответы 5xx считаются по `http_server_requests_seconds_count` (см. 9.6).
 
 Оркестратор Replicator (`GET /metrics`):
 
